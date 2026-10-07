@@ -37,6 +37,7 @@ stub() {
 installer() {
   env PATH="$WORK/bin:$PATH" WORK="$WORK" RESOLVES_TO="$RESOLVES_TO" LOCAL_IP="$LOCAL_IP" \
     SOTTO_INFRA_DIR="$WORK/infra" SOTTO_MEMINFO="$WORK/meminfo" SOTTO_ALLOW_NONROOT=1 \
+    SOTTO_SWAPFILE="$WORK/swapfile" \
     SOTTO_HEALTH_TIMEOUT=5 bash "$INSTALL" "$@" </dev/null
 }
 
@@ -55,7 +56,7 @@ has() { grep -qF -- "$2" "$1"; }
 
 # 1. A fresh install.
 setup
-out=$(installer install --domain Calls.Example.org --yes 2>&1)
+out=$(installer install --domain Calls.Example.org --yes 2>&1) || true
 env_file="$WORK/infra/.env"
 check 'writes .env with the domain (lowercased)' has "$env_file" 'SOTTO_DOMAIN=calls.example.org'
 check 'generates a 64-hex-digit TURN secret' grep -qE '^SOTTO_TURN_SECRET=[0-9a-f]{64}$' "$env_file"
@@ -109,10 +110,15 @@ check 'refuses unknown options' test "$status" != 0
 rm -rf "$WORK"
 
 # 6. Little memory: swap is added (shown with --dry-run, which changes nothing).
+#    The swap path is redirected into the test directory, so the host's own
+#    /swapfile (GitHub's runners have one) doesn't matter.
 setup
 printf 'MemTotal:       1000000 kB\nSwapTotal:      0 kB\n' >"$WORK/meminfo"
-out=$(installer install --domain calls.example.org --yes --dry-run 2>&1)
-check 'low memory: offers a 2 GB swap file' grep -q 'fallocate -l 2G /swapfile' <<<"$out"
+out=$(installer install --domain calls.example.org --yes --dry-run 2>&1) || true
+check 'low memory: offers a 2 GB swap file' grep -q "fallocate -l 2G $WORK/swapfile" <<<"$out"
+: >"$WORK/swapfile" # an existing, inactive swap file that isn't ours
+out=$(installer install --domain calls.example.org --yes --dry-run 2>&1) || true
+check 'an existing swap file is left alone; a separate one is used' grep -q "fallocate -l 2G $WORK/swapfile-sotto" <<<"$out"
 check 'dry run writes no .env' test ! -e "$WORK/infra/.env"
 check 'dry run starts nothing' bash -c "! grep -q 'up -d --build' '$WORK/log'"
 check 'dry run leaves cron alone' test ! -s "$WORK/crontab"
@@ -126,7 +132,7 @@ check '--no-firewall leaves ufw alone' bash -c "! grep -q 'ufw allow' '$WORK/log
 installer update >/dev/null 2>&1
 check 'update rebuilds' has "$WORK/log" 'up -d --build'
 check 'update prunes old images' has "$WORK/log" 'image prune -f'
-out=$(installer status 2>&1)
+out=$(installer status 2>&1) || true
 check 'status reports health' grep -q 'health: OK' <<<"$out"
 installer uninstall --purge >/dev/null 2>&1
 check 'uninstall --purge removes containers and volumes' has "$WORK/log" 'down --volumes'
