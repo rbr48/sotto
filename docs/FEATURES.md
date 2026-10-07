@@ -1,6 +1,6 @@
-# Calling App — Feature List
+# Sotto — Feature List
 
-**Private calls for professionals and their clients: no accounts, no data stored, on our servers or yours.**
+**Sotto: private calls for professionals and their clients. No accounts, no data stored, on our servers or yours.**
 
 The features planned for the product. Phase numbers refer to [ROADMAP.md](ROADMAP.md). The **Plan** column shows which pricing plan includes the feature: **Free**, **Pro** (hosted) or **Business** (self-hosted licence). Items marked **(later)** come after the public launch.
 

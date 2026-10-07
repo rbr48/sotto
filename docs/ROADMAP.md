@@ -1,6 +1,6 @@
-# Calling App — Product Strategy, Technical Plan & Roadmap
+# Sotto — Product Strategy, Technical Plan & Roadmap
 
-**Private calls for professionals and their clients: no accounts, no data stored, on our servers or yours.**
+**Sotto: private calls for professionals and their clients. No accounts, no data stored, on our servers or yours.**
 
 A privacy-first audio/video calling product built with **Flutter + `flutter_webrtc`**, a **stateless signaling relay** and a **self-hosted TURN server (coturn)**.
 
@@ -62,7 +62,7 @@ The choice is made in Stage A (validation), based on interviews.
 1. Interviews and a landing page with a waitlist for the chosen group.
 2. Free pilots with 3–5 organisations in exchange for weekly feedback and a testimonial.
 3. Content aimed at the group ("How to run confidential online sessions"), plus professional associations, forums and conferences.
-4. Every guest call shows a small "Secured by <app>" footer: each client a professional calls sees the product.
+4. Every guest call shows a small "Secured by Sotto" footer: each client a professional calls sees the product.
 5. Referral discount: a professional who brings a colleague gets a free month.
 
 ### 1.7 Success metrics
@@ -493,7 +493,7 @@ The roadmap has five stages. **Do not skip Stage A**: it decides whether the res
 - [ ] Guest web page: no cookies, no third-party scripts, small download
 - [ ] Device check: camera/mic preview, speaker test, clear permission help per browser
 - [ ] `guest.knock` → **waiting room** → *Admit* / *Decline* / quick message
-- [ ] Guest in-call screen: mute, camera, hang up, "Secured by <app>" footer
+- [ ] Guest in-call screen: mute, camera, hang up, "Secured by Sotto" footer
 - [ ] Browser testing: Chrome, Edge, Firefox, Safari on iPhone/iPad and Mac
 - [ ] Clear error pages: link expired, link revoked, professional unavailable, browser not supported
 
