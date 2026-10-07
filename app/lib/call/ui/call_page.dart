@@ -8,6 +8,7 @@ import '../../crypto/identity.dart';
 import '../../relay/relay_client.dart';
 import '../call_controller.dart';
 import '../call_manager.dart';
+import '../media_engine.dart';
 
 /// The test call screen: share your call link, call someone else's, and
 /// handle incoming calls.
@@ -155,7 +156,22 @@ class _CallPageState extends State<CallPage> {
               ),
             ],
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 16),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Hide my IP address'),
+            subtitle: Text(
+              _controller.hideIp &&
+                      !_controller.turnAvailable &&
+                      _controller.relayStatus == RelayStatus.online
+                  ? 'This server has no TURN relay, so calls will fail while this is on.'
+                  : 'Route calls through the Sotto server so the other person never sees '
+                        'your IP address. Adds a little delay.',
+            ),
+            value: _controller.hideIp,
+            onChanged: _controller.setHideIp,
+          ),
+          const SizedBox(height: 24),
           Text('Call someone', style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
           TextField(
@@ -291,13 +307,27 @@ class _CallPageState extends State<CallPage> {
                         ),
                 ),
               ),
-              if (_controller.safetyNumber case final number?)
-                Positioned(
-                  left: 12,
-                  right: 12,
-                  top: 12,
-                  child: _SafetyNumber(number: number),
+              Positioned(
+                left: 12,
+                right: 12,
+                top: 12,
+                child: Column(
+                  children: [
+                    if (_controller.safetyNumber case final number?)
+                      _SafetyNumber(number: number),
+                    if (_controller.route case final route?) ...[
+                      const SizedBox(height: 8),
+                      _Pill(
+                        text: switch (route) {
+                          MediaRoute.direct => 'Direct connection',
+                          MediaRoute.relayed =>
+                            'Relayed through Sotto · IP addresses hidden',
+                        },
+                      ),
+                    ],
+                  ],
                 ),
+              ),
               if (call.video)
                 Positioned(
                   right: 16,

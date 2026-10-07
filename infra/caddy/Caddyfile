@@ -1,6 +1,9 @@
 # Access logging is deliberately not enabled: Sotto keeps no request logs.
 {
 	admin off
+	# Pinned so coturn finds the certificate at a predictable path
+	# (see coturn/start.sh).
+	acme_ca https://acme-v02.api.letsencrypt.org/directory
 }
 
 {$SOTTO_DOMAIN} {

@@ -17,7 +17,7 @@ describe('relay', () => {
   async function login(url: string, identity = newIdentity()) {
     const client = await TestClient.login(url, identity);
     clients.push(client);
-    expect(await client.next()).toEqual({ type: 'ready', id: identity.id });
+    expect(await client.next()).toEqual({ type: 'ready', id: identity.id, ice: [] });
     return { client, identity };
   }
 

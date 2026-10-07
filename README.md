@@ -12,7 +12,7 @@ Sotto is a privacy-first audio and video calling app for professionals and their
 
 The name comes from *sotto voce*: speaking quietly so that only the listener hears.
 
-> Status: **Phase 3 — the real relay.** Each person has a cryptographic identity and a call link. Opening someone's link calls them: their device rings, they accept or decline, and the call connects with live video. All call setup is end-to-end encrypted; the relay authenticates devices by their keys, routes messages by Sotto ID and stores nothing. Next: TURN for difficult networks (Phase 4).
+> Status: **Phase 4 — calls across any network.** Each person has a cryptographic identity and a call link. Opening someone's link rings their device; accepted calls connect with live video, directly when possible and through Sotto's own TURN server when not. **Hide my IP address** routes calls only through TURN so the other person never sees your IP. All call setup is end-to-end encrypted, and the servers store nothing.
 
 **Package name / application ID:** `com.izhaanintellect.sotto` (publisher: Izhaan Intellect)
 
@@ -60,6 +60,7 @@ See [`e2e/README.md`](e2e/README.md) for the end-to-end call test.
 - [Deploying the test server](docs/DEPLOY_TEST_SERVER.md)
 - [Protocol: identities and encrypted envelopes](docs/PROTOCOL.md)
 - [Threat model](docs/THREAT_MODEL.md)
+- [Network test matrix](docs/NETWORK_TESTING.md)
 
 ## Before using the name publicly
 

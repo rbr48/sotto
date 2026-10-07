@@ -17,6 +17,18 @@ class FakeRelay {
   final sockets = <WebSocket>[];
   final received = <Map<String, dynamic>>[];
   final loggedIn = <String>[];
+  int iceIssued = 0;
+
+  List<Map<String, Object>> nextIce() => [
+    {
+      'urls': ['stun:turn.test:3478'],
+    },
+    {
+      'urls': ['turn:turn.test:3478?transport=udp'],
+      'username': 'expiry:${++iceIssued}',
+      'credential': 'secret',
+    },
+  ];
 
   Uri get url => Uri.parse('ws://127.0.0.1:${_server.port}/relay');
 
@@ -30,6 +42,10 @@ class FakeRelay {
       socket.add(jsonEncode({'type': 'challenge', 'nonce': b64Encode(nonce)}));
       socket.listen((raw) {
         final message = jsonDecode(raw as String) as Map<String, dynamic>;
+        if (message['type'] == 'ice') {
+          socket.add(jsonEncode({'type': 'ice', 'ice': nextIce()}));
+          return;
+        }
         if (message['type'] != 'auth') {
           received.add(message);
           return;
@@ -45,7 +61,9 @@ class FakeRelay {
           return;
         }
         loggedIn.add(message['id'] as String);
-        socket.add(jsonEncode({'type': 'ready', 'id': message['id']}));
+        socket.add(
+          jsonEncode({'type': 'ready', 'id': message['id'], 'ice': nextIce()}),
+        );
       });
     });
   }
@@ -187,4 +205,21 @@ void main() {
       greaterThanOrEqualTo(const Duration(seconds: 15)),
     );
   });
+
+  test(
+    'keeps the ICE servers from login and refreshes stale TURN credentials',
+    () async {
+      var now = DateTime(2026);
+      final c = newClient(clock: () => now);
+      c.start();
+      await eventually(() => c.status == RelayStatus.online);
+      expect(c.iceServers, hasLength(2));
+      expect((await c.freshIceServers())[1]['username'], 'expiry:1');
+
+      now = now.add(const Duration(hours: 2));
+      final refreshed = await c.freshIceServers();
+      expect(refreshed[1]['username'], 'expiry:2');
+      expect(relay.iceIssued, 2);
+    },
+  );
 }

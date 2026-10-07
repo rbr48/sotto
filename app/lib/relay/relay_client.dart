@@ -28,6 +28,10 @@ abstract interface class RelayConnection {
   /// Sends an envelope. While offline, it is held for up to
   /// [RelayClient.outgoingTtl] and sent after reconnecting.
   void send(String to, String body);
+
+  /// STUN/TURN servers for the next call, with TURN credentials that are
+  /// still valid for a while. Empty if the relay offers none.
+  Future<List<Map<String, dynamic>>> freshIceServers();
 }
 
 /// Connects to the Sotto relay (`server/src/relay/relay.ts`), logs in by
@@ -49,6 +53,10 @@ class RelayClient implements RelayConnection {
   static const int maxOutgoing = 200;
   static const Duration loginTimeout = Duration(seconds: 10);
 
+  /// TURN credentials older than this are refreshed before a call (the
+  /// relay issues them for six hours).
+  static const Duration iceMaxAge = Duration(hours: 1);
+
   final Uri url;
   final Sodium _sodium;
   final Identity _identity;
@@ -59,6 +67,10 @@ class RelayClient implements RelayConnection {
   final _messages = StreamController<RelayMessage>.broadcast();
   final _statusChanges = StreamController<RelayStatus>.broadcast();
   final _outgoing = <({DateTime at, String json})>[];
+
+  List<Map<String, dynamic>> _iceServers = const [];
+  DateTime? _iceReceivedAt;
+  Completer<void>? _iceRefresh;
 
   RelayStatus _status = RelayStatus.offline;
   WebSocketChannel? _channel;
@@ -95,6 +107,39 @@ class RelayClient implements RelayConnection {
     nonce,
     utf8.encode(host.toLowerCase()),
   ]);
+
+  /// The ICE servers last received from the relay.
+  List<Map<String, dynamic>> get iceServers => _iceServers;
+
+  @override
+  Future<List<Map<String, dynamic>>> freshIceServers() async {
+    final receivedAt = _iceReceivedAt;
+    final stale =
+        receivedAt == null || _clock().difference(receivedAt) > iceMaxAge;
+    if (stale && _status == RelayStatus.online) {
+      final refresh = _iceRefresh ??= Completer<void>();
+      _channel?.sink.add(jsonEncode({'type': 'ice'}));
+      try {
+        await refresh.future.timeout(const Duration(seconds: 3));
+      } on TimeoutException {
+        // Use what we have.
+      } finally {
+        if (identical(_iceRefresh, refresh)) _iceRefresh = null;
+      }
+    }
+    return _iceServers;
+  }
+
+  void _setIce(Object? ice) {
+    if (ice is! List) return;
+    _iceServers = [
+      for (final server in ice)
+        if (server is Map<String, dynamic> && server['urls'] is List) server,
+    ];
+    _iceReceivedAt = _clock();
+    final refresh = _iceRefresh;
+    if (refresh != null && !refresh.isCompleted) refresh.complete();
+  }
 
   void start() {
     if (_running) return;
@@ -184,6 +229,7 @@ class RelayClient implements RelayConnection {
             );
           case 'ready':
             loggedIn = true;
+            _setIce(message['ice']);
             _setStatus(RelayStatus.online);
             _flushOutgoing(channel);
           case 'message':
@@ -192,6 +238,8 @@ class RelayClient implements RelayConnection {
             if (from is String && body is String) {
               _messages.add(RelayMessage(from: from, body: body));
             }
+          case 'ice':
+            _setIce(message['ice']);
           case 'error':
             lastError = message['code'] as String?;
         }

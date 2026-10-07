@@ -1,5 +1,6 @@
-# Sotto test server: relay + web app behind Caddy with automatic HTTPS.
-#   cd infra && cp .env.example .env && docker compose up -d --build
+# Sotto test server: relay + web app behind Caddy (automatic HTTPS) + coturn.
+#   cd infra && cp .env.example .env   # then set SOTTO_TURN_SECRET
+#   docker compose up -d --build
 name: sotto
 
 services:
@@ -9,6 +10,10 @@ services:
     environment:
       # Caddy forwards the client address; used only for in-memory connection limits.
       SOTTO_TRUST_PROXY: '1'
+      # STUN/TURN handed to logged-in clients, with time-limited credentials.
+      SOTTO_STUN_URLS: stun:${SOTTO_DOMAIN}:3478
+      SOTTO_TURN_URLS: turn:${SOTTO_DOMAIN}:3478?transport=udp,turn:${SOTTO_DOMAIN}:3478?transport=tcp,turns:${SOTTO_DOMAIN}:5349?transport=tcp
+      SOTTO_TURN_SECRET: ${SOTTO_TURN_SECRET:?set SOTTO_TURN_SECRET in .env}
     expose:
       - '8080'
     # Nothing is written to disk.
@@ -48,6 +53,33 @@ services:
       options:
         max-size: '1m'
         max-file: '1'
+
+  coturn:
+    image: coturn/coturn:4.18.0
+    restart: unless-stopped
+    # TURN relays media on a large UDP port range; host networking avoids
+    # Docker's per-port proxy. Open the ports in the host firewall.
+    network_mode: host
+    # Root inside the container only to read Caddy's certificate key (0600).
+    user: '0:0'
+    entrypoint: ['/bin/sh', '/sotto/start.sh']
+    environment:
+      SOTTO_DOMAIN: ${SOTTO_DOMAIN:?set SOTTO_DOMAIN in .env}
+      SOTTO_TURN_SECRET: ${SOTTO_TURN_SECRET:?set SOTTO_TURN_SECRET in .env}
+      SOTTO_TURN_EXTERNAL_IP: ${SOTTO_TURN_EXTERNAL_IP:-}
+    volumes:
+      - ./coturn/start.sh:/sotto/start.sh:ro
+      # TLS certificate obtained by Caddy, for TURN over TLS (port 5349).
+      - caddy_data:/certs:ro
+    read_only: true
+    tmpfs:
+      - /var/lib/coturn
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    # coturn logs every allocation (IP addresses); discard all of it.
+    logging:
+      driver: none
 
 volumes:
   caddy_data:

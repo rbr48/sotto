@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { Config } from './config.js';
 import { DEFAULT_LIMITS, Relay, type RelayLimits } from './relay/relay.js';
+import { iceServersFor } from './relay/turn.js';
 
 export const RELAY_PATH = '/relay';
 
@@ -22,7 +23,7 @@ export function createRelayServer(
   config: Config,
   limits: RelayLimits = DEFAULT_LIMITS,
 ): RelayServer {
-  const relay = new Relay(limits);
+  const relay = new Relay(limits, () => iceServersFor(config.ice));
   const http = createServer(handleHttp);
   const wss = new WebSocketServer({ noServer: true, maxPayload: config.maxMessageBytes });
 

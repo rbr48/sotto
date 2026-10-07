@@ -54,3 +54,21 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ SOTTO_HEARTBEAT_MS: '0' })).toThrow();
   });
 });
+
+describe('loadConfig ICE settings', () => {
+  it('parses comma-separated URL lists and the TURN secret', async () => {
+    const { loadConfig } = await import('../src/config.js');
+    const config = loadConfig({
+      SOTTO_STUN_URLS: 'stun:a:3478',
+      SOTTO_TURN_URLS: ' turn:a:3478?transport=udp , turns:a:5349?transport=tcp ,',
+      SOTTO_TURN_SECRET: 'x',
+    });
+    expect(config.ice).toEqual({
+      stunUrls: ['stun:a:3478'],
+      turnUrls: ['turn:a:3478?transport=udp', 'turns:a:5349?transport=tcp'],
+      turnSecret: 'x',
+      turnTtlSec: 21600,
+    });
+    expect(loadConfig({}).ice.turnUrls).toEqual([]);
+  });
+});

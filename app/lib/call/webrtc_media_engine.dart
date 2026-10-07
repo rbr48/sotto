@@ -12,11 +12,18 @@ class WebRtcMediaEngine implements MediaEngine {
     required this.localRenderer,
     required this.remoteRenderer,
     required this.iceServers,
+    this.relayOnly = false,
   });
 
   final RTCVideoRenderer localRenderer;
   final RTCVideoRenderer remoteRenderer;
-  final List<Map<String, dynamic>> iceServers;
+
+  /// Fetched when the call starts, so TURN credentials are fresh.
+  final Future<List<Map<String, dynamic>>> Function() iceServers;
+
+  /// "Hide my IP address": only use TURN relay candidates, so the other
+  /// person never learns this device's IP address.
+  final bool relayOnly;
 
   final _candidates = StreamController<Map<String, Object?>>.broadcast();
   final _states = StreamController<MediaConnectionState>.broadcast();
@@ -52,7 +59,8 @@ class WebRtcMediaEngine implements MediaEngine {
     localRenderer.srcObject = stream;
 
     final pc = await createPeerConnection({
-      'iceServers': iceServers,
+      'iceServers': await iceServers(),
+      'iceTransportPolicy': relayOnly ? 'relay' : 'all',
       'sdpSemantics': 'unified-plan',
     });
     _pc = pc;
@@ -152,6 +160,40 @@ class WebRtcMediaEngine implements MediaEngine {
   Future<void> switchCamera() async {
     final tracks = _localStream?.getVideoTracks() ?? <MediaStreamTrack>[];
     if (tracks.isNotEmpty) await Helper.switchCamera(tracks.first);
+  }
+
+  @override
+  Future<MediaRoute?> currentRoute() async {
+    final pc = _pc;
+    if (pc == null) return null;
+    final reports = await pc.getStats();
+    final byId = {for (final report in reports) report.id: report};
+
+    // The transport names the selected pair; older stacks only flag the pair.
+    String? pairId;
+    for (final report in reports) {
+      if (report.type == 'transport') {
+        pairId = report.values['selectedCandidatePairId'] as String?;
+        if (pairId != null) break;
+      }
+    }
+    final pair = pairId != null
+        ? byId[pairId]
+        : reports.where((r) {
+            final v = r.values;
+            return r.type == 'candidate-pair' &&
+                (v['selected'] == true ||
+                    (v['nominated'] == true && v['state'] == 'succeeded'));
+          }).firstOrNull;
+    if (pair == null) return null;
+    String? typeOf(Object? candidateId) =>
+        byId[candidateId]?.values['candidateType'] as String?;
+    final local = typeOf(pair.values['localCandidateId']);
+    final remote = typeOf(pair.values['remoteCandidateId']);
+    if (local == null && remote == null) return null;
+    return local == 'relay' || remote == 'relay'
+        ? MediaRoute.relayed
+        : MediaRoute.direct;
   }
 
   @override

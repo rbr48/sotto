@@ -1,5 +1,14 @@
 enum MediaConnectionState { connecting, connected, failed, closed }
 
+/// How the media of a connected call travels.
+enum MediaRoute {
+  /// Device to device (possibly through NAT), no server in between.
+  direct,
+
+  /// Through the TURN server: neither side sees the other's IP address.
+  relayed,
+}
+
 /// The media side of a call (camera, microphone, WebRTC peer connection).
 ///
 /// [CallManager] drives the call flow through this interface, so the flow can
@@ -29,6 +38,9 @@ abstract interface class MediaEngine {
   void setMicEnabled(bool enabled);
   void setCameraEnabled(bool enabled);
   Future<void> switchCamera();
+
+  /// The route of the connected call, or `null` if not known (yet).
+  Future<MediaRoute?> currentRoute();
 
   /// Stops all media and closes the connection. Safe to call more than once.
   Future<void> close();

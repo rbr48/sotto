@@ -1,3 +1,5 @@
+import type { IceConfig } from './relay/turn.js';
+
 export interface Config {
   host: string;
   port: number;
@@ -10,6 +12,8 @@ export interface Config {
    * X-Forwarded-For entry. Only used for per-address connection limits.
    */
   trustProxy: boolean;
+  /** STUN/TURN servers handed to logged-in clients. */
+  ice: IceConfig;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -19,6 +23,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     maxMessageBytes: parseIntOr(env.SOTTO_MAX_MESSAGE_BYTES, 96 * 1024),
     heartbeatMs: parseIntOr(env.SOTTO_HEARTBEAT_MS, 25_000),
     trustProxy: env.SOTTO_TRUST_PROXY === '1',
+    ice: {
+      stunUrls: parseList(env.SOTTO_STUN_URLS),
+      turnUrls: parseList(env.SOTTO_TURN_URLS),
+      turnSecret: env.SOTTO_TURN_SECRET ?? '',
+      turnTtlSec: parseIntOr(env.SOTTO_TURN_TTL_SEC, 6 * 60 * 60),
+    },
   };
 }
 
@@ -29,4 +39,11 @@ function parseIntOr(value: string | undefined, fallback: number, min = 1): numbe
     throw new Error(`Invalid numeric setting: ${value}`);
   }
   return parsed;
+}
+
+function parseList(value: string | undefined): string[] {
+  return (value ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
 }

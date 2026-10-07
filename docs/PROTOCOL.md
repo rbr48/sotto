@@ -136,7 +136,15 @@ server → {"type":"error","code":"bad-message" | "bad-recipient" | "too-large" 
 - Recipients receive `from` and must open the envelope with `expectedSender = from` (§3.3 check 6).
 - If the recipient has no connected device, the envelope is held **in memory** for up to 60 s (at most 50 per recipient, 64 MiB in total) and delivered when they log in; otherwise it is dropped.
 
-### 5.3 Limits (in memory, defaults)
+### 5.3 STUN/TURN servers
+
+`ready` carries `"ice": [ {"urls": ["stun:…"]}, {"urls": ["turn:…", "turns:…"], "username": "…", "credential": "…"} ]`, usable directly as WebRTC `iceServers`. Clients refresh credentials older than one hour before a call with `{"type":"ice"}` → `{"type":"ice","ice":[…]}`. Only logged-in clients receive credentials.
+
+TURN credentials follow coturn's `use-auth-secret` scheme: `username = "<unix expiry>:<random>"`, `credential = base64(HMAC-SHA1(secret, username))`, valid for 6 hours. Usernames contain no Sotto ID, and nothing is stored.
+
+With **Hide my IP address**, the app sets `iceTransportPolicy: "relay"`, so it only offers TURN relay candidates and the other person never learns its IP address.
+
+### 5.4 Limits (in memory, defaults)
 
 | Limit | Value |
 |---|---|
@@ -146,7 +154,7 @@ server → {"type":"error","code":"bad-message" | "bad-recipient" | "too-large" 
 | Connections per network address | 20 (addresses kept only as an HMAC under a random per-process key) |
 | Devices per Sotto ID | 5 |
 
-### 5.4 Call messages (inside envelopes)
+### 5.5 Call messages (inside envelopes)
 
 | `type` | Direction | `body` |
 |---|---|---|
@@ -161,7 +169,7 @@ server → {"type":"error","code":"bad-message" | "bad-recipient" | "too-large" 
 
 Every call message carries the same random `callId` (16 bytes). Messages for another call, or from anyone but the call's peer, are ignored. An incoming call stops ringing after 60 s if no `call.cancel` arrives; media setup must finish within 30 s of acceptance.
 
-### 5.5 Call links (Phase 3)
+### 5.6 Call links (Phase 3)
 
 A call link is `https://<host>/?call=<base64url(identity card JSON)>`. It contains only public keys and lets anyone ring its owner. Phase 5 replaces it with signed guest links that can expire and be revoked.
 

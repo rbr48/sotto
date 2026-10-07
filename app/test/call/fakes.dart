@@ -55,6 +55,11 @@ class FakeMediaEngine implements MediaEngine {
   @override
   Future<void> switchCamera() async {}
 
+  MediaRoute? route;
+
+  @override
+  Future<MediaRoute?> currentRoute() async => route;
+
   @override
   Future<void> close() async {
     closed = true;

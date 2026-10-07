@@ -3,6 +3,7 @@ import { newChallenge, verifyAuth } from './auth.js';
 import { isValidId } from './ids.js';
 import { ConnectionCounter, TokenBucket } from './limits.js';
 import { MessageQueue, type QueueLimits } from './queue.js';
+import type { IceServer } from './turn.js';
 
 /**
  * The Sotto relay: routes end-to-end encrypted envelopes between Sotto IDs.
@@ -15,7 +16,9 @@ import { MessageQueue, type QueueLimits } from './queue.js';
  *
  *   server → { type: "challenge", nonce }
  *   client → { type: "auth", id, sig }          sig over auth.ts:authMessage
- *   server → { type: "ready", id }
+ *   server → { type: "ready", id, ice }          ice = STUN/TURN servers
+ *   client → { type: "ice" }                    fresh TURN credentials
+ *   server → { type: "ice", ice }
  *   client → { type: "send", to, body, ref? }   body = envelope (opaque)
  *   server → { type: "message", from, body }    from = authenticated sender
  *   server → { type: "ack", ref, status }       delivered | queued | dropped
@@ -74,7 +77,11 @@ export class Relay {
   private readonly addresses: ConnectionCounter;
   private readonly pruneTimer: NodeJS.Timeout;
 
-  constructor(private readonly limits: RelayLimits = DEFAULT_LIMITS) {
+  constructor(
+    private readonly limits: RelayLimits = DEFAULT_LIMITS,
+    /** Fresh ICE servers (with new TURN credentials) for each request. */
+    private readonly iceServers: () => IceServer[] = () => [],
+  ) {
     this.queue = new MessageQueue(limits.queue);
     this.addresses = new ConnectionCounter(limits.maxConnectionsPerAddress);
     this.pruneTimer = setInterval(() => this.queue.prune(), 10_000);
@@ -161,6 +168,10 @@ export class Relay {
       return;
     }
 
+    if (message.type === 'ice') {
+      send(conn.ws, { type: 'ice', ice: this.iceServers() });
+      return;
+    }
     if (message.type !== 'send') {
       send(conn.ws, { type: 'error', code: 'bad-message' });
       return;
@@ -198,7 +209,7 @@ export class Relay {
     conn.id = verifiedId;
     devices.add(conn);
     this.online.set(verifiedId, devices);
-    send(conn.ws, { type: 'ready', id: verifiedId });
+    send(conn.ws, { type: 'ready', id: verifiedId, ice: this.iceServers() });
     for (const queued of this.queue.take(verifiedId)) {
       send(conn.ws, { type: 'message', from: queued.from, body: queued.body });
     }

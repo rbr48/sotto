@@ -506,10 +506,13 @@ The roadmap has five stages. **Do not skip Stage A**: it decides whether the res
 **Exit criteria:** encrypted calls between two clients by public key with ringing, accept, reject, cancel and busy behaviour. The relay can't read any message body.
 
 #### Phase 4 — NAT Traversal with coturn (Week 12)
-- [ ] Deploy coturn with TLS, logging disabled, private IP ranges denied
-- [ ] Stateless TURN credential endpoint on the relay
-- [ ] Test matrix: same Wi-Fi, Wi-Fi ↔ 4G, 4G ↔ 4G, forced relay, TLS-only firewall, browser behind a corporate proxy
-- [ ] "Hide my IP address" setting (forced relay)
+- [x] coturn in Docker Compose (`infra/coturn/start.sh`): TURN over UDP/TCP 3478 and TLS 5349 (Caddy's certificate), logs discarded, private/special IP ranges denied, TCP relaying off, quotas and bandwidth cap
+- [x] Stateless TURN credentials, issued over the relay connection only to logged-in clients (in `ready`, refreshable with `{"type":"ice"}`); usernames contain no Sotto ID
+- [x] Relay hands out Sotto's own STUN server; Google STUN only as a fallback
+- [x] "Hide my IP address" setting (relay-only ICE), saved on the device
+- [x] Call screen shows **Direct connection** / **Relayed through Sotto**
+- [x] Automated: e2e test checks a normal call is direct and a "Hide my IP" call is relayed through a real coturn (verified to fail with a wrong TURN secret)
+- [ ] Manual test matrix on real devices and networks (`docs/NETWORK_TESTING.md`): same Wi-Fi, Wi-Fi ↔ 4G, 4G ↔ 4G, forced relay, UDP-blocked firewall
 
 **Exit criteria / Milestone M1:** an E2E-encrypted call connects across the internet in every network in the test matrix.
 

@@ -10,6 +10,7 @@ import '../crypto/sotto_crypto.dart';
 import '../relay/relay_client.dart';
 import 'call_code.dart';
 import 'call_manager.dart';
+import 'media_engine.dart';
 import 'webrtc_media_engine.dart';
 
 /// Everything the call screen needs: the user's identity and call link, the
@@ -22,10 +23,18 @@ class CallController extends ChangeNotifier {
     required this.relayUrl,
     required this.linkBase,
     this.persistentIdentity = !kIsWeb,
-    this.iceServers = const [
-      {'urls': 'stun:stun.l.google.com:19302'},
-    ],
-  });
+    SecretStore? settings,
+  }) : _settings = settings ?? (kIsWeb ? MemorySecretStore() : OsSecretStore());
+
+  /// Used only if the relay offers no STUN/TURN servers (e.g. a bare local
+  /// test relay). The Sotto relay hands out its own STUN and TURN servers.
+  static const fallbackIceServers = [
+    {
+      'urls': ['stun:stun.l.google.com:19302'],
+    },
+  ];
+
+  static const _hideIpSetting = 'sotto.settings.hide_ip';
 
   final Uri relayUrl;
   final Uri linkBase;
@@ -33,7 +42,7 @@ class CallController extends ChangeNotifier {
   /// Professionals' devices keep their identity in the OS keystore; the
   /// browser (guests, for now) gets a temporary identity per page load.
   final bool persistentIdentity;
-  final List<Map<String, dynamic>> iceServers;
+  final SecretStore _settings;
 
   final RTCVideoRenderer localRenderer = RTCVideoRenderer();
   final RTCVideoRenderer remoteRenderer = RTCVideoRenderer();
@@ -61,6 +70,24 @@ class CallController extends ChangeNotifier {
 
   CallState get call => _manager?.state ?? CallState.idle;
 
+  bool _hideIp = false;
+
+  /// "Hide my IP address": calls only use the TURN relay, so the other
+  /// person never sees this device's IP address.
+  bool get hideIp => _hideIp;
+
+  /// Whether the relay offered a TURN server (needed for [hideIp]).
+  bool get turnAvailable =>
+      _relay?.iceServers.any(
+        (s) => (s['urls'] as List).any((u) => '$u'.startsWith('turn')),
+      ) ??
+      false;
+
+  MediaRoute? _route;
+
+  /// How the current call's media travels, once connected.
+  MediaRoute? get route => _route;
+
   bool _micEnabled = true;
   bool get micEnabled => _micEnabled;
   bool _cameraEnabled = true;
@@ -79,6 +106,7 @@ class CallController extends ChangeNotifier {
     try {
       final sodium = _sodium = await SottoCrypto.init();
       final identity = _identity = await _loadIdentity(sodium);
+      _hideIp = await _readSetting(_hideIpSetting) == '1';
       _codec = EnvelopeCodec(sodium, identity);
       await localRenderer.initialize();
       await remoteRenderer.initialize();
@@ -91,7 +119,8 @@ class CallController extends ChangeNotifier {
         createMedia: () => WebRtcMediaEngine(
           localRenderer: localRenderer,
           remoteRenderer: remoteRenderer,
-          iceServers: iceServers,
+          iceServers: _iceServersForCall,
+          relayOnly: _hideIp,
         ),
         newCallId: () => b64Encode(sodium.randombytes.buf(16)),
       );
@@ -128,6 +157,30 @@ class CallController extends ChangeNotifier {
     }
   }
 
+  Future<List<Map<String, dynamic>>> _iceServersForCall() async {
+    final servers = await _relay?.freshIceServers() ?? const [];
+    return servers.isEmpty ? fallbackIceServers : servers;
+  }
+
+  Future<String?> _readSetting(String key) async {
+    try {
+      return await _settings.read(key);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> setHideIp(bool value) async {
+    _hideIp = value;
+    publishForTests('hide-ip', '$value');
+    notifyListeners();
+    try {
+      await _settings.write(_hideIpSetting, value ? '1' : '0');
+    } catch (_) {
+      // Not persisted; still applies until the app restarts.
+    }
+  }
+
   void _onRelayMessage(RelayMessage message) {
     final codec = _codec;
     final manager = _manager;
@@ -146,9 +199,29 @@ class CallController extends ChangeNotifier {
     if (call.phase == CallPhase.calling || call.phase == CallPhase.incoming) {
       _micEnabled = true;
       _cameraEnabled = true;
+      _route = null;
+    }
+    if (call.phase == CallPhase.connected && _route == null) {
+      unawaited(_detectRoute());
     }
     publishForTests('call-phase', call.phase.name);
     notifyListeners();
+  }
+
+  /// Reads the selected ICE candidate pair a few times after connecting
+  /// (stats can lag behind the "connected" event).
+  Future<void> _detectRoute() async {
+    for (final delay in const [300, 1000, 3000]) {
+      await Future<void>.delayed(Duration(milliseconds: delay));
+      if (call.phase != CallPhase.connected) return;
+      final route = await _manager?.media?.currentRoute();
+      if (route != null) {
+        _route = route;
+        publishForTests('route', route.name);
+        notifyListeners();
+        return;
+      }
+    }
   }
 
   /// Calls the person behind a call link or code.
