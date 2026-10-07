@@ -1,4 +1,31 @@
+import 'devices.dart';
+
 enum MediaConnectionState { connecting, connected, failed, closed }
+
+/// How well the connection is doing, from the device's own statistics
+/// (never sent anywhere).
+enum CallQuality { good, fair, poor }
+
+/// Round-trip time and packet loss over the last few seconds.
+class QualitySample {
+  const QualitySample({this.roundTrip, this.packetLoss});
+
+  final Duration? roundTrip;
+
+  /// Fraction of incoming packets lost, 0–1.
+  final double? packetLoss;
+
+  /// Thresholds roughly where voice gets choppy (fair) and hard to follow
+  /// (poor).
+  CallQuality? get quality {
+    final rtt = roundTrip?.inMilliseconds;
+    final loss = packetLoss;
+    if (rtt == null && loss == null) return null;
+    if ((loss ?? 0) > 0.10 || (rtt ?? 0) > 600) return CallQuality.poor;
+    if ((loss ?? 0) > 0.03 || (rtt ?? 0) > 300) return CallQuality.fair;
+    return CallQuality.good;
+  }
+}
 
 /// How the media of a connected call travels.
 enum MediaRoute {
@@ -41,6 +68,13 @@ abstract interface class MediaEngine {
 
   /// The route of the connected call, or `null` if not known (yet).
   Future<MediaRoute?> currentRoute();
+
+  /// Connection statistics since the previous sample.
+  Future<QualitySample?> qualitySample();
+
+  /// Switches to another camera, microphone or audio output during the
+  /// call (`null` = system default).
+  Future<void> useDevice(DeviceKind kind, String? deviceId);
 
   /// Stops all media and closes the connection. Safe to call more than once.
   Future<void> close();

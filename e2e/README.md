@@ -1,13 +1,16 @@
 # End-to-end tests
 
-`call.mjs`, `guest.mjs` and `autoanswer.mjs` run real calls between headless Chromium tabs (fake camera and
-microphone) through the real relay. It checks:
+`call.mjs`, `guest.mjs`, `autoanswer.mjs` and `phase6.mjs` run real calls between headless Chromium tabs (fake camera and
+microphone) through the real relay and a real TURN server. They check:
 
 - the crypto self-test passes in the browser
-- opening someone's call link rings their device; accept → connected with live video
+- onboarding (name and practice); opening someone's call link rings their device; accept → connected with live video
 - a third caller gets *busy*; hang up, decline and cancel/missed all reach both sides
-- the first call connects **direct**; with *Hide my IP address* the next call connects **relayed** through TURN
-- every frame sent to the relay is a login, an ICE request or an opaque encrypted envelope
+- the first call connects **direct** (or relayed on a starved machine); with *Hide my IP address* the next call connects **relayed** through TURN
+- guest links: knock, waiting room, admit, decline, replaced, one-time and tampered links
+- auto-answer: only for a verified contact, behind the app lock's PIN; voice only; decline wins; strangers ring
+- Phase 6: contact links, calling from contacts, call timer and quality, history with talk time and a note, the app lock (a call rings on top of it), the device picker
+- every frame sent to the relay is a login, an ICE request or an opaque encrypted envelope, with no names, notes or PINs; pages contact no third-party hosts
 
 ```bash
 # 0. A test TURN server on loopback (apt install coturn)

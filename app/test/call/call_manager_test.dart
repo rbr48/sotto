@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sodium/sodium.dart';
 import 'package:sotto/call/call_manager.dart';
 import 'package:sotto/call/media_engine.dart';
-import 'package:sotto/call/trusted_callers.dart';
 import 'package:sotto/crypto/sotto_crypto.dart';
 
 import 'fakes.dart';

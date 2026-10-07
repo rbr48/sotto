@@ -94,8 +94,67 @@ export async function typeInto(page, label, text) {
   await enableSemantics(page);
   const field = page.getByRole('textbox', { name: label });
   await field.first().waitFor({ timeout, polling: 250 });
+  await page.evaluate(() => {
+    window.__sottoPreviousFocus = document.activeElement;
+  });
   await field.first().click();
-  await page.keyboard.type(text);
+  // Flutter moves focus to a new <input> after the click; typing before
+  // that loses keystrokes (or sends them to the previous field).
+  await page
+    .waitForFunction(
+      () =>
+        ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName) &&
+        document.activeElement !== window.__sottoPreviousFocus,
+      null,
+      { timeout: 2000 },
+    )
+    .catch(() => {}); // the field already had focus
+  await page.waitForTimeout(100);
+  await page.keyboard.type(text, { delay: 20 });
+  await page.waitForFunction(
+    (t) => document.activeElement?.value?.endsWith(t),
+    text,
+    { timeout: 5000 },
+  );
+}
+
+/** Switches the professional's app to a tab (Home, Contacts, History, Settings). */
+export async function openTab(page, name) {
+  await enableSemantics(page);
+  // Navigation destinations are announced as "Settings, Tab 4 of 4".
+  const tab = page.getByRole('button', { name: new RegExp(`^${name}\\s+Tab \\d of \\d`) });
+  await tab.first().waitFor({ timeout, polling: 250 });
+  await tab.first().click();
+}
+
+/** Sets the app lock PIN in the "Set a PIN" dialog. */
+export async function setPin(page, pin) {
+  await typeInto(page, /New PIN/, pin);
+  await typeInto(page, 'Repeat the PIN', pin);
+  await clickButton(page, 'Save PIN');
+}
+
+/** Confirms a sensitive change with the PIN. */
+export async function enterPin(page, pin, button = 'Confirm') {
+  await typeInto(page, 'PIN', pin);
+  await clickButton(page, button);
+}
+
+/** First start of the professional's app in a browser: name (and practice). */
+export async function onboard(page, name, { practice } = {}) {
+  await titleIncludes(page, 'Welcome');
+  await clickButton(page, 'Start');
+  await typeInto(page, 'Your name', name);
+  if (practice) await typeInto(page, /Practice or organisation/, practice);
+  await clickButton(page, 'Continue');
+}
+
+/** Opens the professional's app and goes through onboarding. */
+export async function openApp(context, label, name, options) {
+  const page = await openPage(context, label, base);
+  await onboard(page, name, options);
+  await titleIncludes(page, 'Ready');
+  return page;
 }
 
 export const dataAttribute = (page, name, value) =>
@@ -147,6 +206,13 @@ export function assertNoThirdPartyRequests(assert, allowed) {
 /** Prints every page's title and recent console output (for CI failures). */
 export async function dumpPages() {
   for (const { name, page, log } of pages) {
+    try {
+      if (!page.isClosed() && process.env.SOTTO_SCREENSHOTS) {
+        await page.screenshot({ path: `${process.env.SOTTO_SCREENSHOTS}/${name}.png` });
+      }
+    } catch {
+      // ignore
+    }
     let title = '(closed)';
     try {
       if (!page.isClosed()) title = await page.title();

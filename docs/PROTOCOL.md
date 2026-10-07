@@ -1,6 +1,6 @@
-# Sotto Protocol — Identity and Envelopes (v1)
+# Sotto Protocol — Identity, Envelopes and Local Storage (v1)
 
-This document specifies how Sotto identities are formed and how messages are encrypted end to end. It is implemented in `app/lib/crypto/` (Dart, native and web) and independently in `tools/crypto-vectors/gen.js` (Node.js), which produces the known-answer test vectors in `app/lib/crypto/test_vectors.dart`.
+This document specifies how Sotto identities are formed, how messages are encrypted end to end, and how the app stores and backs up data on the device. It is implemented in `app/lib/crypto/` (Dart, native and web) and independently in `tools/crypto-vectors/gen.js` (Node.js), which produces the known-answer test vectors in `app/lib/crypto/test_vectors.dart`.
 
 All primitives come from **libsodium 1.0.22** (native build on Android/Windows/Linux; libsodium.js 0.8.4 on the web). No custom cryptographic primitives are used.
 
@@ -171,7 +171,7 @@ With **Hide my IP address**, the app sets `iceTransportPolicy: "relay"`, so it o
 
 ### 5.6 Call links (Phase 3)
 
-A call link is `https://<host>/?call=<base64url(identity card JSON)>`. It contains only public keys and lets anyone ring its owner. Phase 5 replaces it with signed guest links that can expire and be revoked.
+A call link is `https://<host>/?call=<base64url(identity card JSON)>`. It contains only public keys and lets anyone ring its owner. Opened in a browser, it dials right away with a temporary identity. Clients should get guest links (§5.7) instead; colleagues, contact links (§5.8).
 
 ### 5.7 Guest links (Phase 5)
 
@@ -201,6 +201,16 @@ Guest messages (inside envelopes, no `callId`):
 
 Admitting a guest is an ordinary call (§5.5) from the professional whose `call.invite` body carries `"knock": "<knock id>"`; the guest's page answers it immediately because it matches its own knock from that professional (`call.accept` carries `"auto": true`). A waiting guest who stops knocking for 75 s (closed tab) disappears from the waiting room; at most 20 guests wait at once.
 
+### 5.8 Contact links (Phase 6)
+
+A contact link lets colleagues add each other: `https://<host>/#c=<payload>` (after `#`, so it never reaches a web server). The app also shows it as a QR code.
+
+`payload = base64url(JSON {v:1, card, n, o?, sig})`, where `card` is the identity card (§2.3), `n` the name (1–80 characters), `o` the optional organisation, and
+
+`sig = Ed25519("sotto-contact-v1\0" || JSON[sign_pk, box_pk, n, o])` by the card's key.
+
+The name and organisation are self-asserted, but nobody can change them without breaking the signature. *Add contact* also accepts a call link or bare call code (no name). A contact is stored only on the device that adds it; marking it **verified** means the user confirmed that the safety number (§4) matches. Opened in a browser, a contact link shows the person's name with *Video call* / *Voice call* buttons (temporary identity).
+
 ## 6. Test vectors
 
 `tools/crypto-vectors/gen.js` implements §2–§4 independently and prints the vectors stored in `app/lib/crypto/test_vectors.dart`:
@@ -216,3 +226,53 @@ Admitting a guest is an ordinary call (§5.5) from the professional whose `call.
 
 `app/web/sodium.js` is libsodium.js 0.8.4, downloaded by `dart run sodium:update_web`.
 SHA-256: `35958171e76a794218cd3675feec663da5236d3322d525abd692bd3c6d6941cf`.
+
+## 8. Backups (Phase 6, native apps)
+
+A backup is one line of JSON:
+
+```
+{"sotto":"backup","v":1,
+ "kdf":{"alg":"argon2id13","ops":<int>,"mem":<bytes>,"salt":"<16 bytes>"},
+ "nonce":"<24 bytes>","data":"<ciphertext>"}
+```
+
+```
+key       = crypto_pwhash(32, passphrase, salt, ops, mem, ALG_ARGON2ID13)   // defaults: ops 3, mem 64 MiB
+ad        = "sotto-backup-v1\0" || JSON[1, "argon2id13", ops, mem, salt, nonce]
+data      = crypto_aead_xchacha20poly1305_ietf_encrypt(plaintext, ad, nonce, key)
+plaintext = JSON {"master": "<32-byte master secret>", "values": {<vault entries>}, "created": "<ISO 8601>"}
+```
+
+- The passphrase must be at least 12 characters (after trimming); the app offers a generated one (25 Crockford base32 characters, 125 bits).
+- Changing any header field (for example lowering the cost) changes `ad`, so decryption fails.
+- To open a backup, the app accepts only `1 ≤ ops ≤ 10` and `8 MiB ≤ mem ≤ 1 GiB`, so a crafted file can't make it hang or run out of memory.
+- `values` holds the vault (§9) except device-only entries (`sotto.lock.v1`, `sotto.devices.v1`); call history and notes are optional.
+- Restoring writes the master secret to the OS keystore and replaces the vault's contents, keeping the device's own app lock and device choices.
+
+## 9. Local storage: the vault (Phase 6)
+
+All local data except the identity (profile, contacts, call history and notes, guest links, settings) is one key-value map of strings, stored as a single file in the app's private support directory (`sotto.vault`):
+
+```
+file      = "SOTTOVAULT1\0" || nonce (24) || crypto_aead_xchacha20poly1305_ietf_encrypt(plaintext, "SOTTOVAULT1\0", nonce, vault_key)
+plaintext = JSON {"v":1, "values": {"<key>": "<string>", …}}
+```
+
+- `vault_key` is 32 random bytes, stored in the OS keystore under `sotto.vault.key.v1` (never next to the file). The identity's master secret stays in its own keystore entry (`sotto.identity.master.v1`).
+- Every change rewrites the file with a fresh nonce, atomically (temporary file, then rename).
+- A file whose key is missing, or that fails to decrypt, is never silently replaced: the app explains the problem and offers to start with empty storage (keeping the identity) or to restore a backup.
+- In the browser, the same vault lives in memory and disappears with the tab.
+
+| Key | Contents |
+|---|---|
+| `sotto.profile.v1` | Name and practice |
+| `sotto.contacts.v1` | Contacts (keys, name, organisation, verified, auto-answer choices) and the auto-answer switch and delay |
+| `sotto.history.v1` | Call history with notes, and the retention period |
+| `sotto.guest_links.v1` | Guest links (§5.7) |
+| `sotto.lock.v1` | App lock: Argon2id PIN verifier (`crypto_pwhash_str`), failed attempts, auto-lock time. Device-only |
+| `sotto.devices.v1` | Chosen camera, microphone and speaker. Device-only |
+| `sotto.settings.hide_ip` | "Hide my IP address" |
+
+Earlier versions kept settings directly in the keystore; on first start they are moved into the vault and deleted from the keystore.
+

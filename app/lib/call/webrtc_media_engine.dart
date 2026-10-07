@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
+import 'devices.dart';
 import 'media_engine.dart';
 
 /// [MediaEngine] backed by flutter_webrtc. The video renderers belong to the
@@ -13,7 +14,10 @@ class WebRtcMediaEngine implements MediaEngine {
     required this.remoteRenderer,
     required this.iceServers,
     this.relayOnly = false,
+    this.devices = _defaultDevices,
   });
+
+  static DeviceSelection _defaultDevices() => const DeviceSelection();
 
   final RTCVideoRenderer localRenderer;
   final RTCVideoRenderer remoteRenderer;
@@ -24,6 +28,10 @@ class WebRtcMediaEngine implements MediaEngine {
   /// "Hide my IP address": only use TURN relay candidates, so the other
   /// person never learns this device's IP address.
   final bool relayOnly;
+
+  /// The user's chosen camera, microphone and speaker (read when the call
+  /// starts).
+  final DeviceSelection Function() devices;
 
   final _candidates = StreamController<Map<String, Object?>>.broadcast();
   final _states = StreamController<MediaConnectionState>.broadcast();
@@ -41,15 +49,10 @@ class WebRtcMediaEngine implements MediaEngine {
 
   @override
   Future<void> prepare({required bool video}) async {
+    final chosen = devices();
     final stream = await navigator.mediaDevices.getUserMedia({
-      'audio': true,
-      'video': video
-          ? {
-              'facingMode': 'user',
-              'width': {'ideal': 1280},
-              'height': {'ideal': 720},
-            }
-          : false,
+      'audio': _audioConstraints(chosen.microphoneId),
+      'video': video ? _videoConstraints(chosen.cameraId) : false,
     });
     if (_closed) {
       await _stop(stream);
@@ -57,6 +60,9 @@ class WebRtcMediaEngine implements MediaEngine {
     }
     _localStream = stream;
     localRenderer.srcObject = stream;
+    if (chosen.speakerId case final speaker?) {
+      await _selectSpeaker(speaker);
+    }
 
     final pc = await createPeerConnection({
       'iceServers': await iceServers(),
@@ -194,6 +200,103 @@ class WebRtcMediaEngine implements MediaEngine {
     return local == 'relay' || remote == 'relay'
         ? MediaRoute.relayed
         : MediaRoute.direct;
+  }
+
+  static Object _audioConstraints(String? deviceId) =>
+      deviceId == null ? true : {'deviceId': deviceId};
+
+  static Map<String, Object> _videoConstraints(String? deviceId) => {
+    if (deviceId != null) 'deviceId': deviceId else 'facingMode': 'user',
+    'width': {'ideal': 1280},
+    'height': {'ideal': 720},
+  };
+
+  Future<void> _selectSpeaker(String deviceId) async {
+    try {
+      await remoteRenderer.audioOutput(deviceId);
+    } catch (_) {
+      // Not supported here (e.g. Safari): the system default plays.
+    }
+  }
+
+  @override
+  Future<void> useDevice(DeviceKind kind, String? deviceId) async {
+    if (_closed) return;
+    if (kind == DeviceKind.speaker) {
+      await _selectSpeaker(deviceId ?? 'default');
+      return;
+    }
+    final stream = _localStream;
+    final pc = _pc;
+    if (stream == null || pc == null) return;
+    final video = kind == DeviceKind.camera;
+    final old = video ? stream.getVideoTracks() : stream.getAudioTracks();
+    if (old.isEmpty) return; // e.g. a voice call has no camera to switch
+    final fresh = await navigator.mediaDevices.getUserMedia({
+      'audio': video ? false : _audioConstraints(deviceId),
+      'video': video ? _videoConstraints(deviceId) : false,
+    });
+    final track = video
+        ? fresh.getVideoTracks().first
+        : fresh.getAudioTracks().first;
+    if (_closed) {
+      await _stop(fresh);
+      return;
+    }
+    track.enabled = old.first.enabled;
+    for (final sender in await pc.getSenders()) {
+      if (sender.track?.kind == track.kind) await sender.replaceTrack(track);
+    }
+    for (final previous in old) {
+      await stream.removeTrack(previous);
+      await previous.stop();
+    }
+    await stream.addTrack(track);
+    localRenderer.srcObject = stream;
+  }
+
+  int? _lostBefore;
+  int? _receivedBefore;
+
+  @override
+  Future<QualitySample?> qualitySample() async {
+    final pc = _pc;
+    if (pc == null) return null;
+    final reports = await pc.getStats();
+    double? rttSeconds;
+    var lost = 0;
+    var received = 0;
+    var sawInbound = false;
+    for (final report in reports) {
+      final v = report.values;
+      if (report.type == 'candidate-pair' &&
+          (v['nominated'] == true || v['selected'] == true) &&
+          v['currentRoundTripTime'] is num) {
+        rttSeconds = (v['currentRoundTripTime'] as num).toDouble();
+      }
+      if (report.type == 'inbound-rtp') {
+        sawInbound = true;
+        lost += (v['packetsLost'] as num?)?.toInt() ?? 0;
+        received += (v['packetsReceived'] as num?)?.toInt() ?? 0;
+      }
+    }
+    double? loss;
+    if (sawInbound && _lostBefore != null && _receivedBefore != null) {
+      final newLost = lost - _lostBefore!;
+      final newReceived = received - _receivedBefore!;
+      final total = newLost + newReceived;
+      if (total > 0) loss = (newLost / total).clamp(0, 1).toDouble();
+    }
+    if (sawInbound) {
+      _lostBefore = lost;
+      _receivedBefore = received;
+    }
+    return QualitySample(
+      roundTrip: rttSeconds == null
+          ? null
+          : Duration(microseconds: (rttSeconds * 1e6).round()),
+      packetLoss: loss,
+    );
   }
 
   @override

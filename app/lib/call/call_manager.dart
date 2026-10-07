@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart';
 import '../crypto/envelope.dart';
 import '../crypto/identity.dart';
 import 'media_engine.dart';
-import 'trusted_callers.dart';
 
 enum CallPhase {
   /// No call.
@@ -55,6 +54,18 @@ enum CallEndReason {
 
   /// Media connection could not be established or broke.
   failed,
+}
+
+/// How an incoming call is answered automatically.
+@immutable
+class AutoAnswer {
+  const AutoAnswer({required this.delay, required this.video});
+
+  /// Rings this long first; the user can still decline.
+  final Duration delay;
+
+  /// Whether to answer with the camera on.
+  final bool video;
 }
 
 @immutable

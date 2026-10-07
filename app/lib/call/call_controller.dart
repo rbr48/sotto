@@ -5,32 +5,48 @@ import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:sodium/sodium.dart';
 
+import '../contacts/contact_book.dart';
+import '../contacts/contact_link.dart';
 import '../core/test_hooks.dart';
 import '../crypto/encoding.dart';
 import '../crypto/sotto_crypto.dart';
 import '../guest/guest_host.dart';
 import '../guest/guest_link.dart';
 import '../guest/guest_visit.dart';
+import '../history/call_history.dart';
 import '../relay/relay_client.dart';
 import 'call_code.dart';
 import 'call_manager.dart';
-import 'trusted_callers.dart';
+import 'devices.dart';
 import 'media_engine.dart';
 import 'webrtc_media_engine.dart';
 
-/// Everything the call screen needs: the user's identity and call link, the
-/// relay connection, and the current call.
+/// Everything the call screens need: the relay connection, the current
+/// call, guest links and the waiting room.
 ///
 /// Incoming relay messages are opened as end-to-end envelopes (the sender
 /// must match the relay-authenticated address) and handed to [CallManager].
+///
+/// Three uses:
+/// - the professional's app ([identity], [contacts], [history] and
+///   [devices] given; settings in the vault),
+/// - a guest's page ([guestLinkPayload] set; temporary identity),
+/// - a quick call from a browser (`?call=` or `#c=` links; temporary
+///   identity, nothing stored).
 class CallController extends ChangeNotifier {
   CallController({
     required this.relayUrl,
     required this.linkBase,
-    this.persistentIdentity = !kIsWeb,
     this.guestLinkPayload,
+    Identity? identity,
     SecretStore? settings,
-  }) : _settings = settings ?? (kIsWeb ? MemorySecretStore() : OsSecretStore());
+    this.contacts,
+    this.history,
+    this.devices,
+    String Function()? hostName,
+  }) : _givenIdentity = identity,
+       _settings = settings ?? MemorySecretStore(),
+       _hostName = hostName ?? (() => '');
 
   /// Used only if the relay offers no STUN/TURN servers (e.g. a bare local
   /// test relay). The Sotto relay hands out its own STUN and TURN servers.
@@ -40,21 +56,31 @@ class CallController extends ChangeNotifier {
     },
   ];
 
-  static const _hideIpSetting = 'sotto.settings.hide_ip';
-  static const _hostNameSetting = 'sotto.settings.host_name';
+  static const hideIpSetting = 'sotto.settings.hide_ip';
 
   final Uri relayUrl;
   final Uri linkBase;
-
-  /// Professionals' devices keep their identity in the OS keystore; the
-  /// browser (guests, for now) gets a temporary identity per page load.
-  final bool persistentIdentity;
+  final Identity? _givenIdentity;
   final SecretStore _settings;
+  final String Function() _hostName;
+
+  /// The professional's contacts (auto-answer, names); `null` for guests and
+  /// quick calls.
+  final ContactBook? contacts;
+
+  /// Where finished calls are recorded; `null` keeps no history.
+  final CallHistory? history;
+
+  /// Chosen camera/microphone/speaker; `null` uses the system defaults.
+  final DeviceSettings? devices;
 
   /// Set when the app was opened from a guest link (`#g=…`): this device is
   /// a guest for the duration of the page, with a temporary identity.
   final String? guestLinkPayload;
   bool get isGuest => guestLinkPayload != null;
+
+  /// The professional's app (not a guest page or a browser quick call).
+  bool get isProfessional => contacts != null;
 
   GuestVisit? _visit;
 
@@ -67,29 +93,26 @@ class CallController extends ChangeNotifier {
   GuestLinkStore? _links;
   GuestHost? _host;
 
-  late final TrustedCallers trustedCallers = TrustedCallers(_settings)
-    ..addListener(_onTrustedChanged);
-
-  /// Peer of a call that admitted a guest from the waiting room (shown
-  /// differently from a trusted caller's auto-answer).
+  /// Peer and name of a call that admitted a guest from the waiting room
+  /// (shown differently from a trusted contact's auto-answer).
   String? _admittedGuestId;
+  String? _admittedGuestName;
 
-  /// The professional's waiting room (not in guest mode).
+  /// The professional's waiting room (professional's app only).
   GuestHost? get guestHost => _host;
-
-  String _hostName = '';
-
-  /// The name guests see on the professional's links.
-  String get hostName => _hostName;
 
   final RTCVideoRenderer localRenderer = RTCVideoRenderer();
   final RTCVideoRenderer remoteRenderer = RTCVideoRenderer();
 
   Sodium? _sodium;
+
+  /// libsodium, once started.
+  Sodium? get sodium => _sodium;
   Identity? _identity;
   EnvelopeCodec? _codec;
   RelayClient? _relay;
   CallManager? _manager;
+  CallRecorder? _recorder;
   final _subscriptions = <StreamSubscription<Object?>>[];
 
   bool _ready = false;
@@ -98,10 +121,12 @@ class CallController extends ChangeNotifier {
   /// Set if startup failed (e.g. libsodium could not load).
   String? startupError;
 
-  /// Set if the identity could not be stored and a temporary one is used.
-  String? identityWarning;
-
   String? _callLink;
+
+  /// This device's Sotto ID.
+  String? get ownId => _identity?.id;
+
+  /// Plain call link (`?call=`): anyone with it can ring this device.
   String? get callLink => _callLink;
 
   RelayStatus get relayStatus => _relay?.status ?? RelayStatus.offline;
@@ -126,6 +151,17 @@ class CallController extends ChangeNotifier {
   /// How the current call's media travels, once connected.
   MediaRoute? get route => _route;
 
+  CallQuality? _quality;
+
+  /// Connection quality of the current call, from local statistics.
+  CallQuality? get quality => _quality;
+  Timer? _qualityTimer;
+
+  DateTime? _connectedAt;
+
+  /// When the current call connected (for the call timer).
+  DateTime? get connectedAt => _connectedAt;
+
   bool _micEnabled = true;
   bool get micEnabled => _micEnabled;
   bool _cameraEnabled = true;
@@ -134,20 +170,44 @@ class CallController extends ChangeNotifier {
   /// Safety number with the current call's peer.
   String? get safetyNumber {
     final peer = call.peer;
+    return peer == null ? null : safetyNumberWith(peer);
+  }
+
+  String? safetyNumberWith(PublicIdentity peer) {
     final sodium = _sodium;
     final identity = _identity;
-    if (peer == null || sodium == null || identity == null) return null;
+    if (sodium == null || identity == null) return null;
     return SafetyNumber.compute(sodium, identity.publicIdentity, peer);
+  }
+
+  /// The current call's peer as a contact, if they are one.
+  Contact? get peerContact {
+    final peer = call.peer;
+    return peer == null ? null : contacts?.find(peer);
+  }
+
+  /// A name for the current call's peer.
+  String get peerName => _describe(call.peer).name;
+
+  ({String name, bool guest}) _describe(PublicIdentity? peer) {
+    if (peer == null) return (name: 'Unknown caller', guest: false);
+    if (peer.id == _admittedGuestId) {
+      return (name: '${_admittedGuestName ?? 'Guest'} (guest)', guest: true);
+    }
+    if (contacts?.find(peer) case final contact?) {
+      return (name: contact.label, guest: false);
+    }
+    if (_visit case final visit? when visit.link.host == peer) {
+      return (name: visit.link.hostName, guest: false);
+    }
+    return (name: 'Unknown caller', guest: false);
   }
 
   Future<void> start() async {
     try {
       final sodium = _sodium = await SottoCrypto.init();
-      final identity = _identity = isGuest
-          ? Identity.generate(sodium)
-          : await _loadIdentity(sodium);
-      _hideIp = await _readSetting(_hideIpSetting) == '1';
-      _hostName = await _readSetting(_hostNameSetting) ?? '';
+      final identity = _identity = _givenIdentity ?? Identity.generate(sodium);
+      _hideIp = await _readSetting(hideIpSetting) == '1';
       _codec = EnvelopeCodec(sodium, identity);
       await localRenderer.initialize();
       await remoteRenderer.initialize();
@@ -162,20 +222,16 @@ class CallController extends ChangeNotifier {
           remoteRenderer: remoteRenderer,
           iceServers: _iceServersForCall,
           relayOnly: _hideIp,
+          devices: () => devices?.effective ?? const DeviceSelection(),
         ),
         newCallId: () => b64Encode(sodium.randombytes.buf(16)),
-        // A guest's page answers the call that admits it from the waiting room.
         autoAnswer: _decideAutoAnswer,
       );
       manager.addListener(_onCallChanged);
-
-      if (!isGuest) {
-        try {
-          await trustedCallers.load();
-        } catch (_) {
-          // Keystore unavailable: auto-answer stays off.
-        }
+      if (history case final history?) {
+        _recorder = CallRecorder(history: history, describePeer: _describe);
       }
+      devices?.onDeviceGone = _onDeviceGone;
 
       if (guestLinkPayload case final payload?) {
         try {
@@ -188,13 +244,13 @@ class CallController extends ChangeNotifier {
         } on GuestLinkException catch (e) {
           guestLinkProblem = e.problem;
         }
-      } else {
+      } else if (isProfessional) {
         final links = _links = GuestLinkStore(sodium, _settings);
         try {
           await links.load();
           await links.ensurePersonal();
         } catch (_) {
-          // Keystore unavailable: links work until the app restarts.
+          // Storage unavailable: links work until the app restarts.
         }
         _host = GuestHost(
           links: links,
@@ -202,6 +258,7 @@ class CallController extends ChangeNotifier {
           onAdmit: (guest) async {
             manager.dismiss();
             _admittedGuestId = guest.guest.id;
+            _admittedGuestName = guest.name;
             await manager.call(
               guest.guest,
               video: guest.video,
@@ -209,7 +266,7 @@ class CallController extends ChangeNotifier {
             );
           },
         )..addListener(notifyListeners);
-        _publishGuestLink();
+        publishGuestLinks();
       }
 
       final relay = _relay = RelayClient(
@@ -231,18 +288,6 @@ class CallController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<Identity> _loadIdentity(Sodium sodium) async {
-    if (!persistentIdentity) return Identity.generate(sodium);
-    try {
-      return await IdentityStore(sodium, OsSecretStore()).loadOrCreate();
-    } catch (e) {
-      identityWarning =
-          'Could not use the system keystore ($e). '
-          'Using a temporary identity: your call link will change when the app restarts.';
-      return Identity.generate(sodium);
-    }
-  }
-
   Future<List<Map<String, dynamic>>> _iceServersForCall() async {
     final servers = await _relay?.freshIceServers() ?? const [];
     return servers.isEmpty ? fallbackIceServers : servers;
@@ -261,20 +306,20 @@ class CallController extends ChangeNotifier {
     publishForTests('hide-ip', '$value');
     notifyListeners();
     try {
-      await _settings.write(_hideIpSetting, value ? '1' : '0');
+      await _settings.write(hideIpSetting, value ? '1' : '0');
     } catch (_) {
       // Not persisted; still applies until the app restarts.
     }
   }
 
-  /// Auto-answer: a guest's page answers the call that admits it; a
-  /// professional's device answers verified trusted callers if switched on.
+  /// Auto-answer: a guest's page answers the call that admits it; the
+  /// professional's app answers verified contacts chosen for auto-answer,
+  /// if switched on.
   AutoAnswer? _decideAutoAnswer(OpenedMessage invite) {
     if (_visit?.isAdmission(invite) == true) {
       return const AutoAnswer(delay: Duration.zero, video: true);
     }
-    if (isGuest) return null;
-    return trustedCallers.decide(
+    return contacts?.decide(
       invite.sender,
       videoCall: invite.body['video'] != false,
     );
@@ -293,36 +338,48 @@ class CallController extends ChangeNotifier {
     return call.autoAnswered && call.peer?.id != _admittedGuestId && !isGuest;
   }
 
-  void _onTrustedChanged() {
-    publishForTests('auto-answer', '${trustedCallers.enabled}');
-    notifyListeners();
+  /// Whether the last call's peer can be added to contacts (not a guest,
+  /// not already a contact).
+  bool get canAddPeerToContacts {
+    final peer = call.peer;
+    return peer != null &&
+        isProfessional &&
+        peer.id != _admittedGuestId &&
+        contacts?.find(peer) == null;
   }
 
-  /// Marks the peer of the last call as a trusted caller. The UI must have
-  /// had the user confirm they compared the safety number.
-  Future<void> trustPeer({
+  /// Adds the current/last call's peer to contacts. [verified] means the
+  /// user confirmed they compared the safety number.
+  Future<void> addPeerToContacts({
     required String name,
-    required bool allowVideo,
+    String organisation = '',
+    required bool verified,
   }) async {
     final peer = call.peer;
-    if (peer == null || isGuest || peer.id == _admittedGuestId) return;
-    await trustedCallers.trust(
-      TrustedCaller(
-        identity: peer,
-        name: name.trim().isEmpty ? 'Trusted caller' : name.trim(),
-        allowVideo: allowVideo,
-      ),
+    if (peer == null || !isProfessional || peer.id == _admittedGuestId) {
+      return;
+    }
+    await contacts!.add(
+      peer,
+      name: name.trim().isEmpty ? 'Contact' : name,
+      organisation: organisation,
+      verified: verified,
     );
   }
 
-  /// Whether the last call's peer can be offered as a trusted caller.
-  bool get canTrustPeer {
-    final peer = call.peer;
-    return peer != null &&
-        !isGuest &&
-        peer.id != _admittedGuestId &&
-        trustedCallers.find(peer) == null;
-  }
+  /// History entry of the call that just ended (to add a note).
+  String? get lastHistoryId => _recorder?.lastRecordId;
+
+  /// This person's contact link (`#c=`), with the name and organisation
+  /// they chose.
+  String contactLink({required String name, String organisation = ''}) =>
+      ContactLink.create(
+        _sodium!,
+        _identity!,
+        base: linkBase,
+        name: name.isEmpty ? 'Sotto user' : name,
+        organisation: organisation,
+      );
 
   void _sendGuestMessage(
     PublicIdentity to,
@@ -330,7 +387,7 @@ class CallController extends ChangeNotifier {
     Map<String, Object?> body,
   ) => _relay?.send(to.id, _codec!.seal(recipient: to, type: type, body: body));
 
-  /// The professional's personal guest link (not in guest mode).
+  /// The professional's personal guest link.
   String? get personalGuestLink {
     final link = _links?.personal;
     return link == null ? null : _guestLinkUrl(link);
@@ -349,43 +406,32 @@ class CallController extends ChangeNotifier {
       _identity!,
       linkId: link.id,
       secret: link.secret,
-      hostName: _hostName.isEmpty ? 'Sotto user' : _hostName,
+      hostName: _hostName().isEmpty ? 'Sotto user' : _hostName(),
       expiresAt: link.expiresAt,
     ),
   );
 
-  void _publishGuestLink() {
+  /// Republishes links for the tests (after the name changes).
+  void publishGuestLinks() {
     if (personalGuestLink case final link?) publishForTests('guest-link', link);
     final oneTime = oneTimeGuestLinks;
     if (oneTime.isNotEmpty) publishForTests('one-time-link', oneTime.last.url);
+    notifyListeners();
   }
 
   Future<void> rotatePersonalGuestLink() async {
     await _links?.rotatePersonal();
-    _publishGuestLink();
-    notifyListeners();
+    publishGuestLinks();
   }
 
   Future<void> createOneTimeGuestLink() async {
     await _links?.createOneTime();
-    _publishGuestLink();
-    notifyListeners();
+    publishGuestLinks();
   }
 
   Future<void> revokeGuestLink(String id) async {
     await _links?.revoke(id);
     notifyListeners();
-  }
-
-  Future<void> setHostName(String name) async {
-    _hostName = name.trim();
-    _publishGuestLink();
-    notifyListeners();
-    try {
-      await _settings.write(_hostNameSetting, _hostName);
-    } catch (_) {
-      // Not persisted; still applies until the app restarts.
-    }
   }
 
   /// Admits a waiting guest (only when not already in a call).
@@ -414,6 +460,7 @@ class CallController extends ChangeNotifier {
   }
 
   void _onCallChanged() {
+    final call = this.call;
     if (call.phase == CallPhase.connecting && autoAnswered) {
       publishForTests('auto-answered', 'true');
       // Audible cue that a call was picked up automatically (where the
@@ -422,20 +469,39 @@ class CallController extends ChangeNotifier {
     }
     if (call.phase == CallPhase.calling || call.phase == CallPhase.incoming) {
       publishForTests('auto-answered', 'false');
-    }
-    if (call.phase == CallPhase.calling || call.phase == CallPhase.incoming) {
       _micEnabled = true;
       _cameraEnabled = true;
       _route = null;
+      _quality = null;
+      _connectedAt = null;
     }
     if (call.phase == CallPhase.connected) {
+      _connectedAt ??= DateTime.now();
       publishForTests('sending-video', '$sendingVideo');
+      _qualityTimer ??= Timer.periodic(
+        const Duration(seconds: 2),
+        (_) => _sampleQuality(),
+      );
+      if (_route == null) unawaited(_detectRoute());
     }
-    if (call.phase == CallPhase.connected && _route == null) {
-      unawaited(_detectRoute());
+    if (!call.active) {
+      _qualityTimer?.cancel();
+      _qualityTimer = null;
     }
+    unawaited(_recorder?.observe(call));
     publishForTests('call-phase', call.phase.name);
     notifyListeners();
+  }
+
+  Future<void> _sampleQuality() async {
+    if (call.phase != CallPhase.connected) return;
+    final sample = await _manager?.media?.qualitySample();
+    final quality = sample?.quality;
+    if (quality != null && quality != _quality) {
+      _quality = quality;
+      publishForTests('quality', quality.name);
+      notifyListeners();
+    }
   }
 
   /// Reads the selected ICE candidate pair after connecting, retrying for
@@ -455,10 +521,26 @@ class CallController extends ChangeNotifier {
     }
   }
 
-  /// Calls the person behind a call link or code.
+  /// Uses another device now and for future calls.
+  Future<void> useDevice(DeviceKind kind, String? deviceId) async {
+    await devices?.choose(kind, deviceId);
+    if (call.active) await _manager?.media?.useDevice(kind, deviceId);
+  }
+
+  /// A device in use was unplugged: switch the call to the default.
+  void _onDeviceGone(DeviceKind kind) {
+    if (call.active) unawaited(_manager?.media?.useDevice(kind, null));
+  }
+
+  /// Calls the person behind a call link, contact link or code.
   /// Throws [InvalidIdentityException] for an invalid link.
   Future<void> callSomeone(String linkOrCode, {bool video = true}) async {
-    final peer = CallCode.parse(_sodium!, linkOrCode);
+    final peer = ContactLink.parse(_sodium!, linkOrCode).identity;
+    await callPeer(peer, video: video);
+  }
+
+  /// Calls a known person (a contact, or someone from the history).
+  Future<void> callPeer(PublicIdentity peer, {bool video = true}) async {
     if (peer.id == _identity!.id) {
       throw const InvalidIdentityException('that is your own call link');
     }
@@ -490,12 +572,12 @@ class CallController extends ChangeNotifier {
     for (final subscription in _subscriptions) {
       subscription.cancel();
     }
+    _qualityTimer?.cancel();
     _manager?.dispose();
     _host?.dispose();
-    trustedCallers.dispose();
     _visit?.dispose();
     unawaited(_relay?.stop());
-    _identity?.dispose();
+    if (_givenIdentity == null) _identity?.dispose();
     if (_ready) {
       localRenderer.dispose();
       remoteRenderer.dispose();

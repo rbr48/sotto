@@ -12,7 +12,7 @@ Sotto is a privacy-first audio and video calling app for professionals and their
 
 The name comes from *sotto voce*: speaking quietly so that only the listener hears.
 
-> Status: **Phase 5 — guest links.** Professionals send a signed guest link; clients open it in any browser (no app, no account), check their camera, and wait in a **waiting room** until they're admitted. Calls connect directly when possible and through Sotto's own TURN server when not; **Hide my IP address** forces the relay. All call setup is end-to-end encrypted, the servers store nothing, and the web app loads nothing from third parties. Optional **auto-answer** lets people you trust (after comparing safety numbers) reach you even when you can't pick up.
+> Status: **Phase 6 — professional app essentials (MVP).** The app now has onboarding (create an identity or restore a backup; name and practice), an **encrypted vault** on the device for contacts, call history, private session notes and settings, an **app lock** (PIN), **encrypted backups** (Argon2id + XChaCha20-Poly1305), **contacts** added from signed contact links or QR codes, call screens with a timer, quality indicator and movable self-view, and camera/microphone/speaker pickers. Clients still join from any browser with a guest link and wait in a waiting room; all call setup is end-to-end encrypted, the servers store nothing, and the web app loads nothing from third parties. Optional **auto-answer** for verified contacts is protected by the app lock.
 
 **Package name / application ID:** `com.izhaanintellect.sotto` (publisher: Izhaan Intellect)
 
@@ -23,13 +23,13 @@ The name comes from *sotto voce*: speaking quietly so that only the listener hea
 | `app/` | Flutter app: Android, Windows, Linux and the browser (web) |
 | `server/` | Relay server (Node.js + TypeScript). Stores nothing |
 | `infra/` | Docker Compose + Caddy deployment for the test server |
-| `e2e/` | End-to-end test: a real call between two headless browsers |
+| `e2e/` | End-to-end tests: real calls between headless browsers through the real relay and TURN server |
 | `tools/crypto-vectors/` | Independent implementation of the protocol that generates crypto test vectors |
 | `docs/` | Strategy, roadmap, features and deployment guides |
 
 ## Try it
 
-**Online** (after the test server is deployed): open `https://sotto.izhaanintellect.fun/` on one device, then open its call link on another. Compare the safety numbers. `?selftest=1` runs the crypto self-test in the browser.
+**Online** (after the test server is deployed): open `https://sotto.izhaanintellect.fun/` on one device and enter a name (a browser session keeps nothing after the tab closes; install the app to keep contacts and history). Share a guest link with a "client" on another device, or your contact link (Contacts → Share my contact) with a "colleague". Compare the safety numbers. `?selftest=1` runs the crypto self-test in the browser.
 
 **Locally:**
 
@@ -42,7 +42,7 @@ cd app && flutter run -d linux --dart-define=SOTTO_RELAY_URL=ws://localhost:8080
 cd app && flutter run -d chrome --dart-define=SOTTO_RELAY_URL=ws://localhost:8080/relay
 ```
 
-Open the app on two devices or windows, copy one's call link into the other and press **Video call**.
+Open the app on two devices or windows, go through onboarding, then add each other from **Contacts → Share my contact** (or paste a link in **Home → Call a link**) and press **Video call**. On Linux the app needs a Secret Service (GNOME Keyring or KWallet) to keep its keys; without one it offers a session that saves nothing.
 
 ## Development checks
 

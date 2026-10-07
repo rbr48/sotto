@@ -23,6 +23,7 @@ import {
   dataAttribute,
   launch,
   newContext,
+  openApp,
   openPage,
   timeout,
   titleIncludes,
@@ -44,8 +45,7 @@ try {
   await selfTest.close();
   console.log('✓ crypto self-test passed in the browser');
 
-  const bob = await openPage(context, 'bob', base);
-  await titleIncludes(bob, 'Ready');
+  const bob = await openApp(context, 'bob', 'Bob');
   const bobLink = await bob.evaluate(() => document.documentElement.dataset.sottoCallLink);
   assert.ok(bobLink?.includes('?call='), 'Bob has a call link');
   console.log('✓ Bob is online with a call link');

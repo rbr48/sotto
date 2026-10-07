@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:sotto/call/devices.dart';
 import 'package:sotto/call/media_engine.dart';
 
 /// Records what the call flow asks of the media layer.
@@ -59,6 +60,16 @@ class FakeMediaEngine implements MediaEngine {
 
   @override
   Future<MediaRoute?> currentRoute() async => route;
+
+  QualitySample? quality;
+  final usedDevices = <(DeviceKind, String?)>[];
+
+  @override
+  Future<QualitySample?> qualitySample() async => quality;
+
+  @override
+  Future<void> useDevice(DeviceKind kind, String? deviceId) async =>
+      usedDevices.add((kind, deviceId));
 
   @override
   Future<void> close() async {

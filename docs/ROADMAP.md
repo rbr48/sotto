@@ -227,6 +227,8 @@ Native code (the Android audio mixer, desktop recording plugin) lives under the 
 
 Because public keys can't be guessed and there is no directory, **strangers cannot call you** unless you shared your code.
 
+**As built in Phase 6:** a simpler first version. B's **contact link** (`https://<host>/#c=<payload>`, also shown as a QR code) carries B's identity card, name and organisation, signed by B (`docs/PROTOCOL.md` §5.8). A pastes it into *Contacts → Add contact*; the contact is saved on A's device only, and A can mark it **verified** after comparing safety numbers. There is no `contact.request` exchange yet, so B learns about A on A's first call (and can add A from the call or the history). The invite-secret handshake and push tokens arrive with push wake-up (Phase 12).
+
 ### 5.3 Relay protocol: what the server sees
 
 Outer envelope (the only thing the server can read):
@@ -314,10 +316,9 @@ The server holds the FCM *project* credential, which is server configuration, no
 
 ### 5.8 Local data on the device
 
-- **Encrypted database:** `drift` with SQLCipher (`sqlcipher_flutter_libs`). The database key is random and stored in `flutter_secure_storage`.
-- Tables: `contacts` (public key, name, avatar, push token, verified flag), `calls` (history), `settings`, `seen_nonces` (pruned automatically).
-- Optional **app lock**: PIN or biometrics (`local_auth`).
-- Optional **auto-delete call history** after N days.
+- **Encrypted vault** (as built in Phase 6, instead of drift + SQLCipher): all local data (profile, contacts, call history and notes, guest links, settings) is one key-value map, encrypted with XChaCha20-Poly1305 under a random 256-bit key kept in the OS keystore (`flutter_secure_storage`), and rewritten atomically on every change. The data is small (kilobytes), so a database isn't needed; this works identically on every platform, adds no second crypto library (SQLCipher brings OpenSSL) and uses the same audited libsodium. See `docs/PROTOCOL.md` §9. If the data grows (e.g. thousands of notes), it can move to SQLCipher later without changing the rest of the app.
+- **App lock**: a PIN (6–16 digits, verified with Argon2id), lock after leaving the app (immediately, 1, 5 or 15 minutes) or on demand; growing waits after 5 wrong PINs. Calls still ring on top of the lock, like a phone. Biometrics (`local_auth`) come with the mobile work in Phase 12.
+- **Auto-delete call history** after 7, 30 (default) or 90 days, keep forever, or don't keep history at all.
 
 ### 5.9 Encrypted backup and restore
 
@@ -326,6 +327,7 @@ Without accounts, a lost device means a lost identity, so the user gets a **back
 - Encryption: a key derived from the user's password with **Argon2id**, then XChaCha20-Poly1305.
 - The user saves it wherever they choose: a file, USB drive or their own cloud. The app never uploads it.
 - Restore: on first launch, *Restore from backup*, enter the password.
+- As built in Phase 6: Argon2id (3 passes, 64 MiB), passphrase of at least 12 characters (or a generated 25-character one), optional call history and notes; the app lock and device choices stay on each device. Native apps only: the browser build has no Argon2id and never handles real identities. Format: `docs/PROTOCOL.md` §8.
 
 ### 5.10 What the server can and cannot see
 
@@ -354,14 +356,15 @@ Hiding even this short-lived metadata would need onion routing (like Tor), which
 | Guest web client | Flutter Web build; `sodium` uses libsodium.js in the browser |
 | Cryptography (Ed25519, X25519, secretbox, Argon2id) | `sodium` (libsodium, built automatically for each platform; `sodium_libs` is deprecated) |
 | Secure key storage | `flutter_secure_storage` |
-| Encrypted local database | `drift` + `sqlcipher_flutter_libs` |
+| Encrypted local storage | Vault file encrypted with libsodium XChaCha20-Poly1305 (`path_provider` for its location); key in `flutter_secure_storage` |
+| Backup files | `file_selector` (open/save dialogs) |
 | WebSocket | `web_socket_channel` |
 | State management | `flutter_riverpod` |
-| QR display / scan | `qr_flutter` / `mobile_scanner` (desktop: paste invite link, or webcam scan where supported) |
+| QR display / scan | `qr_flutter` (Phase 6) / `mobile_scanner` (Phase 12; desktop: paste the contact link) |
 | Invite links | `app_links` |
 | Push | `firebase_messaging`, `unifiedpush` |
 | Native incoming-call UI (Android) | `flutter_callkit_incoming` |
-| App lock | `local_auth` |
+| App lock | PIN with Argon2id (Phase 6); `local_auth` biometrics (Phase 12) |
 | Permissions | `permission_handler` |
 | Keep screen on during calls | `wakelock_plus` |
 | Network change detection | `connectivity_plus` |
@@ -538,7 +541,7 @@ An **optional** setting on the *receiving* device: calls from people the user ha
 - [x] **Rings first** for a chosen delay (0–10 s, default 5 s) so the user can still decline
 - [x] Answers as a **voice call with the camera never opened** by default; video allowed per trusted caller
 - [x] **"Auto-answered" banner** on both sides (`call.accept` carries `{"auto": true}`); system alert sound where the platform provides one
-- [ ] A proper ringtone/chime sound on every platform (web and Linux have no system alert sound) — with Phase 6 call screens
+- [ ] A proper ringtone/chime sound on every platform (web and Linux have no system alert sound) — moved to Phase 7, with desktop notifications
 - [x] Persistent reminder on the home screen while auto-answer is on, listing who is trusted
 - [x] Never auto-answers while already in a call (busy still applies) or when the trusted list is empty
 - [x] Tests: state-machine tests (delay, decline during delay, voice-only, busy), trusted-caller rules and storage; e2e `e2e/autoanswer.mjs`: trusted caller auto-connects voice-only after the delay, decline wins, stranger keeps ringing
@@ -548,15 +551,20 @@ An **optional** setting on the *receiving* device: calls from people the user ha
 **Exit criteria:** a verified trusted caller's call connects by itself after the ring delay with a visible and audible indication on both sides; anyone else's call rings normally.
 
 #### Phase 6 — Professional App Essentials (Weeks 15–17)
-- [ ] Onboarding: create identity or restore from backup; display name and practice name
-- [ ] Encrypted local database (drift + SQLCipher); app lock (PIN / biometrics)
-- [ ] Call history (local only) with optional session notes and auto-delete
-- [ ] Call screens: draggable preview, call timer, quality indicator (local only)
-- [ ] Desktop pickers for camera, microphone and speaker, with hot-plug handling
-- [ ] Android: switch camera; speaker / earpiece / Bluetooth routing
-- [ ] Encrypted backup export and restore (Argon2id + XChaCha20-Poly1305)
-- [ ] Colleagues: add by QR code or invite link; call colleagues directly
-- [ ] Auto-answer: trusted callers are chosen from contacts; changing the setting requires the app lock
+- [x] Onboarding: create an identity or restore from a backup; name and practice (shown on guest links and the contact link). Upgrading from Phase 5 keeps the identity and moves old settings into the vault
+- [x] Encrypted local storage: an encrypted vault (XChaCha20-Poly1305, key in the OS keystore) instead of drift + SQLCipher (reasons in §5.8); clear screens when the keystore or the vault can't be used
+- [x] App lock: PIN (Argon2id verifier, growing waits after wrong PINs), auto-lock after leaving the app, *Lock now*; calls still ring while locked
+- [ ] Biometric unlock (`local_auth`) — Phase 12, with the other mobile work
+- [x] Call history (local only): direction, time, talk time, outcome; call back; add to contacts; private session notes; auto-delete (7/30/90 days, forever, or off)
+- [x] Call screens: names, call timer, quality indicator from local statistics (good / fair / poor), draggable self-preview
+- [x] Camera, microphone and speaker pickers (Settings and during calls), choices kept on the device; unplugged devices fall back to the default mid-call, plugged-in devices appear automatically
+- [x] Android: switch camera; audio output picker (speaker / earpiece / Bluetooth / wired, as reported by the system)
+- [ ] Verify device pickers and Android audio routing on real hardware (automated tests use fake devices)
+- [x] Encrypted backup export and restore (Argon2id + XChaCha20-Poly1305), native apps; save or copy the file, open or paste it to restore
+- [x] Colleagues: signed contact links (`#c=`) with a QR code; add from a link, after a call or from the history; call contacts directly; browser quick-call page for contact links
+- [ ] Scan QR codes in the app (`mobile_scanner`) — Phase 12; for now the phone's camera opens the link, or paste it
+- [x] Auto-answer: chosen per verified contact; turning it on, changing the ring time and choosing people all require the app lock
+- [x] Tests: vault, backup, app lock, contacts and contact links, history and recorder, devices and quality, app lifecycle (onboarding, restart, upgrade, backup/restore, erase, no keystore); e2e `phase6.mjs` (onboarding, contact link, call from contacts, timer and quality, history and notes, lock with a call on top, device picker, nothing readable at the relay); existing e2e tests updated
 
 **Exit criteria / Milestone M2 — MVP:** a professional installs the desktop app, sends a guest link and holds a private, encrypted call with a client who is using only a browser.
 
@@ -571,6 +579,7 @@ An **optional** setting on the *receiving* device: calls from people the user ha
 - [ ] `docs/SELF_HOSTING.md`
 - [ ] Our hosted beta environment (relay + coturn + guest page) in one region
 - [ ] Desktop tray mode so the app stays reachable; native notifications for knocking guests
+- [ ] Ringtone and chime sounds on every platform (incoming calls, knocks, auto-answer), bundled with the app
 
 **Exit criteria:** a non-expert can self-host on a fresh VPS in under 15 minutes by following the docs.
 

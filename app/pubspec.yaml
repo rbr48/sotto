@@ -41,6 +41,9 @@ dependencies:
   sodium: ^4.1.1+2
   flutter_secure_storage: ^11.2.0
   web: ^1.1.1
+  path_provider: ^2.1.6
+  file_selector: ^1.1.0
+  qr_flutter: ^4.1.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

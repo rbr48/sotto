@@ -1,12 +1,14 @@
-// End-to-end test of auto-answer for trusted callers (Phase 5B):
+// End-to-end test of auto-answer for trusted contacts (Phase 5B, Phase 6):
 //
-//  1. Bob can't turn auto-answer on before trusting anyone.
-//  2. After a normal call, Bob trusts Alice; the dialog requires confirming
-//     that they compared safety numbers.
-//  3. With auto-answer on, Alice's call rings for the delay (5 s), then
-//     connects by itself: voice only from Bob's side, "Auto-answered" on both.
-//  4. Bob can still decline during the delay.
-//  5. A stranger's call keeps ringing; it is never auto-answered.
+//  1. Bob can't turn auto-answer on before choosing a verified contact.
+//  2. After a normal call, Bob adds Alice to his contacts, confirming that
+//     they compared safety numbers.
+//  3. Choosing her for auto-answer and switching it on both need the app
+//     lock: Bob sets a PIN, then confirms it.
+//  4. Alice's call rings for the delay (5 s), then connects by itself: voice
+//     only from Bob's side, "Auto-answered" on both.
+//  5. Bob can still decline during the delay.
+//  6. A stranger's call keeps ringing; it is never auto-answered.
 import assert from 'node:assert/strict';
 import {
   dumpPages,
@@ -16,35 +18,40 @@ import {
   clickButton,
   dataAttribute,
   enableSemantics,
+  enterPin,
   launch,
   newContext,
+  openApp,
   openPage,
+  openTab,
   readAttribute,
+  setPin,
   titleIncludes,
   toggleSwitch,
   typeInto,
 } from './lib.mjs';
 
 const browser = await launch();
+const pin = '246810';
 
 try {
   const context = await newContext(browser);
 
-  const bob = await openPage(context, 'bob', base);
-  await titleIncludes(bob, 'Ready');
+  const bob = await openApp(context, 'bob', 'Bob');
   const bobLink = await readAttribute(bob, 'call-link');
 
-  // 1. The switch is disabled while nobody is trusted.
+  // 1. The switch is disabled while nobody is chosen.
+  await openTab(bob, 'Settings');
   await enableSemantics(bob);
   const autoSwitch = bob
-    .getByRole('switch', { name: /Auto-answer calls from trusted callers/ })
-    .or(bob.getByRole('checkbox', { name: /Auto-answer calls from trusted callers/ }))
+    .getByRole('switch', { name: /Auto-answer calls from trusted contacts/ })
+    .or(bob.getByRole('checkbox', { name: /Auto-answer calls from trusted contacts/ }))
     .first();
   await autoSwitch.waitFor();
-  assert.equal(await autoSwitch.isDisabled(), true, 'auto-answer needs a trusted caller first');
-  console.log('✓ auto-answer cannot be switched on before trusting someone');
+  assert.equal(await autoSwitch.isDisabled(), true, 'auto-answer needs a trusted contact first');
+  console.log('✓ auto-answer cannot be switched on before choosing a verified contact');
 
-  // 2. Normal call, then trust Alice.
+  // 2. Normal call, then add Alice as a verified contact.
   const alice = await openPage(context, 'alice', bobLink);
   await titleIncludes(bob, 'Incoming call');
   await clickButton(bob, 'Accept');
@@ -52,19 +59,33 @@ try {
   await clickButton(alice, 'Hang up');
   await titleIncludes(bob, 'Call ended (they hung up)');
 
-  await clickButton(bob, 'Trust this caller');
-  const trustButton = bob.getByRole('button', { name: 'Trust', exact: true });
-  await trustButton.waitFor();
-  assert.equal(await trustButton.isDisabled(), true, 'must confirm the safety number first');
-  await bob.getByRole('checkbox', { name: /I compared this safety number/ }).click();
+  await clickButton(bob, 'Add to contacts');
   await typeInto(bob, 'Name', 'Alice');
-  await clickButton(bob, 'Trust');
-  await toggleSwitch(bob, /Auto-answer calls from trusted callers/);
-  await dataAttribute(bob, 'auto-answer', 'true');
+  await toggleSwitch(bob, /I compared this safety number/);
+  await clickButton(bob, 'Save contact');
   await clickButton(bob, 'OK');
-  console.log('✓ Bob trusted Alice after confirming the safety number, and turned auto-answer on');
+  console.log('✓ Bob added Alice to his contacts after comparing the safety number');
 
-  // 3. Alice calls again: rings for ~5 s, then connects without Bob touching anything.
+  // 3. Choose Alice for auto-answer (sets the PIN), then switch it on (asks for it).
+  await openTab(bob, 'Contacts');
+  await clickButton(bob, /^Alice/);
+  await toggleSwitch(bob, /Answer their calls automatically/);
+  await titleIncludes(bob, 'Ready');
+  await setPin(bob, pin);
+  await clickButton(bob, 'Done');
+  // The contact list now marks Alice for auto-answer.
+  await bob.getByRole('button', { name: /^Alice[\s\S]*Verified · Auto-answer/ }).waitFor();
+
+  await openTab(bob, 'Settings');
+  await toggleSwitch(bob, /Auto-answer calls from trusted contacts/);
+  await typeInto(bob, 'PIN', '111111');
+  await clickButton(bob, 'Confirm');
+  await bob.getByText('Wrong PIN.').first().waitFor();
+  await enterPin(bob, pin);
+  await dataAttribute(bob, 'auto-answer', 'true');
+  console.log('✓ choosing Alice set an app lock; switching auto-answer on needed the PIN (a wrong one was refused)');
+
+  // 4. Alice calls again: rings for ~5 s, then connects without Bob touching anything.
   await clickButton(alice, 'Video call');
   await titleIncludes(bob, 'Incoming call');
   const ringStart = Date.now();
@@ -80,7 +101,7 @@ try {
   await titleIncludes(bob, 'Call ended');
   await clickButton(bob, 'OK');
 
-  // 4. Bob declines during the delay.
+  // 5. Bob declines during the delay.
   await clickButton(alice, 'Video call');
   await titleIncludes(bob, 'Incoming call');
   await clickButton(bob, 'Decline');
@@ -90,7 +111,7 @@ try {
   console.log('✓ declining during the ring delay wins');
   await clickButton(bob, 'OK');
 
-  // 5. A stranger is never auto-answered.
+  // 6. A stranger is never auto-answered.
   const stranger = await openPage(context, 'stranger', bobLink);
   await titleIncludes(bob, 'Incoming call');
   await bob.waitForTimeout(8000);
@@ -99,9 +120,9 @@ try {
   await clickButton(bob, 'Decline');
   console.log('✓ a stranger kept ringing (never auto-answered)');
 
-  const sends = assertRelaySawOnlyCiphertext(assert, ['Alice']);
+  const sends = assertRelaySawOnlyCiphertext(assert, ['Alice', pin]);
   assertNoThirdPartyRequests(assert, [new URL(base).host, 'localhost:8080']);
-  console.log(`✓ relay saw ${sends} encrypted messages; trust settings never left Bob's device`);
+  console.log(`✓ relay saw ${sends} encrypted messages; contacts and settings never left Bob's device`);
   console.log('PASS');
 } catch (error) {
   await dumpPages();

@@ -17,6 +17,7 @@ import {
   clickButton,
   launch,
   newContext,
+  openApp,
   openPage,
   readAttribute,
   titleIncludes,
@@ -39,9 +40,7 @@ async function knock(context, label, link, { name, voiceOnly = false } = {}) {
 try {
   const context = await newContext(browser);
 
-  const pro = await openPage(context, 'professional', base);
-  await titleIncludes(pro, 'Ready');
-  await typeInto(pro, /Your name, as guests will see it/, 'Dr Rao');
+  const pro = await openApp(context, 'professional', 'Dr Rao');
   await pro.waitForFunction(
     () => {
       const link = document.documentElement.getAttribute('data-sotto-guest-link');
