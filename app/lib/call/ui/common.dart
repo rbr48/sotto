@@ -380,7 +380,7 @@ class HangUpButton extends StatelessWidget {
   }
 }
 
-/// Sotto's logo: a speech bubble with a quiet sound wave (drawn by
+/// Sotto's logo mark: a speech bubble with a quiet sound wave (drawn by
 /// tools/icons/generate.py). Decorative: screen readers skip it.
 class SottoLogo extends StatelessWidget {
   const SottoLogo({super.key, this.size = 72});
@@ -394,6 +394,53 @@ class SottoLogo extends StatelessWidget {
     excludeFromSemantics: true,
     filterQuality: FilterQuality.medium,
   );
+}
+
+/// Sotto wordmark with brand typography and dot accent.
+class SottoWordmark extends StatelessWidget {
+  const SottoWordmark({
+    super.key,
+    this.fontSize = 28,
+    this.color,
+    this.showAccent = true,
+  });
+
+  final double fontSize;
+  final Color? color;
+  final bool showAccent;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final textColor = color ?? theme.colorScheme.primary;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        Text(
+          'Sotto',
+          style: TextStyle(
+            fontSize: fontSize,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -1.0,
+            color: textColor,
+          ),
+        ),
+        if (showAccent) ...[
+          const SizedBox(width: 3),
+          Container(
+            width: fontSize * 0.2,
+            height: fontSize * 0.2,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary,
+              shape: BoxShape.circle,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
 }
 
 class Centered extends StatelessWidget {
@@ -464,6 +511,7 @@ class RelayStatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final (label, color) = switch (status) {
       RelayStatus.online => ('Online', Colors.green),
       RelayStatus.connecting => ('Connecting…', Colors.orange),
@@ -471,9 +519,34 @@ class RelayStatusChip extends StatelessWidget {
     };
     return Padding(
       padding: const EdgeInsets.only(right: 12),
-      child: Chip(
-        avatar: Icon(Icons.circle, size: 12, color: color),
-        label: Text(label),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
