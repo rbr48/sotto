@@ -77,6 +77,7 @@ The features planned for the product. Phase numbers refer to [ROADMAP.md](ROADMA
 |---|---|---|---|
 | Tray mode (PC) | The app stays in the system tray so it can still receive knocking clients and calls | 7 | Free |
 | Desktop notifications | A popup and sound when a client knocks or a colleague calls | 7 | Free |
+| Auto-answer for trusted callers | Optional: calls from people you choose (verified contacts only) connect by themselves after a short ring you can still decline. Starts as voice only, with a sound and "Auto-answered" banner on both sides. Only you can turn it on, on your own device | 5B (open app), 12 (locked phone) | Free |
 | Android wake-up | A content-free push wakes your phone with a full-screen call / knock screen even when the app is closed. The server never stores your push token | 12 | Free |
 | Google-free option | UnifiedPush support for receiving calls without Google services | 12 | Free |
 | Ongoing-call notification (Android) | Keeps the call alive in the background | 12 | Free |

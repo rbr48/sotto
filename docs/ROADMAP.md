@@ -527,6 +527,22 @@ The roadmap has five stages. **Do not skip Stage A**: it decides whether the res
 
 **Exit criteria:** a client on an iPhone or a PC browser joins a call from a link in under 30 seconds with no install.
 
+#### Phase 5B — Auto-Answer for Trusted Callers, open app (≈3 days, right after Phase 5)
+An **optional** setting on the *receiving* device: calls from people the user has chosen are answered automatically, so family members (or a colleague on duty) can always get through. Only the device owner can turn it on; a caller can never force it.
+
+- [ ] Setting **Auto-answer calls from trusted callers** (off by default), stored on the device only; never sent to anyone
+- [ ] **Trusted callers** list: only people who have called before and whose safety number the user marked as verified; strangers, guests and unverified callers always ring normally
+- [ ] **Rings first** for a chosen delay (0–10 s, default 5 s) so the user can still decline
+- [ ] Answers as a **voice call with camera off** by default; video allowed per trusted caller
+- [ ] Clear **sound and "Auto-answered" banner** when the call connects; the caller sees *"Auto-answered"* too (`call.accept` carries `{"auto": true}`)
+- [ ] Persistent reminder on the home screen while auto-answer is on, listing who is trusted
+- [ ] Never auto-answers while already in a call (busy still applies) or when the trusted list is empty
+- [ ] Tests: state-machine tests for auto-answer, delay and decline-during-delay; e2e: trusted caller auto-connects, untrusted caller rings
+- [ ] Threat model entry: abuse as a listening device, and the mitigations above
+- [ ] Works while the app is open (desktop; Android in the foreground). Locked phone / closed app: Phase 12
+
+**Exit criteria:** a verified trusted caller's call connects by itself after the ring delay with a visible and audible indication on both sides; anyone else's call rings normally.
+
 #### Phase 6 — Professional App Essentials (Weeks 15–17)
 - [ ] Onboarding: create identity or restore from backup; display name and practice name
 - [ ] Encrypted local database (drift + SQLCipher); app lock (PIN / biometrics)
@@ -536,6 +552,7 @@ The roadmap has five stages. **Do not skip Stage A**: it decides whether the res
 - [ ] Android: switch camera; speaker / earpiece / Bluetooth routing
 - [ ] Encrypted backup export and restore (Argon2id + XChaCha20-Poly1305)
 - [ ] Colleagues: add by QR code or invite link; call colleagues directly
+- [ ] Auto-answer: trusted callers are chosen from contacts; changing the setting requires the app lock
 
 **Exit criteria / Milestone M2 — MVP:** a professional installs the desktop app, sends a guest link and holds a private, encrypted call with a client who is using only a browser.
 
@@ -630,6 +647,7 @@ Recording happens **only on the professional's device**. Media stays peer-to-pee
 - [ ] Foreground service during calls with types `phoneCall|microphone|camera` (Android 14+)
 - [ ] Permissions: `USE_FULL_SCREEN_INTENT`, `FOREGROUND_SERVICE_PHONE_CALL`, `FOREGROUND_SERVICE_MICROPHONE`, `FOREGROUND_SERVICE_CAMERA`
 - [ ] Test on Samsung, Xiaomi and Pixel with Doze and battery savers
+- [ ] **Auto-answer on a locked phone / closed app:** after the wake-up push, start the call foreground service (types `phoneCall|microphone`) before opening the microphone, ring for the chosen delay, then answer; persistent notification "Auto-answer is on" while enabled
 
 **Exit criteria:** a knocking guest or calling colleague rings a locked Android phone with the app killed, within about 3 seconds, and the server stores no token.
 
@@ -671,6 +689,7 @@ Prioritise using paying customers' requests. Likely candidates:
 | 10–11 | 3. Stateless relay | |
 | 12 | 4. coturn | **M1: E2E call over the internet** |
 | 13–14 | 5. Guest links & web client | |
+| +3 days | 5B. Auto-answer for trusted callers (open app) | |
 | 15–17 | 6. Professional app essentials | **M2: MVP** |
 | 18–19 | 7. Self-host package & hosted beta | |
 | 20–23 | 8. Pilot & reliability | **M3: pilot success** |
