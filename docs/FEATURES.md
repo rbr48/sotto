@@ -84,8 +84,10 @@ Recording happens **on the device**. Calls stay end-to-end encrypted and nothing
 
 | Feature | Description |
 |---|---|
-| Record calls | Record both sides of a voice or video call into one file (voice → `.m4a`, video → `.mp4`) |
-| Recording indicator | A "● Recording" badge is shown to **both** people for as long as the recording runs |
+| Record calls | Record both sides' voices of a call into one file |
+| Recording mode choice | In a video call, choose **Voice only** (`.m4a`, smaller file) or **Video + voice** (`.mp4`). Voice calls always record voice only |
+| Default mode setting | Settings → Recording: *Ask every time* / *Voice only* / *Video + voice* |
+| Recording indicator | A "● Recording (voice)" or "● Recording (video)" badge is shown to **both** people for as long as the recording runs |
 | Consent prompt | Optionally, the other person must accept before recording starts (on by default) |
 | Recordings library | List, play, share, rename and delete recordings in the app |
 | Private storage | Recordings are kept in the app's private storage, encrypted |

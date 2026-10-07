@@ -332,7 +332,11 @@ Recording happens **on the user's device**. Media stays peer-to-peer and end-to-
 - [ ] Recording is stopped automatically on hang-up, call failure or the app being killed (finalise the file safely)
 - [ ] Recordings library screen: list, play, share, rename, delete
 - [ ] Recordings stored in app-private storage, encrypted at rest (AES-GCM, key in `flutter_secure_storage`)
-- [ ] Audio-only recordings for voice calls (`.m4a`/AAC); video recordings for video calls (`.mp4`, H.264 + AAC)
+- [ ] **Recording mode choice**: when starting a recording in a video call, the user picks **"Voice only"** (`.m4a`/AAC) or **"Video + voice"** (`.mp4`, H.264 + AAC). Voice calls always record voice only
+- [ ] Default recording mode in Settings (Ask every time / Voice only / Video + voice)
+- [ ] Switching mode mid-recording is not supported: stop and start a new recording instead (keeps files simple)
+- [ ] Both modes include **both sides' voices** (local mic + remote audio mixed into one track)
+- [ ] Mode is included in the `call.recording.started` message so the other participant sees "● Recording (voice)" or "● Recording (video)"
 - [ ] Storage checks: warn when free space is low; optional maximum length / auto-delete after N days
 
 **Android (about 1–1.5 weeks)**
