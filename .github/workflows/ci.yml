@@ -65,14 +65,14 @@ jobs:
           flutter test
       - name: Build web (pointed at the local relay)
         working-directory: app
-        run: flutter build web --dart-define=SOTTO_RELAY_URL=ws://localhost:8080/dev/rooms
+        run: flutter build web --dart-define=SOTTO_RELAY_URL=ws://localhost:8080/relay
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Start relay and web server
         run: |
           (cd server && npm ci && npm run build)
-          SOTTO_DEV_ROOMS=1 HOST=127.0.0.1 PORT=8080 node server/dist/index.js &
+          HOST=127.0.0.1 PORT=8080 node server/dist/index.js &
           python3 -m http.server 8099 --bind 127.0.0.1 --directory app/build/web &
           sleep 2
       - name: End-to-end call test

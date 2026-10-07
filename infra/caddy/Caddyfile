@@ -18,8 +18,8 @@
 		reverse_proxy relay:8080
 	}
 
-	# Phase 1 proof-of-concept signaling. Removed when the encrypted relay lands (Phase 3).
-	handle /dev/rooms {
+	# Signaling relay (WebSocket). Sees only encrypted envelopes.
+	handle /relay {
 		reverse_proxy relay:8080
 	}
 

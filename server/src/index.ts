@@ -5,7 +5,7 @@ import { createRelayServer } from './server.js';
 const config = loadConfig();
 const server = createRelayServer(config);
 const port = await server.listen();
-log.info(`listening on port ${port}${config.enableDevRooms ? ' (dev rooms enabled)' : ''}`);
+log.info(`listening on port ${port}`);
 
 const shutdown = (): void => {
   log.info('shutting down');

@@ -472,7 +472,7 @@ The roadmap has five stages. **Do not skip Stage A**: it decides whether the res
 #### Phase 1 — WebRTC Proof of Concept (Weeks 6–7)
 - [x] Local camera preview in the browser (verified with automated test)
 - [ ] Local camera preview on Windows and Android (needs a real device)
-- [x] Throwaway plaintext relay for experiments only (`/dev/rooms`, off by default)
+- [x] Throwaway plaintext relay for experiments only (`/dev/rooms`; removed in Phase 3)
 - [x] Browser ↔ browser call through the relay (automated end-to-end test)
 - [ ] First calls on the same LAN: **Windows app ↔ browser** and Android ↔ Windows (needs real devices)
 - [x] Mute mic, toggle camera, switch camera (Android), hang up
@@ -493,12 +493,15 @@ The roadmap has five stages. **Do not skip Stage A**: it decides whether the res
 **Exit criteria:** native and web clients exchange encrypted, authenticated messages through a local relay; tampered or replayed messages are rejected.
 
 #### Phase 3 — Stateless Relay Server (Weeks 10–11)
-- [ ] Challenge-response login with the public key (professionals and guests)
-- [ ] In-memory routing map; envelope forwarding; multi-device fan-out
-- [ ] RAM-only queue (TTL 60 s, size caps)
-- [ ] Heartbeat; dead-socket cleanup; in-memory rate limiting and size limits
-- [ ] **No-storage enforcement:** read-only container filesystem, no DB, logs without keys, IPs or tokens; automated test that nothing is written to disk
-- [ ] Client relay connection with reconnect/backoff and outgoing queue; call state machine (busy, timeout, cancel handled on the clients)
+- [x] Challenge-response login with the public key, bound to the relay's hostname (professionals and guests)
+- [x] In-memory routing map; envelope forwarding; multi-device fan-out; relay attaches the authenticated sender
+- [x] RAM-only queue (TTL 60 s, size caps)
+- [x] Heartbeat; dead-socket cleanup; in-memory rate limiting, connection/device limits and size limits
+- [x] **No-storage enforcement:** read-only container filesystem, no DB, logs without keys, IPs or tokens; automated test that runs the real relay process and fails if it writes any file
+- [x] Client relay connection with reconnect/backoff and outgoing queue; call state machine (busy, timeout, cancel handled on the clients), tested with a fake clock
+- [x] Plaintext proof-of-concept rooms (`/dev/rooms`) removed
+- [x] Call links: open someone's link to ring them (replaced by signed guest links in Phase 5)
+- [x] End-to-end test: ringing, accept + live video, busy, hang up, decline, cancel/missed across three browsers; relay frames checked to be logins and opaque envelopes only
 
 **Exit criteria:** encrypted calls between two clients by public key with ringing, accept, reject, cancel and busy behaviour. The relay can't read any message body.
 

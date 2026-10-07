@@ -7,7 +7,8 @@ services:
     build: ../server
     restart: unless-stopped
     environment:
-      SOTTO_DEV_ROOMS: ${SOTTO_DEV_ROOMS:-1}
+      # Caddy forwards the client address; used only for in-memory connection limits.
+      SOTTO_TRUST_PROXY: '1'
     expose:
       - '8080'
     # Nothing is written to disk.

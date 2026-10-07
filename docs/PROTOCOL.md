@@ -109,14 +109,61 @@ number   = groups joined with spaces                             // 12 groups, 6
 
 Both people compute the same number. If a relay substituted either identity card, the numbers would differ.
 
-## 5. Proof-of-concept transport (Phase 1–2 only)
+## 5. Relay protocol (Phase 3)
 
-Until the encrypted relay arrives (Phase 3), the test call uses the plaintext dev-room relay:
+The relay (`server/src/relay/`) routes envelopes between Sotto IDs over a WebSocket at `/relay`. All frames are UTF-8 JSON.
 
-1. Each peer creates a temporary identity and sends `{"kind":"hello","card":<identity card>}`.
-2. All call setup then travels as `{"kind":"sealed","env":"<envelope>"}`, with inner types `sdp.offer`, `sdp.answer` and `ice.candidate`, opened with the peer's ID as the expected sender.
+### 5.1 Login
 
-The dev relay can still swap the identity cards (a man-in-the-middle), which comparing safety numbers detects.
+```
+server → {"type":"challenge","nonce":"<32 random bytes>"}
+client → {"type":"auth","id":"<Sotto ID>","sig":"<signature>"}
+server → {"type":"ready","id":"<Sotto ID>"}            or  {"type":"error","code":"auth-failed"} + close 4001
+```
+
+`sig = crypto_sign_detached("sotto-relay-auth-v1\0" || nonce || lowercase(host), sign_sk)`, where `host` is the HTTP `Host` the client connected to (`name` or `name:port` for non-default ports). Binding the host stops a malicious relay from forwarding this server's challenge to a victim and reusing the signature. Clients that don't log in within 10 s are disconnected (close 4002).
+
+### 5.2 Messages
+
+```
+client → {"type":"send","to":"<Sotto ID>","body":"<envelope>","ref":"<optional, ≤64 chars>"}
+server → {"type":"message","from":"<authenticated sender ID>","body":"<envelope>"}     (to every device of the recipient)
+server → {"type":"ack","ref":"…","status":"delivered" | "queued" | "dropped"}           (only if ref was given)
+server → {"type":"error","code":"bad-message" | "bad-recipient" | "too-large" | "rate-limited" | "not-authenticated" | …}
+```
+
+- The relay never reads `body`. It attaches `from` itself; anything the client puts there is ignored.
+- Recipients receive `from` and must open the envelope with `expectedSender = from` (§3.3 check 6).
+- If the recipient has no connected device, the envelope is held **in memory** for up to 60 s (at most 50 per recipient, 64 MiB in total) and delivered when they log in; otherwise it is dropped.
+
+### 5.3 Limits (in memory, defaults)
+
+| Limit | Value |
+|---|---|
+| WebSocket frame | 96 KiB |
+| Envelope (`body`) | 72 Ki characters |
+| Messages per connection | 20/s, bursts of 60 |
+| Connections per network address | 20 (addresses kept only as an HMAC under a random per-process key) |
+| Devices per Sotto ID | 5 |
+
+### 5.4 Call messages (inside envelopes)
+
+| `type` | Direction | `body` |
+|---|---|---|
+| `call.invite` | caller → callee | `{"video": bool}` |
+| `call.ringing` | callee → caller | `{}` |
+| `call.accept` / `call.reject` | callee → caller | `{}` |
+| `call.busy` | callee → caller | `{}` (callee is in another call) |
+| `call.cancel` | caller → callee | `{}` (hung up before answer, or 45 s without answer) |
+| `call.end` | either | `{}` |
+| `sdp.offer` / `sdp.answer` | caller → callee / callee → caller | `{"sdp": "…"}` |
+| `ice.candidate` | either | `{"candidate", "sdpMid", "sdpMLineIndex"}` |
+
+Every call message carries the same random `callId` (16 bytes). Messages for another call, or from anyone but the call's peer, are ignored. An incoming call stops ringing after 60 s if no `call.cancel` arrives; media setup must finish within 30 s of acceptance.
+
+### 5.5 Call links (Phase 3)
+
+A call link is `https://<host>/?call=<base64url(identity card JSON)>`. It contains only public keys and lets anyone ring its owner. Phase 5 replaces it with signed guest links that can expire and be revoked.
 
 ## 6. Test vectors
 

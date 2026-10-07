@@ -1,32 +1,50 @@
 import 'package:flutter/foundation.dart';
 
-/// Build-time configuration. Override with
-/// `--dart-define=SOTTO_RELAY_URL=wss://example.com/dev/rooms`.
+/// Build-time configuration. Override the relay with
+/// `--dart-define=SOTTO_RELAY_URL=wss://example.com/relay`.
 abstract final class SottoConfig {
   static const String _relayOverride = String.fromEnvironment(
     'SOTTO_RELAY_URL',
   );
-  static const String _defaultRelay =
-      'wss://sotto.izhaanintellect.fun/dev/rooms';
+  static const String _defaultRelay = 'wss://sotto.izhaanintellect.fun/relay';
 
-  /// Relay used by the Phase 1 test call screen.
-  ///
-  /// The web build talks to the server it was loaded from, so a self-hosted
-  /// copy works without rebuilding.
-  static String get devRoomsUrl {
-    if (_relayOverride.isNotEmpty) return _relayOverride;
-    if (kIsWeb) return devRoomsUrlFor(Uri.base);
-    return _defaultRelay;
+  /// The relay to connect to. The web build talks to the server it was
+  /// loaded from, so a self-hosted copy works without rebuilding.
+  static Uri get relayUrl {
+    if (_relayOverride.isNotEmpty) return Uri.parse(_relayOverride);
+    if (kIsWeb) return relayUrlFor(Uri.base);
+    return Uri.parse(_defaultRelay);
+  }
+
+  /// Base for call links: the web app's own address, or the relay's site.
+  static Uri get linkBase {
+    if (kIsWeb && (Uri.base.scheme == 'http' || Uri.base.scheme == 'https')) {
+      return Uri(
+        scheme: Uri.base.scheme,
+        host: Uri.base.host,
+        port: Uri.base.hasPort ? Uri.base.port : null,
+        path: Uri.base.path,
+      );
+    }
+    final relay = relayUrl;
+    return Uri(
+      scheme: relay.scheme == 'ws' ? 'http' : 'https',
+      host: relay.host,
+      port: relay.hasPort ? relay.port : null,
+      path: '/',
+    );
   }
 
   @visibleForTesting
-  static String devRoomsUrlFor(Uri page) {
-    if (page.scheme != 'http' && page.scheme != 'https') return _defaultRelay;
+  static Uri relayUrlFor(Uri page) {
+    if (page.scheme != 'http' && page.scheme != 'https') {
+      return Uri.parse(_defaultRelay);
+    }
     return Uri(
       scheme: page.scheme == 'https' ? 'wss' : 'ws',
       host: page.host,
       port: page.hasPort ? page.port : null,
-      path: '/dev/rooms',
-    ).toString();
+      path: '/relay',
+    );
   }
 }

@@ -12,7 +12,7 @@ Sotto is a privacy-first audio and video calling app for professionals and their
 
 The name comes from *sotto voce*: speaking quietly so that only the listener hears.
 
-> Status: **Phase 2 — identity and encryption.** Two people can join the same room code and video-call each other. Each side has a cryptographic identity, all call setup is end-to-end encrypted (the relay sees only ciphertext), and both screens show a safety number to compare. Next: the real relay with authentication (Phase 3) and TURN for difficult networks (Phase 4).
+> Status: **Phase 3 — the real relay.** Each person has a cryptographic identity and a call link. Opening someone's link calls them: their device rings, they accept or decline, and the call connects with live video. All call setup is end-to-end encrypted; the relay authenticates devices by their keys, routes messages by Sotto ID and stores nothing. Next: TURN for difficult networks (Phase 4).
 
 **Package name / application ID:** `com.izhaanintellect.sotto` (publisher: Izhaan Intellect)
 
@@ -29,20 +29,20 @@ The name comes from *sotto voce*: speaking quietly so that only the listener hea
 
 ## Try it
 
-**Online** (after the test server is deployed): open `https://sotto.izhaanintellect.fun/?room=pick-a-code&join=1` on two devices. Compare the safety number shown on both screens. `?selftest=1` runs the crypto self-test in the browser.
+**Online** (after the test server is deployed): open `https://sotto.izhaanintellect.fun/` on one device, then open its call link on another. Compare the safety numbers. `?selftest=1` runs the crypto self-test in the browser.
 
 **Locally:**
 
 ```bash
 # Relay with proof-of-concept rooms
-cd server && npm ci && npm run build && SOTTO_DEV_ROOMS=1 npm start
+cd server && npm ci && npm run build && npm start
 
 # App (another terminal) — desktop, or Chrome for the web version
-cd app && flutter run -d linux --dart-define=SOTTO_RELAY_URL=ws://localhost:8080/dev/rooms
-cd app && flutter run -d chrome --dart-define=SOTTO_RELAY_URL=ws://localhost:8080/dev/rooms
+cd app && flutter run -d linux --dart-define=SOTTO_RELAY_URL=ws://localhost:8080/relay
+cd app && flutter run -d chrome --dart-define=SOTTO_RELAY_URL=ws://localhost:8080/relay
 ```
 
-Join the same room code on two devices or windows.
+Open the app on two devices or windows, copy one's call link into the other and press **Video call**.
 
 ## Development checks
 

@@ -6,26 +6,30 @@ void main() {
     'derives the relay address from the page the web app was loaded from',
     () {
       expect(
-        SottoConfig.devRoomsUrlFor(
+        SottoConfig.relayUrlFor(
           Uri.parse('https://sotto.izhaanintellect.fun/some/page?x=1#y'),
-        ),
-        'wss://sotto.izhaanintellect.fun/dev/rooms',
+        ).toString(),
+        'wss://sotto.izhaanintellect.fun/relay',
       );
       expect(
-        SottoConfig.devRoomsUrlFor(Uri.parse('http://localhost:8080/')),
-        'ws://localhost:8080/dev/rooms',
+        SottoConfig.relayUrlFor(Uri.parse('http://localhost:8080/')).toString(),
+        'ws://localhost:8080/relay',
       );
       expect(
-        SottoConfig.devRoomsUrlFor(Uri.parse('file:///index.html')),
-        'wss://sotto.izhaanintellect.fun/dev/rooms',
+        SottoConfig.relayUrlFor(Uri.parse('file:///index.html')).toString(),
+        'wss://sotto.izhaanintellect.fun/relay',
       );
     },
   );
 
   test('defaults to the Sotto test server outside the browser', () {
     expect(
-      SottoConfig.devRoomsUrl,
-      'wss://sotto.izhaanintellect.fun/dev/rooms',
+      SottoConfig.relayUrl.toString(),
+      'wss://sotto.izhaanintellect.fun/relay',
+    );
+    expect(
+      SottoConfig.linkBase.toString(),
+      'https://sotto.izhaanintellect.fun/',
     );
   });
 }

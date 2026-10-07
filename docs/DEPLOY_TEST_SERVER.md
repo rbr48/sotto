@@ -1,13 +1,13 @@
 # Deploying the Sotto Test Server
 
-This runs the Phase 1 proof of concept on **`sotto.izhaanintellect.fun`** (server `148.135.137.245`):
+This runs the current Sotto test build on **`sotto.izhaanintellect.fun`** (server `148.135.137.245`):
 
-- the **relay** (signaling) — no database, read-only filesystem
+- the **relay** (signaling) — routes end-to-end encrypted envelopes; no database, read-only filesystem
 - the **web app**, served by **Caddy** with automatic HTTPS
 
-After deployment, anyone can open `https://sotto.izhaanintellect.fun/?room=<code>&join=1` on two devices to start a test video call. The desktop and Android apps connect to `wss://sotto.izhaanintellect.fun/dev/rooms` by default.
+After deployment, open `https://sotto.izhaanintellect.fun/` to get your own **call link**; anyone who opens that link calls you. The desktop and Android apps connect to `wss://sotto.izhaanintellect.fun/relay` by default.
 
-> **This is a proof of concept.** Phase 1 signaling is not yet end-to-end encrypted (that arrives in Phase 3), and there is no TURN server yet (Phase 4), so calls between some networks — for example two different mobile networks — may fail to connect. Media itself is always encrypted by WebRTC.
+> **This is a test build.** Call setup is end-to-end encrypted and the relay stores nothing, but there is no TURN server yet (Phase 4), so calls between some networks — for example two different mobile networks — may fail to connect.
 
 ---
 
@@ -65,7 +65,7 @@ git checkout claude/blissful-wozniak-w64f4v   # until this work is merged into m
 
 ```bash
 cd infra
-cp .env.example .env        # SOTTO_DOMAIN=sotto.izhaanintellect.fun, SOTTO_DEV_ROOMS=1
+cp .env.example .env        # SOTTO_DOMAIN=sotto.izhaanintellect.fun
 docker compose up -d --build
 ```
 
@@ -76,16 +76,17 @@ The first build takes about **5–15 minutes**, because it downloads Flutter and
 ```bash
 docker compose ps
 curl https://sotto.izhaanintellect.fun/health
-# {"status":"ok","devRooms":true}
+# {"status":"ok"}
 ```
 
-Then open on two devices (or two browser windows):
+Then test a call with two devices (or two browser windows):
 
-```
-https://sotto.izhaanintellect.fun/?room=pick-any-code&join=1
-```
+1. On device **B**, open `https://sotto.izhaanintellect.fun/` and copy **Your call link**.
+2. On device **A**, open that link. It calls B automatically.
+3. On B, tap **Accept**. Allow camera and microphone on both.
+4. Compare the **safety number** shown on both screens: it must be identical.
 
-Allow camera and microphone. The tab title shows the call status: *Waiting for the other person…* → *Connected*.
+The tab title shows the call status: *Ready* → *Ringing…* / *Incoming call* → *Connected*. `https://sotto.izhaanintellect.fun/?selftest=1` runs the crypto self-test in the browser.
 
 ## 6. Update to a new version
 
@@ -110,6 +111,6 @@ Logs are capped at 1 MB per container, and neither the relay nor Caddy logs requ
 docker compose logs --tail=50
 ```
 
-## Turning the proof-of-concept rooms off
+## What the server keeps
 
-Set `SOTTO_DEV_ROOMS=0` in `infra/.env` and run `docker compose up -d`. The `/dev/rooms` endpoint is removed entirely when the encrypted relay replaces it in Phase 3.
+Nothing on disk. The relay holds, in memory only, which Sotto IDs are connected and envelopes waiting up to 60 seconds for an offline recipient; both disappear on restart. Caddy keeps only its TLS certificates (the `caddy_data` volume).
