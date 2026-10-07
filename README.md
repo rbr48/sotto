@@ -69,3 +69,10 @@ See [`e2e/README.md`](e2e/README.md) for the end-to-end call test.
 - [ ] Trademark search (local office, USPTO, EUIPO; classes 9 and 38)
 - [ ] Play Store / Microsoft Store name check
 - [ ] Social handles
+
+## License
+
+This project is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0).
+
+Copyright (C) 2026 [Izhaan Intellect](https://izhaanintellect.fun).
+
