@@ -31,7 +31,9 @@ export async function openPage(context, name, url) {
   page.on('websocket', (ws) =>
     ws.on('framesent', ({ payload }) => framesToRelay.push(String(payload))),
   );
-  await page.goto(url);
+  // The tests wait for the app's own state (page title), so don't also wait
+  // for every resource's "load" event, which is slow on busy CI runners.
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
   return page;
 }
 

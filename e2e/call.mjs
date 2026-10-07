@@ -70,7 +70,7 @@ try {
   ]);
   console.log('✓ Alice hung up; both sides know why the call ended');
 
-  await carol.reload();
+  await carol.reload({ waitUntil: 'domcontentloaded', timeout });
   await titleIncludes(bob, 'Incoming call');
   await clickButton(bob, 'Decline');
   await Promise.all([
@@ -79,7 +79,7 @@ try {
   ]);
   console.log('✓ Bob declined Carol');
 
-  await carol.reload();
+  await carol.reload({ waitUntil: 'domcontentloaded', timeout });
   await Promise.all([titleIncludes(carol, 'Ringing'), titleIncludes(bob, 'Incoming call')]);
   await clickButton(carol, 'Cancel');
   await Promise.all([
