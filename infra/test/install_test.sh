@@ -163,7 +163,7 @@ installer install --yes >/dev/null 2>&1
 check 'reinstall preserves behind-proxy port' has "$WORK/infra/.env" 'SOTTO_BEHIND_PROXY_PORT=8185'
 
 # Custom port and uninstall --purge cleans override file
-out_custom=$(installer install --domain calls.example.org --yes --behind-proxy 9000 2>&1) || true
+installer install --domain calls.example.org --yes --behind-proxy 9000 >/dev/null 2>&1
 check 'custom port used in override' has "$WORK/infra/docker-compose.override.yml" '127.0.0.1:9000:80'
 installer uninstall --purge >/dev/null 2>&1
 check 'uninstall --purge deletes override file' test ! -e "$WORK/infra/docker-compose.override.yml"
