@@ -1,0 +1,11 @@
+{
+  "name": "sotto-crypto-vectors",
+  "private": true,
+  "description": "Independent implementation of docs/PROTOCOL.md that generates known-answer test vectors.",
+  "scripts": {
+    "generate": "node gen.js"
+  },
+  "dependencies": {
+    "libsodium-wrappers": "0.8.4"
+  }
+}

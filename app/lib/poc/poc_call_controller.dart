@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:sodium/sodium.dart';
+
+import '../crypto/sotto_crypto.dart';
 
 import 'dev_room_signaling.dart';
 
@@ -14,8 +17,15 @@ enum PocCallStatus {
   failed,
 }
 
-/// Phase 1 proof of concept: a 1:1 WebRTC call between two peers in a
-/// dev room. The peer that joins second creates the offer.
+/// Proof of concept: a 1:1 WebRTC call between two peers in a dev room.
+///
+/// Each side creates a temporary identity (like a guest would) and sends its
+/// signed identity card through the room. After that, every call-setup
+/// message (offer, answer, ICE candidates) travels inside an end-to-end
+/// encrypted envelope, so the relay only sees ciphertext. Both sides show the
+/// same safety number, which detects a relay that swapped the cards.
+///
+/// The peer that joins second creates the offer.
 ///
 /// Uses public STUN only, so it is expected to work on the same network or
 /// simple NATs. TURN arrives in Phase 4.
@@ -43,8 +53,20 @@ class PocCallController extends ChangeNotifier {
   bool _cameraEnabled = true;
   bool get cameraEnabled => _cameraEnabled;
 
+  /// Code both people can compare to rule out interception; `null` until the
+  /// other person's identity card has arrived.
+  String? _safetyNumber;
+  String? get safetyNumber => _safetyNumber;
+
   bool get inRoom =>
       _status != PocCallStatus.idle && _status != PocCallStatus.failed;
+
+  Sodium? _sodium;
+  Identity? _identity;
+  EnvelopeCodec? _codec;
+  PublicIdentity? _peer;
+  bool _isOfferer = false;
+  Future<void> _eventQueue = Future.value();
 
   DevRoomSignaling? _signaling;
   StreamSubscription<DevRoomEvent>? _events;
@@ -60,6 +82,11 @@ class PocCallController extends ChangeNotifier {
     _error = null;
     _setStatus(PocCallStatus.joining);
     try {
+      final sodium = _sodium ??= await SottoCrypto.init();
+      final identity = Identity.generate(sodium);
+      _identity = identity;
+      _codec = EnvelopeCodec(sodium, identity);
+
       if (!_renderersReady) {
         await localRenderer.initialize();
         await remoteRenderer.initialize();
@@ -80,7 +107,9 @@ class PocCallController extends ChangeNotifier {
       final signaling = await DevRoomSignaling.connect(server);
       _signaling = signaling;
       _events = signaling.events.listen(
-        _onEvent,
+        // Handle events strictly one after another: several of them await
+        // WebRTC calls, and interleaving would reorder the negotiation.
+        (event) => _eventQueue = _eventQueue.then((_) => _onEvent(event)),
         onError: (Object e) => _fail('Connection to server lost: $e'),
         onDone: () {
           if (inRoom) _fail('Connection to server closed');
@@ -127,14 +156,20 @@ class PocCallController extends ChangeNotifier {
           if (peers == 0) {
             _setStatus(PocCallStatus.waitingForPeer);
           } else {
-            await _startPeerConnection();
-            await _sendOffer();
+            // We joined second: introduce ourselves, then offer once we
+            // have the other person's card.
+            _isOfferer = true;
+            _setStatus(PocCallStatus.connecting);
+            _sendHello();
           }
         case PeerJoined():
-          // The newcomer sends the offer; we prepare and wait for it.
-          await _startPeerConnection();
+          _isOfferer = false;
+          _setStatus(PocCallStatus.connecting);
+          _sendHello();
         case PeerLeft():
           await _closePeerConnection();
+          _peer = null;
+          _safetyNumber = null;
           remoteRenderer.srcObject = null;
           _setStatus(PocCallStatus.waitingForPeer);
         case SignalReceived(:final data):
@@ -147,6 +182,94 @@ class PocCallController extends ChangeNotifier {
     }
   }
 
+  void _sendHello() {
+    _signaling?.signal({
+      'kind': 'hello',
+      'card': _identity!.card(_sodium!).toJson(),
+    });
+  }
+
+  Future<void> _onSignal(Map<String, dynamic> data) async {
+    switch (data['kind']) {
+      case 'hello':
+        await _onHello(data['card']);
+      case 'sealed':
+        final envelope = data['env'];
+        final peer = _peer;
+        if (envelope is! String || peer == null) return;
+        final OpenedMessage message;
+        try {
+          message = _codec!.open(envelope, expectedSender: peer.id);
+        } on EnvelopeException catch (e) {
+          // Tampered, replayed or not from our peer: drop it.
+          debugPrint('Dropped envelope: ${e.error.name}');
+          return;
+        }
+        await _onMessage(message);
+    }
+  }
+
+  Future<void> _onHello(Object? card) async {
+    final PublicIdentity peer;
+    try {
+      peer = IdentityCard.verify(_sodium!, card);
+    } on InvalidIdentityException catch (e) {
+      debugPrint('Ignored invalid identity card: ${e.message}');
+      return;
+    }
+    if (peer == _peer) return;
+    _peer = peer;
+    _safetyNumber = SafetyNumber.compute(
+      _sodium!,
+      _identity!.publicIdentity,
+      peer,
+    );
+    await _startPeerConnection();
+    if (_isOfferer) await _sendOffer();
+  }
+
+  Future<void> _onMessage(OpenedMessage message) async {
+    final pc = _pc;
+    if (pc == null) return;
+    final body = message.body;
+    switch (message.type) {
+      case 'sdp.offer':
+        await pc.setRemoteDescription(
+          RTCSessionDescription(body['sdp'] as String?, 'offer'),
+        );
+        await _remoteDescriptionApplied();
+        final answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        _sendSealed('sdp.answer', {'sdp': answer.sdp});
+      case 'sdp.answer':
+        await pc.setRemoteDescription(
+          RTCSessionDescription(body['sdp'] as String?, 'answer'),
+        );
+        await _remoteDescriptionApplied();
+      case 'ice.candidate':
+        final candidate = RTCIceCandidate(
+          body['candidate'] as String?,
+          body['sdpMid'] as String?,
+          body['sdpMLineIndex'] as int?,
+        );
+        if (_remoteDescriptionSet) {
+          await pc.addCandidate(candidate);
+        } else {
+          _pendingCandidates.add(candidate);
+        }
+    }
+  }
+
+  void _sendSealed(String type, Map<String, Object?> body) {
+    final peer = _peer;
+    final codec = _codec;
+    if (peer == null || codec == null) return;
+    _signaling?.signal({
+      'kind': 'sealed',
+      'env': codec.seal(recipient: peer, type: type, body: body),
+    });
+  }
+
   Future<void> _startPeerConnection() async {
     await _closePeerConnection();
     _setStatus(PocCallStatus.connecting);
@@ -157,8 +280,7 @@ class PocCallController extends ChangeNotifier {
     _pc = pc;
     pc.onIceCandidate = (candidate) {
       if (candidate.candidate == null) return;
-      _signaling?.signal({
-        'kind': 'candidate',
+      _sendSealed('ice.candidate', {
         'candidate': candidate.candidate,
         'sdpMid': candidate.sdpMid,
         'sdpMLineIndex': candidate.sdpMLineIndex,
@@ -192,48 +314,7 @@ class PocCallController extends ChangeNotifier {
     final pc = _pc!;
     final offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    _signaling?.signal({'kind': 'offer', 'sdp': offer.sdp, 'type': offer.type});
-  }
-
-  Future<void> _onSignal(Map<String, dynamic> data) async {
-    final pc = _pc;
-    if (pc == null) return;
-    switch (data['kind']) {
-      case 'offer':
-        await pc.setRemoteDescription(
-          RTCSessionDescription(
-            data['sdp'] as String?,
-            data['type'] as String?,
-          ),
-        );
-        await _remoteDescriptionApplied();
-        final answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        _signaling?.signal({
-          'kind': 'answer',
-          'sdp': answer.sdp,
-          'type': answer.type,
-        });
-      case 'answer':
-        await pc.setRemoteDescription(
-          RTCSessionDescription(
-            data['sdp'] as String?,
-            data['type'] as String?,
-          ),
-        );
-        await _remoteDescriptionApplied();
-      case 'candidate':
-        final candidate = RTCIceCandidate(
-          data['candidate'] as String?,
-          data['sdpMid'] as String?,
-          data['sdpMLineIndex'] as int?,
-        );
-        if (_remoteDescriptionSet) {
-          await pc.addCandidate(candidate);
-        } else {
-          _pendingCandidates.add(candidate);
-        }
-    }
+    _sendSealed('sdp.offer', {'sdp': offer.sdp});
   }
 
   /// Candidates can arrive before the remote description; apply them now.
@@ -260,6 +341,11 @@ class PocCallController extends ChangeNotifier {
     final signaling = _signaling;
     _signaling = null;
     await _closePeerConnection();
+    _peer = null;
+    _safetyNumber = null;
+    _codec = null;
+    _identity?.dispose();
+    _identity = null;
     if (signaling != null) {
       try {
         await signaling.close();

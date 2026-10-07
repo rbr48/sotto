@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'core/theme.dart';
+import 'poc/crypto_self_test_page.dart';
 import 'poc/poc_call_page.dart';
 
 void main() {
@@ -18,10 +19,12 @@ class SottoApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: SottoTheme.light(),
       darkTheme: SottoTheme.dark(),
-      home: PocCallPage(
-        initialRoom: _webQuery['room'],
-        autoJoin: _webQuery['join'] == '1',
-      ),
+      home: _webQuery['selftest'] == '1'
+          ? const CryptoSelfTestPage()
+          : PocCallPage(
+              initialRoom: _webQuery['room'],
+              autoJoin: _webQuery['join'] == '1',
+            ),
     );
   }
 }

@@ -36,6 +36,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   flutter_webrtc: ^1.6.2+hotfix.4
   web_socket_channel: ^3.0.3
+  sodium: ^4.1.1+2
+  flutter_secure_storage: ^11.2.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

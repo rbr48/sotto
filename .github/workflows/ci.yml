@@ -42,6 +42,20 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+      - name: Crypto test vectors are reproducible
+        working-directory: tools/crypto-vectors
+        run: |
+          npm ci
+          node gen.js > /tmp/vectors.json
+          python3 - <<'PY'
+          import json
+          v = json.load(open('/tmp/vectors.json'))
+          src = open('../../app/lib/crypto/test_vectors.dart').read()
+          # The reference envelope is random on every run; everything else is deterministic.
+          missing = [k for k, value in v.items() if k != 'sealedAtoB' and value not in src]
+          assert not missing, f'test_vectors.dart is out of date: {missing}'
+          print('vectors match')
+          PY
       - name: Analyze and test
         working-directory: app
         run: |
@@ -75,7 +89,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libpulse-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libpulse-dev libsecret-1-dev
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}

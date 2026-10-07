@@ -12,7 +12,7 @@ Sotto is a privacy-first audio and video calling app for professionals and their
 
 The name comes from *sotto voce*: speaking quietly so that only the listener hears.
 
-> Status: **Phase 1 — WebRTC proof of concept.** Two people can join the same room code and video-call each other. Not yet end-to-end encrypted signaling (Phase 3) or TURN (Phase 4).
+> Status: **Phase 2 — identity and encryption.** Two people can join the same room code and video-call each other. Each side has a cryptographic identity, all call setup is end-to-end encrypted (the relay sees only ciphertext), and both screens show a safety number to compare. Next: the real relay with authentication (Phase 3) and TURN for difficult networks (Phase 4).
 
 **Package name / application ID:** `com.izhaanintellect.sotto` (publisher: Izhaan Intellect)
 
@@ -24,11 +24,12 @@ The name comes from *sotto voce*: speaking quietly so that only the listener hea
 | `server/` | Relay server (Node.js + TypeScript). Stores nothing |
 | `infra/` | Docker Compose + Caddy deployment for the test server |
 | `e2e/` | End-to-end test: a real call between two headless browsers |
+| `tools/crypto-vectors/` | Independent implementation of the protocol that generates crypto test vectors |
 | `docs/` | Strategy, roadmap, features and deployment guides |
 
 ## Try it
 
-**Online** (after the test server is deployed): open `https://sotto.izhaanintellect.fun/?room=pick-a-code&join=1` on two devices.
+**Online** (after the test server is deployed): open `https://sotto.izhaanintellect.fun/?room=pick-a-code&join=1` on two devices. Compare the safety number shown on both screens. `?selftest=1` runs the crypto self-test in the browser.
 
 **Locally:**
 
@@ -57,6 +58,8 @@ See [`e2e/README.md`](e2e/README.md) for the end-to-end call test.
 - [Product strategy, technical plan & roadmap](docs/ROADMAP.md)
 - [Feature list](docs/FEATURES.md)
 - [Deploying the test server](docs/DEPLOY_TEST_SERVER.md)
+- [Protocol: identities and encrypted envelopes](docs/PROTOCOL.md)
+- [Threat model](docs/THREAT_MODEL.md)
 
 ## Before using the name publicly
 

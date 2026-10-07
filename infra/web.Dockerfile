@@ -3,7 +3,7 @@
 FROM debian:bookworm-slim AS build
 ARG FLUTTER_VERSION=3.47.6
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl git xz-utils unzip \
+ && apt-get install -y --no-install-recommends ca-certificates curl git xz-utils unzip build-essential \
  && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
     | tar -xJ -C /opt \

@@ -170,6 +170,13 @@ class _PocCallPageState extends State<PocCallPage> {
                         ),
                 ),
               ),
+              if (_controller.safetyNumber case final number?)
+                Positioned(
+                  left: 12,
+                  right: 12,
+                  top: 12,
+                  child: _SafetyNumberBanner(number: number),
+                ),
               Positioned(
                 right: 16,
                 bottom: 16,
@@ -229,6 +236,55 @@ class _PocCallPageState extends State<PocCallPage> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Shows that signaling is end-to-end encrypted, with the safety number both
+/// people can compare (out loud, or by looking) to rule out interception.
+class _SafetyNumberBanner extends StatelessWidget {
+  const _SafetyNumberBanner({required this.number});
+
+  final String number;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Material(
+        color: scheme.surface.withValues(alpha: 0.85),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.lock, size: 18, color: scheme.primary),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'End-to-end encrypted · safety number',
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                    SelectableText(
+                      number,
+                      key: const Key('safety-number'),
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

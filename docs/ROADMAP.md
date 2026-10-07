@@ -210,10 +210,9 @@ Native code (the Android audio mixer, desktop recording plugin) lives under the 
 
 ### 5.1 Identity (no accounts)
 
-- On first launch the app generates an **Ed25519 identity key pair** with libsodium.
-- The private key is stored with `flutter_secure_storage`, which uses Android Keystore, Windows DPAPI or Linux libsecret.
-- **User ID = the public key**, shown as base32/base64url. Users never type it; it travels inside QR codes and links.
-- For encryption, the identity key is converted to X25519 (`crypto_sign_ed25519_pk_to_curve25519`).
+- On first launch the app generates a 32-byte **master secret** with libsodium and derives two key pairs from it: an **Ed25519 signing key** and an **X25519 encryption key** (`crypto_kdf`, see `docs/PROTOCOL.md`). Separate keys avoid key conversion, which would need libsodium's much larger "sumo" build on the web.
+- Only the master secret is stored, with `flutter_secure_storage` (Android Keystore, Windows DPAPI or Linux libsecret). Backups only need the master secret.
+- **User ID = the Ed25519 public key**, as base64url. Users never type it; it travels inside QR codes and links, together with the encryption key in a signed **identity card**.
 - **Display name and avatar** are stored locally and sent to contacts only inside encrypted messages. The server never sees them.
 
 ### 5.2 Adding contacts (no directory)
@@ -237,7 +236,7 @@ Outer envelope (the only thing the server can read):
 ```
 
 - `from` is **not** sent by the client. The server attaches the authenticated public key of the sending socket.
-- `body` is `crypto_box` (X25519 + XSalsa20-Poly1305) from sender to recipient. That authenticates the sender, so nobody can forge messages.
+- `body` is an envelope: the inner message is **signed** with the sender's Ed25519 key, then **sealed** to the recipient's X25519 key (`crypto_box_seal`). The signature authenticates the sender and covers the recipient, so nobody can forge or re-address messages. Details in `docs/PROTOCOL.md`.
 - `wake` is optional. It is included only when the caller wants the server to wake an offline recipient, and the server discards it after one use.
 
 Inner messages (encrypted; the server can't see them):
@@ -352,8 +351,8 @@ Hiding even this short-lived metadata would need onion routing (like Tor), which
 | Need | Package |
 |---|---|
 | WebRTC | `flutter_webrtc` (native and web) |
-| Guest web client | Flutter Web build; `sodium_libs` uses libsodium.js in the browser |
-| Cryptography (Ed25519, X25519, secretbox, Argon2id) | `sodium_libs` (libsodium) |
+| Guest web client | Flutter Web build; `sodium` uses libsodium.js in the browser |
+| Cryptography (Ed25519, X25519, secretbox, Argon2id) | `sodium` (libsodium, built automatically for each platform; `sodium_libs` is deprecated) |
 | Secure key storage | `flutter_secure_storage` |
 | Encrypted local database | `drift` + `sqlcipher_flutter_libs` |
 | WebSocket | `web_socket_channel` |
@@ -462,7 +461,7 @@ The roadmap has five stages. **Do not skip Stage A**: it decides whether the res
 - [x] `flutter create --org com.izhaanintellect --project-name sotto --platforms android,windows,linux,web app`; Android `minSdk` 24+
 - [x] Confirm the app ID is **`com.izhaanintellect.sotto`** on every platform (see section 4.1)
 - [x] Add `flutter_webrtc` (web and Linux builds verified locally; Android and Windows built in CI)
-- [ ] Add `sodium_libs` — moved to Phase 2, where the crypto code first needs it
+- [x] Add `sodium` (libsodium) — done in Phase 2, where the crypto code first needs it
 - [x] Android permissions: `CAMERA`, `RECORD_AUDIO`, `INTERNET`, `MODIFY_AUDIO_SETTINGS`, `BLUETOOTH_CONNECT`, `POST_NOTIFICATIONS`
 - [x] Server skeleton: TypeScript, `ws`, ESLint/Prettier, Vitest
 - [x] CI (GitHub Actions): analyze, tests, Android APK, Windows/Linux builds, web build, end-to-end browser call test
@@ -481,13 +480,15 @@ The roadmap has five stages. **Do not skip Stage A**: it decides whether the res
 **Exit criteria:** video calls work between the desktop app and a browser on the same network.
 
 #### Phase 2 — Identity & Crypto Core (Weeks 8–9)
-- [ ] Generate and securely store the professional's Ed25519 identity key
-- [ ] Temporary in-memory key pairs for guests (web)
-- [ ] Envelope library `seal` / `open` with libsodium `crypto_box`, working identically on native and web
-- [ ] Inner message format with `callId`, timestamp, nonce; replay protection
-- [ ] Safety-number generation
-- [ ] Unit tests, known-answer test vectors, fuzz tests for malformed ciphertexts
-- [ ] Write `docs/PROTOCOL.md` and the first version of `docs/THREAT_MODEL.md`
+- [x] Generate and securely store the professional's identity (`IdentityStore` + OS keystore; the onboarding screen that uses it comes in Phase 6)
+- [x] Temporary in-memory key pairs for guests (web)
+- [x] Envelope library `seal` / `open` (sign, then `crypto_box_seal`), working identically on native and web
+- [x] Inner message format with `callId`, timestamp, nonce; replay protection
+- [x] Safety-number generation, shown on the test call screen
+- [x] Unit tests, known-answer test vectors from an independent implementation (`tools/crypto-vectors`), fuzz tests for malformed ciphertexts
+- [x] Write `docs/PROTOCOL.md` and the first version of `docs/THREAT_MODEL.md`
+- [x] Test call: identity cards exchanged, then offer/answer/ICE sent only as encrypted envelopes
+- [x] Browser self-test (`?selftest=1`) in the end-to-end test; the test also checks the relay never sees readable call data
 
 **Exit criteria:** native and web clients exchange encrypted, authenticated messages through a local relay; tampered or replayed messages are rejected.
 
