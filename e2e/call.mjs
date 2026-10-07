@@ -14,76 +14,25 @@
 // server, see README.md) and the web build (built with SOTTO_RELAY_URL
 // pointing there) served at SOTTO_WEB_URL.
 import assert from 'node:assert/strict';
-import { chromium } from 'playwright';
+import {
+  assertNoThirdPartyRequests,
+  assertRelaySawOnlyCiphertext,
+  base,
+  clickButton,
+  dataAttribute,
+  launch,
+  newContext,
+  openPage,
+  timeout,
+  titleIncludes,
+  toggleSwitch,
+  videoPlaying,
+} from './lib.mjs';
 
-const base = process.env.SOTTO_WEB_URL ?? 'http://localhost:8099/';
-const timeout = 60_000;
-
-const browser = await chromium.launch({
-  args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
-});
-
-/** Everything the browsers send to the relay. */
-const framesToRelay = [];
-
-async function openPage(context, name, url) {
-  const page = await context.newPage();
-  page.on('pageerror', (error) => console.error(`${name} page error: ${error.message}`));
-  page.on('websocket', (ws) =>
-    ws.on('framesent', ({ payload }) => framesToRelay.push(String(payload))),
-  );
-  await page.goto(url);
-  return page;
-}
-
-const titleIncludes = (page, text) =>
-  page.waitForFunction((t) => document.title.includes(t), text, { timeout });
-
-async function enableSemantics(page) {
-  if ((await page.locator('flt-semantics-placeholder').count()) > 0) {
-    await page.locator('flt-semantics-placeholder').dispatchEvent('click');
-  }
-}
-
-/** Clicks a Flutter button by its label, via Flutter's accessibility tree. */
-async function clickButton(page, name) {
-  await enableSemantics(page);
-  const button = page.getByRole('button', { name, exact: true });
-  await button.waitFor({ timeout });
-  await button.click();
-}
-
-/** Flips a Flutter switch whose label matches `name`. */
-async function toggleSwitch(page, name) {
-  await enableSemantics(page);
-  const toggle = page.getByRole('switch', { name }).or(page.getByRole('checkbox', { name }));
-  await toggle.first().waitFor({ timeout });
-  await toggle.first().click();
-}
-
-const dataAttribute = (page, name, value) =>
-  page.waitForFunction(
-    ([n, v]) => document.documentElement.getAttribute(`data-sotto-${n}`) === v,
-    [name, value],
-    { timeout },
-  );
-
-const videoPlaying = (page) =>
-  page.waitForFunction(
-    () => {
-      const videos = [...document.querySelectorAll('video')];
-      return videos.length >= 2 && videos.every((v) => v.videoWidth > 0 && !v.paused);
-    },
-    null,
-    { timeout },
-  );
+const browser = await launch();
 
 try {
-  // Flutter web needs a locale; headless Chromium may not report one.
-  const context = await browser.newContext({
-    locale: 'en-US',
-    permissions: ['camera', 'microphone'],
-  });
+  const context = await newContext(browser);
 
   const selfTest = await openPage(context, 'self-test', new URL('?selftest=1', base).toString());
   await selfTest.waitForFunction(() => /Self-test (passed|failed|error)/.test(document.title), null, {
@@ -151,20 +100,11 @@ try {
   await clickButton(bob, 'Hang up');
   await titleIncludes(alice, 'Call ended (they hung up)');
 
-  // The relay must only ever see logins, ICE requests and opaque envelopes.
-  const sends = framesToRelay.filter((f) => f.includes('"type":"send"'));
-  assert.ok(sends.length >= 10, `expected encrypted messages, got ${sends.length}`);
-  for (const frame of framesToRelay) {
-    const message = JSON.parse(frame);
-    assert.ok(
-      ['auth', 'send', 'ice'].includes(message.type),
-      `unexpected frame type ${message.type}`,
-    );
-    for (const leak of ['v=0', 'a=fingerprint', 'candidate:', 'sdp.', 'call.', 'video']) {
-      assert.ok(!frame.includes(leak), `relay saw readable call data (${leak})`);
-    }
-  }
-  console.log(`✓ relay saw ${sends.length} encrypted messages and no readable call data`);
+  const sends = assertRelaySawOnlyCiphertext(assert);
+  assert.ok(sends >= 10, `expected encrypted messages, got ${sends}`);
+  console.log(`✓ relay saw ${sends} encrypted messages and no readable call data`);
+  const hosts = assertNoThirdPartyRequests(assert, [new URL(base).host, 'localhost:8080']);
+  console.log(`✓ pages only contacted their own servers (${hosts.join(', ')})`);
   console.log('PASS');
 } finally {
   await browser.close();

@@ -12,7 +12,7 @@ Sotto is a privacy-first audio and video calling app for professionals and their
 
 The name comes from *sotto voce*: speaking quietly so that only the listener hears.
 
-> Status: **Phase 4 — calls across any network.** Each person has a cryptographic identity and a call link. Opening someone's link rings their device; accepted calls connect with live video, directly when possible and through Sotto's own TURN server when not. **Hide my IP address** routes calls only through TURN so the other person never sees your IP. All call setup is end-to-end encrypted, and the servers store nothing.
+> Status: **Phase 5 — guest links.** Professionals send a signed guest link; clients open it in any browser (no app, no account), check their camera, and wait in a **waiting room** until they're admitted. Calls connect directly when possible and through Sotto's own TURN server when not; **Hide my IP address** forces the relay. All call setup is end-to-end encrypted, the servers store nothing, and the web app loads nothing from third parties.
 
 **Package name / application ID:** `com.izhaanintellect.sotto` (publisher: Izhaan Intellect)
 

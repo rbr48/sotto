@@ -1,4 +1,4 @@
-# Sotto Threat Model (v0.4 — Phase 4)
+# Sotto Threat Model (v0.5 — Phase 5)
 
 This is a living document. It records what Sotto protects, against whom, and what it honestly does not protect yet. Update it whenever the design changes.
 
@@ -37,6 +37,10 @@ This is a living document. It records what Sotto protects, against whom, and wha
 | Disk seizure of servers | No database, read-only containers, no request logs; an automated test runs the real relay process and fails if it writes any file | ✅ |
 | Someone logs in to the relay as another person | Challenge-response login: the device signs a fresh random challenge bound to the relay's hostname with its identity key; signatures can't be replayed or forwarded from another server | ✅ |
 | Someone injects messages "from" another person | The relay attaches the authenticated sender; apps additionally require the envelope signature to match it | ✅ |
+| Strangers reach a professional through a guest link | Links carry a random secret checked on the professional's device; links can be replaced or revoked, one-time links are used up on admission and expire after 7 days; guests only *knock* and nothing happens until the professional admits them | ✅ |
+| A forged or altered guest link (e.g. a phishing page showing a different name) | Links are signed by the professional's identity key and verified in the guest's browser before anything is sent; any change makes the page show "This link is not valid" | ✅ |
+| Guest link secrets leak to servers | The payload is in the URL fragment (`#…`), which browsers never send to web servers; knocks travel inside end-to-end envelopes | ✅ |
+| Guest page loads third-party resources (CDNs, Google Fonts) that learn visitors' IPs | Built with `--no-web-resources-cdn`, fonts bundled, fallback fonts only from our server; the e2e tests fail if a page contacts any other host | ✅ |
 | The other person learns your IP address | Optional **Hide my IP address**: relay-only ICE, so only the TURN server's address is exchanged | ✅ |
 | TURN server used as an open proxy into private networks | coturn refuses relaying to private, loopback, link-local and other special ranges; TCP relaying disabled | ✅ |
 | TURN credentials abused | Issued only to logged-in relay clients; expire after 6 hours; per-user and total allocation quotas; bandwidth cap per session | ✅ |
@@ -51,8 +55,8 @@ This is a living document. It records what Sotto protects, against whom, and wha
 1. **No forward secrecy for signaling (v1).** Envelopes use long-term X25519 keys. If a professional's master secret is stolen, an attacker who also recorded past relay traffic could decrypt past call-setup messages (IP addresses, codec details, timing). Call media is **not** affected (DTLS-SRTP uses ephemeral keys). Possible future fix: per-call ephemeral keys or a ratchet.
 2. **The TURN server sees the IP addresses of relayed calls** (both ends) and their timing and volume, while the call lasts. It cannot decrypt media. It does not log, and it does not know which Sotto IDs are involved, but whoever controls the server could watch live traffic. Self-hosting keeps this in-house.
 3. **Relay sees live metadata.** While connected, the relay knows which IDs are online, which ID sends to which, message sizes and timing, and IP addresses. It does not log or store them. Self-hosting removes the third party entirely.
-4. **First contact is trust-on-first-use** until signed guest links (Phase 5): users must compare safety numbers to detect a malicious relay.
-5. **Call links are permanent and public-key only (Phase 3).** Anyone who has a person's call link can ring them until signed, expiring and revocable guest links arrive in Phase 5. The receiving app only rings; nothing happens without the person accepting.
+4. **First contact: guests are protected by signed links; colleagues are trust-on-first-use.** A guest link is signed by the professional's key, so a malicious relay can't impersonate the professional to a guest who received the link through another channel. Direct call links between colleagues (Phase 3) still rely on comparing safety numbers until contacts are verified in Phase 6. A guest's *name* is self-chosen and unverified.
+5. **Direct call links are permanent (Phase 3).** Anyone who has a person's *direct* call link can ring them; guest links (waiting room, replaceable, one-time) are the recommended way to give access to clients. The receiving app only rings; nothing happens without the person accepting.
 6. **Clock dependence.** Devices with clocks more than 2 minutes off can't exchange messages. They will get a clear error once the real relay protocol exists.
 7. **Web guests run code served by the web server.** A compromised web host could serve modified JavaScript. Mitigations to consider: subresource integrity, reproducible builds, published hashes, and encouraging professionals to use the native app.
 8. **Endpoint compromise** (malware on a participant's device) is out of scope; no messaging system can protect against it.

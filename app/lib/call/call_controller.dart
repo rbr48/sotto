@@ -7,6 +7,9 @@ import 'package:sodium/sodium.dart';
 import '../core/test_hooks.dart';
 import '../crypto/encoding.dart';
 import '../crypto/sotto_crypto.dart';
+import '../guest/guest_host.dart';
+import '../guest/guest_link.dart';
+import '../guest/guest_visit.dart';
 import '../relay/relay_client.dart';
 import 'call_code.dart';
 import 'call_manager.dart';
@@ -23,6 +26,7 @@ class CallController extends ChangeNotifier {
     required this.relayUrl,
     required this.linkBase,
     this.persistentIdentity = !kIsWeb,
+    this.guestLinkPayload,
     SecretStore? settings,
   }) : _settings = settings ?? (kIsWeb ? MemorySecretStore() : OsSecretStore());
 
@@ -35,6 +39,7 @@ class CallController extends ChangeNotifier {
   ];
 
   static const _hideIpSetting = 'sotto.settings.hide_ip';
+  static const _hostNameSetting = 'sotto.settings.host_name';
 
   final Uri relayUrl;
   final Uri linkBase;
@@ -43,6 +48,30 @@ class CallController extends ChangeNotifier {
   /// browser (guests, for now) gets a temporary identity per page load.
   final bool persistentIdentity;
   final SecretStore _settings;
+
+  /// Set when the app was opened from a guest link (`#g=…`): this device is
+  /// a guest for the duration of the page, with a temporary identity.
+  final String? guestLinkPayload;
+  bool get isGuest => guestLinkPayload != null;
+
+  GuestVisit? _visit;
+
+  /// The guest's visit (guest mode only).
+  GuestVisit? get guestVisit => _visit;
+
+  /// Set in guest mode if the link is invalid or expired.
+  GuestLinkProblem? guestLinkProblem;
+
+  GuestLinkStore? _links;
+  GuestHost? _host;
+
+  /// The professional's waiting room (not in guest mode).
+  GuestHost? get guestHost => _host;
+
+  String _hostName = '';
+
+  /// The name guests see on the professional's links.
+  String get hostName => _hostName;
 
   final RTCVideoRenderer localRenderer = RTCVideoRenderer();
   final RTCVideoRenderer remoteRenderer = RTCVideoRenderer();
@@ -105,8 +134,11 @@ class CallController extends ChangeNotifier {
   Future<void> start() async {
     try {
       final sodium = _sodium = await SottoCrypto.init();
-      final identity = _identity = await _loadIdentity(sodium);
+      final identity = _identity = isGuest
+          ? Identity.generate(sodium)
+          : await _loadIdentity(sodium);
       _hideIp = await _readSetting(_hideIpSetting) == '1';
+      _hostName = await _readSetting(_hostNameSetting) ?? '';
       _codec = EnvelopeCodec(sodium, identity);
       await localRenderer.initialize();
       await remoteRenderer.initialize();
@@ -123,8 +155,45 @@ class CallController extends ChangeNotifier {
           relayOnly: _hideIp,
         ),
         newCallId: () => b64Encode(sodium.randombytes.buf(16)),
+        // A guest's page answers the call that admits it from the waiting room.
+        autoAnswer: (invite) =>
+            _visit?.isAdmission(invite) == true ? Duration.zero : null,
       );
       manager.addListener(_onCallChanged);
+
+      if (guestLinkPayload case final payload?) {
+        try {
+          final link = GuestLink.parse(sodium, payload);
+          _visit = GuestVisit(
+            link: link,
+            send: _sendGuestMessage,
+            newKnockId: () => b64Encode(sodium.randombytes.buf(12)),
+          )..addListener(notifyListeners);
+        } on GuestLinkException catch (e) {
+          guestLinkProblem = e.problem;
+        }
+      } else {
+        final links = _links = GuestLinkStore(sodium, _settings);
+        try {
+          await links.load();
+          await links.ensurePersonal();
+        } catch (_) {
+          // Keystore unavailable: links work until the app restarts.
+        }
+        _host = GuestHost(
+          links: links,
+          send: _sendGuestMessage,
+          onAdmit: (guest) async {
+            manager.dismiss();
+            await manager.call(
+              guest.guest,
+              video: guest.video,
+              inviteExtras: {'knock': guest.knockId},
+            );
+          },
+        )..addListener(notifyListeners);
+        _publishGuestLink();
+      }
 
       final relay = _relay = RelayClient(
         url: relayUrl,
@@ -181,6 +250,76 @@ class CallController extends ChangeNotifier {
     }
   }
 
+  void _sendGuestMessage(
+    PublicIdentity to,
+    String type,
+    Map<String, Object?> body,
+  ) => _relay?.send(to.id, _codec!.seal(recipient: to, type: type, body: body));
+
+  /// The professional's personal guest link (not in guest mode).
+  String? get personalGuestLink {
+    final link = _links?.personal;
+    return link == null ? null : _guestLinkUrl(link);
+  }
+
+  /// Active one-time links with their URLs.
+  List<({GuestLinkRecord record, String url})> get oneTimeGuestLinks => [
+    for (final link in _links?.activeOneTime ?? const <GuestLinkRecord>[])
+      (record: link, url: _guestLinkUrl(link)),
+  ];
+
+  String _guestLinkUrl(GuestLinkRecord link) => GuestLink.url(
+    linkBase,
+    GuestLink.sign(
+      _sodium!,
+      _identity!,
+      linkId: link.id,
+      secret: link.secret,
+      hostName: _hostName.isEmpty ? 'Sotto user' : _hostName,
+      expiresAt: link.expiresAt,
+    ),
+  );
+
+  void _publishGuestLink() {
+    if (personalGuestLink case final link?) publishForTests('guest-link', link);
+    final oneTime = oneTimeGuestLinks;
+    if (oneTime.isNotEmpty) publishForTests('one-time-link', oneTime.last.url);
+  }
+
+  Future<void> rotatePersonalGuestLink() async {
+    await _links?.rotatePersonal();
+    _publishGuestLink();
+    notifyListeners();
+  }
+
+  Future<void> createOneTimeGuestLink() async {
+    await _links?.createOneTime();
+    _publishGuestLink();
+    notifyListeners();
+  }
+
+  Future<void> revokeGuestLink(String id) async {
+    await _links?.revoke(id);
+    notifyListeners();
+  }
+
+  Future<void> setHostName(String name) async {
+    _hostName = name.trim();
+    _publishGuestLink();
+    notifyListeners();
+    try {
+      await _settings.write(_hostNameSetting, _hostName);
+    } catch (_) {
+      // Not persisted; still applies until the app restarts.
+    }
+  }
+
+  /// Admits a waiting guest (only when not already in a call).
+  Future<void> admitGuest(String knockId) async {
+    if (call.active) return;
+    await _host?.admit(knockId);
+  }
+
   void _onRelayMessage(RelayMessage message) {
     final codec = _codec;
     final manager = _manager;
@@ -190,6 +329,11 @@ class CallController extends ChangeNotifier {
       opened = codec.open(message.body, expectedSender: message.from);
     } on EnvelopeException catch (e) {
       debugPrint('Dropped envelope: ${e.error.name}');
+      return;
+    }
+    if (opened.type.startsWith('guest.')) {
+      _host?.handle(opened);
+      _visit?.handle(opened);
       return;
     }
     unawaited(manager.handle(opened));
@@ -260,6 +404,8 @@ class CallController extends ChangeNotifier {
       subscription.cancel();
     }
     _manager?.dispose();
+    _host?.dispose();
+    _visit?.dispose();
     unawaited(_relay?.stop());
     _identity?.dispose();
     if (_ready) {

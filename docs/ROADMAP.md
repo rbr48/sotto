@@ -517,13 +517,16 @@ The roadmap has five stages. **Do not skip Stage A**: it decides whether the res
 **Exit criteria / Milestone M1:** an E2E-encrypted call connects across the internet in every network in the test matrix.
 
 #### Phase 5 — Guest Links & Web Guest Client (Weeks 13–14)
-- [ ] Create personal room links and one-time links in the professional app; copy / share / revoke
-- [ ] Guest web page: no cookies, no third-party scripts, small download
-- [ ] Device check: camera/mic preview, speaker test, clear permission help per browser
-- [ ] `guest.knock` → **waiting room** → *Admit* / *Decline* / quick message
-- [ ] Guest in-call screen: mute, camera, hang up, "Secured by Sotto" footer
-- [ ] Browser testing: Chrome, Edge, Firefox, Safari on iPhone/iPad and Mac
-- [ ] Clear error pages: link expired, link revoked, professional unavailable, browser not supported
+- [x] Signed guest links (`/#g=<payload>`, never sent to a server): personal (reusable, replaceable) and one-time (7 days, used up on admission); copy / replace / revoke; stored on the professional's device only
+- [x] Guest web page: no cookies, no third-party requests (rendering engine and fonts served locally; checked by the e2e tests)
+- [x] Device check: camera/mic preview, clear permission help, voice-only option
+- [x] `guest.knock` (repeated while waiting) → **waiting room** → *Admit* / *Decline* / quick messages; admitted guest's page answers automatically
+- [x] Guest in-call screen: mute, camera, hang up, safety number, "Secured by Sotto" footer
+- [x] Clear error pages: link not valid / tampered, expired, replaced, already used, declined, waiting room full
+- [x] End-to-end test (`e2e/guest.mjs`): knock, admit, call, hang up, decline, replaced link, one-time link reuse, tampered link, no names reaching the relay
+- [ ] Browser testing on real devices: Chrome, Edge, Firefox, Safari on iPhone/iPad and Mac (automated tests use Chromium only)
+- [ ] Speaker test in the device check; "browser not supported" detection beyond the camera/mic check
+- [ ] Bundle fallback fonts (e.g. Noto) for names in non-Latin scripts; fallback fonts are now looked up on our own server only
 
 **Exit criteria:** a client on an iPhone or a PC browser joins a call from a link in under 30 seconds with no install.
 

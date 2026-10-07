@@ -115,6 +115,8 @@ Then test a call with two devices (or two browser windows):
 
 The tab title shows the call status: *Ready* → *Ringing…* / *Incoming call* → *Connected*. During a call the screen shows **Direct connection** or **Relayed through Sotto**. `https://sotto.izhaanintellect.fun/?selftest=1` runs the crypto self-test in the browser.
 
+**Guest links:** on the professional's device, copy the **personal guest link** (or create a one-time link) and open it on another device or browser. The guest checks their camera, presses **Join with video** and waits; the professional presses **Admit** in the waiting room.
+
 To test TURN, turn on **Hide my IP address** before calling: the call must show *Relayed through Sotto*. See [`NETWORK_TESTING.md`](NETWORK_TESTING.md) for the full network test matrix.
 
 ## 6. Update to a new version

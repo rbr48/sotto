@@ -66,6 +66,7 @@ class CallState {
     this.video = true,
     this.endReason,
     this.error,
+    this.autoAnswered = false,
   });
 
   static const idle = CallState(phase: CallPhase.idle);
@@ -80,12 +81,17 @@ class CallState {
   /// Technical detail when [endReason] is [CallEndReason.failed].
   final String? error;
 
+  /// The call was answered automatically (by the callee's settings, or
+  /// because a guest was admitted from the waiting room).
+  final bool autoAnswered;
+
   bool get active => phase != CallPhase.idle && phase != CallPhase.ended;
 
   CallState copyWith({
     CallPhase? phase,
     CallEndReason? endReason,
     String? error,
+    bool? autoAnswered,
   }) => CallState(
     phase: phase ?? this.phase,
     peer: peer,
@@ -94,6 +100,7 @@ class CallState {
     video: video,
     endReason: endReason ?? this.endReason,
     error: error ?? this.error,
+    autoAnswered: autoAnswered ?? this.autoAnswered,
   );
 }
 
@@ -124,6 +131,7 @@ class CallManager extends ChangeNotifier {
     required this.send,
     required this.createMedia,
     required this.newCallId,
+    this.autoAnswer,
     this.ringTimeout = const Duration(seconds: 45),
     this.incomingTimeout = const Duration(seconds: 60),
     this.connectTimeout = const Duration(seconds: 30),
@@ -132,6 +140,11 @@ class CallManager extends ChangeNotifier {
   final CallMessageSender send;
   final MediaEngine Function() createMedia;
   final String Function() newCallId;
+
+  /// Decides whether an incoming invite is answered automatically: `null`
+  /// rings normally, otherwise the call is accepted after the returned delay
+  /// (during which the user can still decline).
+  final Duration? Function(OpenedMessage invite)? autoAnswer;
 
   /// How long an outgoing call rings before giving up.
   final Duration ringTimeout;
@@ -149,46 +162,55 @@ class CallManager extends ChangeNotifier {
   MediaEngine? get media => _media;
 
   Timer? _timer;
+  Timer? _autoAnswerTimer;
   final _subscriptions = <StreamSubscription<Object?>>[];
   Future<void> _queue = Future.value();
 
-  /// Starts an outgoing call.
-  Future<void> call(PublicIdentity peer, {bool video = true}) =>
-      _serial(() async {
-        if (_state.active) throw StateError('already in a call');
-        final callId = newCallId();
-        _setState(
-          CallState(
-            phase: CallPhase.calling,
-            peer: peer,
-            callId: callId,
-            outgoing: true,
-            video: video,
-          ),
-        );
-        final media = _startMedia();
-        try {
-          await media.prepare(video: video);
-        } catch (e) {
-          await _end(
-            CallEndReason.failed,
-            error: 'Camera or microphone unavailable: $e',
-          );
-          return;
-        }
-        if (!_isCurrent(callId)) return;
-        send(peer, 'call.invite', {'video': video}, callId);
-        _startTimer(ringTimeout, callId, () async {
-          send(peer, 'call.cancel', const {}, callId);
-          await _end(CallEndReason.noAnswer);
-        });
-      });
+  /// Starts an outgoing call. [inviteExtras] are added to the invite body
+  /// (e.g. the guest knock being admitted).
+  Future<void> call(
+    PublicIdentity peer, {
+    bool video = true,
+    Map<String, Object?> inviteExtras = const {},
+  }) => _serial(() async {
+    if (_state.active) throw StateError('already in a call');
+    final callId = newCallId();
+    _setState(
+      CallState(
+        phase: CallPhase.calling,
+        peer: peer,
+        callId: callId,
+        outgoing: true,
+        video: video,
+      ),
+    );
+    final media = _startMedia();
+    try {
+      await media.prepare(video: video);
+    } catch (e) {
+      await _end(
+        CallEndReason.failed,
+        error: 'Camera or microphone unavailable: $e',
+      );
+      return;
+    }
+    if (!_isCurrent(callId)) return;
+    send(peer, 'call.invite', {...inviteExtras, 'video': video}, callId);
+    _startTimer(ringTimeout, callId, () async {
+      send(peer, 'call.cancel', const {}, callId);
+      await _end(CallEndReason.noAnswer);
+    });
+  });
 
   /// Answers the ringing incoming call.
-  Future<void> accept() => _serial(() async {
+  Future<void> accept() => _serial(() => _accept(auto: false));
+
+  Future<void> _accept({required bool auto, String? onlyCallId}) async {
     if (_state.phase != CallPhase.incoming) return;
+    if (onlyCallId != null && _state.callId != onlyCallId) return;
+    _autoAnswerTimer?.cancel();
     final callId = _state.callId!;
-    _setState(_state.copyWith(phase: CallPhase.connecting));
+    _setState(_state.copyWith(phase: CallPhase.connecting, autoAnswered: auto));
     final media = _startMedia();
     try {
       await media.prepare(video: _state.video);
@@ -201,9 +223,14 @@ class CallManager extends ChangeNotifier {
       return;
     }
     if (!_isCurrent(callId)) return;
-    send(_state.peer!, 'call.accept', const {}, callId);
+    send(
+      _state.peer!,
+      'call.accept',
+      auto ? const {'auto': true} : const {},
+      callId,
+    );
     _startTimer(connectTimeout, callId, () => _fail('Connection timed out'));
-  });
+  }
 
   /// Declines the ringing incoming call.
   Future<void> decline() => _serial(() async {
@@ -261,6 +288,12 @@ class CallManager extends ChangeNotifier {
       );
       send(message.sender, 'call.ringing', const {}, callId);
       _startTimer(incomingTimeout, callId, () => _end(CallEndReason.missed));
+      final delay = autoAnswer?.call(message);
+      if (delay != null) {
+        _autoAnswerTimer = Timer(delay, () {
+          _serial(() => _accept(auto: true, onlyCallId: callId));
+        });
+      }
       return;
     }
 
@@ -275,7 +308,12 @@ class CallManager extends ChangeNotifier {
       case ('call.ringing', CallPhase.calling):
         _setState(_state.copyWith(phase: CallPhase.ringing));
       case ('call.accept', CallPhase.calling || CallPhase.ringing):
-        _setState(_state.copyWith(phase: CallPhase.connecting));
+        _setState(
+          _state.copyWith(
+            phase: CallPhase.connecting,
+            autoAnswered: body['auto'] == true,
+          ),
+        );
         _startTimer(
           connectTimeout,
           callId,
@@ -354,6 +392,8 @@ class CallManager extends ChangeNotifier {
     if (!_state.active) return;
     _timer?.cancel();
     _timer = null;
+    _autoAnswerTimer?.cancel();
+    _autoAnswerTimer = null;
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
     }
@@ -397,6 +437,7 @@ class CallManager extends ChangeNotifier {
   @override
   void dispose() {
     _timer?.cancel();
+    _autoAnswerTimer?.cancel();
     for (final subscription in _subscriptions) {
       subscription.cancel();
     }

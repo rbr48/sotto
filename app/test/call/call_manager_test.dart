@@ -10,8 +10,9 @@ import 'fakes.dart';
 /// A person with a call manager whose messages are delivered straight to
 /// the other people's managers (as the relay + envelopes would).
 class Person {
-  Person(this.name, this.identity, this.network) {
+  Person(this.name, this.identity, this.network, {this.autoAnswer}) {
     manager = CallManager(
+      autoAnswer: (invite) => autoAnswer?.call(invite),
       send: (to, type, body, callId) {
         sent.add(type);
         network.deliver(
@@ -30,6 +31,7 @@ class Person {
   final String name;
   final Identity identity;
   final Network network;
+  Duration? Function(OpenedMessage invite)? autoAnswer;
   late final CallManager manager;
   FakeMediaEngine? media;
   final sent = <String>[];
@@ -350,4 +352,94 @@ void main() {
       });
     },
   );
+
+  group('auto-answer', () {
+    test('answers after the delay; both sides know it was automatic', () {
+      fakeAsync((async) {
+        final (:network, :alice, :bob, carol: _) = setup();
+        bob.autoAnswer = (_) => const Duration(seconds: 5);
+        alice.manager.call(bob.public);
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 4));
+        expect(
+          bob.phase,
+          CallPhase.incoming,
+          reason: 'still ringing during the delay',
+        );
+        async.elapse(const Duration(seconds: 2));
+        expect(bob.phase, CallPhase.connecting);
+        expect(bob.manager.state.autoAnswered, isTrue);
+        expect(alice.phase, CallPhase.connecting);
+        expect(alice.manager.state.autoAnswered, isTrue);
+        expect(bob.media!.log, [
+          'prepare(video: true)',
+          'acceptOffer(offer-sdp)',
+        ]);
+      });
+    });
+
+    test('declining during the delay wins', () {
+      fakeAsync((async) {
+        final (:network, :alice, :bob, carol: _) = setup();
+        bob.autoAnswer = (_) => const Duration(seconds: 5);
+        alice.manager.call(bob.public);
+        async.flushMicrotasks();
+        bob.manager.decline();
+        async.elapse(const Duration(seconds: 10));
+        expect(bob.endReason, CallEndReason.declined);
+        expect(alice.endReason, CallEndReason.remoteDeclined);
+        expect(bob.media, isNull);
+      });
+    });
+
+    test(
+      'a call that is not auto-answered rings normally and is not flagged',
+      () {
+        fakeAsync((async) {
+          final (:network, :alice, :bob, carol: _) = setup();
+          bob.autoAnswer = (_) => null;
+          alice.manager.call(bob.public);
+          async.flushMicrotasks();
+          async.elapse(const Duration(seconds: 30));
+          expect(bob.phase, CallPhase.incoming);
+          bob.manager.accept();
+          async.flushMicrotasks();
+          expect(alice.manager.state.autoAnswered, isFalse);
+        });
+      },
+    );
+
+    test(
+      'the decision can use invite extras (e.g. an admitted guest knock)',
+      () {
+        fakeAsync((async) {
+          final (:network, :alice, :bob, carol: _) = setup();
+          bob.autoAnswer = (invite) =>
+              invite.body['knock'] == 'k1' ? Duration.zero : null;
+          alice.manager.call(bob.public, inviteExtras: {'knock': 'k1'});
+          async.flushMicrotasks();
+          async.elapse(Duration.zero);
+          expect(bob.phase, CallPhase.connecting);
+        });
+      },
+    );
+
+    test(
+      'auto-answer never interrupts an ongoing call (busy still applies)',
+      () {
+        fakeAsync((async) {
+          final (:network, :alice, :bob, :carol) = setup();
+          bob.autoAnswer = (_) => Duration.zero;
+          alice.manager.call(bob.public);
+          async.flushMicrotasks();
+          async.elapse(Duration.zero);
+          carol.manager.call(bob.public);
+          async.flushMicrotasks();
+          async.elapse(const Duration(seconds: 1));
+          expect(carol.endReason, CallEndReason.busy);
+          expect(bob.manager.state.peer, alice.public);
+        });
+      },
+    );
+  });
 }

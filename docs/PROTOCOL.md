@@ -173,6 +173,34 @@ Every call message carries the same random `callId` (16 bytes). Messages for ano
 
 A call link is `https://<host>/?call=<base64url(identity card JSON)>`. It contains only public keys and lets anyone ring its owner. Phase 5 replaces it with signed guest links that can expire and be revoked.
 
+### 5.7 Guest links (Phase 5)
+
+A guest link is `https://<host>/#g=<payload>`. Everything after `#` stays in the browser and is never sent to the web server or the relay.
+
+`payload = base64url(JSON {v:1, card, lid, s, n, exp?, sig})`:
+
+| Field | Meaning |
+|---|---|
+| `card` | The professional's identity card (§2.3) |
+| `lid` | Link ID (16 random bytes) |
+| `s` | Link secret (16 random bytes); proves the guest holds the link |
+| `n` | Name shown to the guest |
+| `exp` | Optional expiry (Unix seconds); one-time links expire after 7 days |
+| `sig` | `Ed25519("sotto-link-v1\0" || JSON[sign_pk, box_pk, lid, s, n, exp])` by the professional |
+
+The guest's page verifies the card and `sig` (rejecting tampered or expired links) before sending anything. The professional's app keeps its links only on the device (OS keystore) and checks every knock against them: unknown link or wrong secret, revoked, expired, or already-used one-time link → declined with that reason.
+
+Guest messages (inside envelopes, no `callId`):
+
+| `type` | Direction | `body` |
+|---|---|---|
+| `guest.knock` | guest → professional, repeated every 25 s while waiting | `{"knock", "link", "secret", "name", "video"}` |
+| `guest.leave` | guest → professional | `{"knock"}` |
+| `guest.declined` | professional → guest | `{"knock", "reason": "declined" \| "unknown" \| "revoked" \| "expired" \| "used" \| "full"}` |
+| `guest.message` | professional → guest | `{"knock", "text"}` (quick replies) |
+
+Admitting a guest is an ordinary call (§5.5) from the professional whose `call.invite` body carries `"knock": "<knock id>"`; the guest's page answers it immediately because it matches its own knock from that professional (`call.accept` carries `"auto": true`). A waiting guest who stops knocking for 75 s (closed tab) disappears from the waiting room; at most 20 guests wait at once.
+
 ## 6. Test vectors
 
 `tools/crypto-vectors/gen.js` implements §2–§4 independently and prints the vectors stored in `app/lib/crypto/test_vectors.dart`:

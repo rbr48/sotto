@@ -13,6 +13,8 @@ abstract final class SottoTheme {
       brightness: brightness,
     );
     return ThemeData(
+      // Bundled (see pubspec.yaml), never downloaded.
+      fontFamily: 'Roboto',
       colorScheme: scheme,
       useMaterial3: true,
       inputDecorationTheme: const InputDecorationTheme(

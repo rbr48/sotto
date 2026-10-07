@@ -14,7 +14,7 @@ WORKDIR /src
 COPY app/pubspec.yaml app/pubspec.lock ./
 RUN flutter pub get
 COPY app/ ./
-RUN flutter build web --release
+RUN flutter build web --release --no-web-resources-cdn
 
 FROM caddy:2-alpine
 COPY infra/caddy/Caddyfile /etc/caddy/Caddyfile
