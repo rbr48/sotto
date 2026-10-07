@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -39 410 143">
+<path d="M60 25.18C54 13.32 45 9 35 9C21 9 12 16.55 12 29.5C12 44.61 26 47.84 36 51.08C49 54.32 61 58.63 61 71.58C61 84.53 50 91 35 91C22 91 13 85.61 9 74.82M96 50a41 41 0 1 0 82 0a41 41 0 1 0 -82 0M212 -30L212 69A22 22 0 0 0 234 91L236 91M262 -30L262 69A22 22 0 0 0 284 91L286 91M194 9L288 9" stroke="#1e1b2e" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+<path d="M319 50a41 41 0 1 0 82 0a41 41 0 1 0 -82 0" stroke="#5b4b8a" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+<polygon points="329,81 356,99 311,104" fill="#5b4b8a"/>
+</svg>

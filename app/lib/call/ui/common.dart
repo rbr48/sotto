@@ -396,6 +396,30 @@ class SottoLogo extends StatelessWidget {
   );
 }
 
+/// The "sotto" wordmark (drawn by tools/icons/wordmark.py), for light or
+/// dark themes. Screen readers read it as "Sotto".
+class SottoWordmark extends StatelessWidget {
+  const SottoWordmark({super.key, this.height = 48});
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Semantics(
+      label: 'Sotto',
+      header: true,
+      child: Image.asset(
+        dark
+            ? 'assets/brand/wordmark-dark.png'
+            : 'assets/brand/wordmark-light.png',
+        height: height,
+        excludeFromSemantics: true,
+        filterQuality: FilterQuality.medium,
+      ),
+    );
+  }
+}
+
 class Centered extends StatelessWidget {
   const Centered({super.key, required this.child});
   final Widget child;

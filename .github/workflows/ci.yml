@@ -41,11 +41,13 @@ jobs:
         run: shellcheck -x infra/install.sh infra/test/install_test.sh infra/coturn/start.sh
       - name: Installer tests (stubbed Docker, DNS, firewall and cron)
         run: bash infra/test/install_test.sh
-      - name: Sounds and tray icon are reproducible
+      - name: Sounds are reproducible; the logo and icons generate
         run: |
           pip install --quiet pillow
           python3 tools/sounds/generate.py /tmp/sounds
-          python3 tools/icons/generate.py /tmp/tray
+          # Writes into the repository; PNG bytes can differ between
+          # Pillow versions, so this only checks that it runs.
+          python3 tools/icons/generate.py
           for f in ringtone ringback knock answered; do cmp /tmp/sounds/$f.wav app/assets/sounds/$f.wav; done
           echo "sounds match"
 

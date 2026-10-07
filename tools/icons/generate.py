@@ -3,13 +3,16 @@
 
 The mark: a speech bubble with a small, quiet sound wave inside, for
 "sotto voce" (speaking quietly, so that only the listener hears), on
-Sotto's purple.
+Sotto's purple. The wordmark ("sotto", drawn in wordmark.py) ends in the
+same bubble.
 
     python3 tools/icons/generate.py          # from the repository root
 
 Writes (all generated; edit this script, not the files):
-  docs/brand/                 sotto-icon.svg, sotto-mark.svg, PNG lockups
-  app/assets/brand/           logo.png (in-app), icon.png (Linux window)
+  docs/brand/                 sotto-icon.svg, sotto-mark.svg,
+                              sotto-wordmark{,-dark}.svg, PNG logos
+  app/assets/brand/           logo.png, wordmark-{light,dark}.png (in-app),
+                              icon.png (Linux window)
   app/assets/tray/            sotto.png, sotto.ico (system tray)
   app/web/                    favicon.png, icons/*.png (PWA, maskable, Apple)
   app/windows/runner/resources/app_icon.ico
@@ -20,7 +23,9 @@ Writes (all generated; edit this script, not the files):
 """
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageOps
+
+import wordmark
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -31,6 +36,8 @@ BOTTOM = (61, 47, 107)  # #3D2F6B
 WAVE = (91, 75, 138)  # #5B4B8A
 INK = (30, 27, 46)  # #1E1B2E
 WHITE = (255, 255, 255)
+# The wordmark's bubble on dark backgrounds: the purple, lightened.
+LIGHT_WAVE = (160, 140, 230)  # #A08CE6
 
 # The mark, in units of the icon's width (0..1), centred at (0.5, 0.5).
 BUBBLE_CENTER = (0.5, 0.465)
@@ -98,20 +105,24 @@ def render(size, *, shape='rounded', scale=1.0, monochrome=False, background=Tru
     return image.resize((size, size), Image.LANCZOS)
 
 
-def lockup(text_colour, height=256):
-    """The icon with the word "Sotto" beside it."""
+def wordmark_image(height, *, dark=False):
+    """The wordmark alone, for light or dark backgrounds."""
+    ink, accent = (WHITE, LIGHT_WAVE) if dark else (INK, WAVE)
+    return wordmark.render(height, ink + (255,), accent + (255,))
+
+
+def lockup(height=256, *, dark=False):
+    """The icon with the wordmark beside it: the x-height is 40 % of the
+    icon and centred on it."""
     icon = render(height)
-    font = ImageFont.truetype(str(ROOT / 'app/assets/fonts/Roboto-Medium.ttf'), int(height * 0.56))
-    probe = ImageDraw.Draw(Image.new('RGBA', (1, 1)))
-    left, top, right, bottom = probe.textbbox((0, 0), 'Sotto', font=font, anchor='ls')
-    gap = int(height * 0.16)
-    width = height + gap + (right - left) + int(height * 0.04)
-    image = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+    x_height = 0.40 * height
+    units = x_height / 100  # pixels per wordmark unit
+    word = wordmark_image(round((wordmark.BOTTOM - wordmark.TOP) * units), dark=dark)
+    gap = round(0.20 * height)
+    image = Image.new('RGBA', (height + gap + word.width, height), (0, 0, 0, 0))
     image.paste(icon, (0, 0), icon)
-    draw = ImageDraw.Draw(image)
-    # Baseline so that the capital's height is centred on the icon.
-    cap = -probe.textbbox((0, 0), 'S', font=font, anchor='ls')[1]
-    draw.text((height + gap - left, (height + cap) / 2), 'Sotto', font=font, fill=text_colour, anchor='ls')
+    top = round(height / 2 - x_height / 2 + wordmark.TOP * units)
+    image.paste(word, (height + gap, top), word)
     return image
 
 
@@ -166,12 +177,19 @@ def main():
     brand.mkdir(parents=True, exist_ok=True)
     (brand / 'sotto-icon.svg').write_text(svg())
     (brand / 'sotto-mark.svg').write_text(svg(background=False))
+    hex_colour = lambda colour: f'#{bytes(colour).hex()}'
+    (brand / 'sotto-wordmark.svg').write_text(wordmark.svg(hex_colour(INK), hex_colour(WAVE)))
+    (brand / 'sotto-wordmark-dark.svg').write_text(wordmark.svg('#fff', hex_colour(LIGHT_WAVE)))
     save(render(1024), 'docs/brand/sotto-icon-1024.png')
-    save(lockup(INK), 'docs/brand/sotto-logo-light.png')
-    save(lockup(WHITE), 'docs/brand/sotto-logo-dark.png')
+    save(lockup(), 'docs/brand/sotto-logo-light.png')
+    save(lockup(dark=True), 'docs/brand/sotto-logo-dark.png')
+    save(wordmark_image(240), 'docs/brand/sotto-wordmark-light.png')
+    save(wordmark_image(240, dark=True), 'docs/brand/sotto-wordmark-dark.png')
 
     # In the app.
     save(render(384), 'app/assets/brand/logo.png')
+    save(wordmark_image(144), 'app/assets/brand/wordmark-light.png')
+    save(wordmark_image(144, dark=True), 'app/assets/brand/wordmark-dark.png')
     save(render(256), 'app/assets/brand/icon.png')
     save(render(64), 'app/assets/tray/sotto.png')
     save(render(256), 'app/assets/tray/sotto.ico', sizes=ICO_SIZES)
