@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import 'devices.dart';
@@ -263,17 +264,11 @@ class WebRtcMediaEngine implements MediaEngine {
     final pc = _pc;
     if (pc == null) return null;
     final reports = await pc.getStats();
-    double? rttSeconds;
     var lost = 0;
     var received = 0;
     var sawInbound = false;
     for (final report in reports) {
       final v = report.values;
-      if (report.type == 'candidate-pair' &&
-          (v['nominated'] == true || v['selected'] == true) &&
-          v['currentRoundTripTime'] is num) {
-        rttSeconds = (v['currentRoundTripTime'] as num).toDouble();
-      }
       if (report.type == 'inbound-rtp') {
         sawInbound = true;
         lost += (v['packetsLost'] as num?)?.toInt() ?? 0;
@@ -292,9 +287,7 @@ class WebRtcMediaEngine implements MediaEngine {
       _receivedBefore = received;
     }
     return QualitySample(
-      roundTrip: rttSeconds == null
-          ? null
-          : Duration(microseconds: (rttSeconds * 1e6).round()),
+      roundTrip: roundTripFromStats(reports),
       packetLoss: loss,
     );
   }
@@ -321,4 +314,23 @@ class WebRtcMediaEngine implements MediaEngine {
     }
     await stream.dispose();
   }
+}
+
+/// Round-trip time from WebRTC statistics: the worst `roundTripTime` of the
+/// `remote-inbound-rtp` reports (measured with RTCP, in seconds everywhere).
+///
+/// The selected candidate pair's `currentRoundTripTime` isn't used: Firefox
+/// reports it in milliseconds instead of seconds, which made a good call look
+/// poor. Until the first RTCP report (about a second into the call) there is
+/// no round-trip time; packet loss still counts.
+@visibleForTesting
+Duration? roundTripFromStats(Iterable<StatsReport> reports) {
+  double? worst;
+  for (final report in reports) {
+    final rtt = report.values['roundTripTime'];
+    if (report.type == 'remote-inbound-rtp' && rtt is num && rtt >= 0) {
+      if (worst == null || rtt > worst) worst = rtt.toDouble();
+    }
+  }
+  return worst == null ? null : Duration(microseconds: (worst * 1e6).round());
 }
