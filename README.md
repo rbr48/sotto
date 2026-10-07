@@ -13,7 +13,7 @@ Sotto is a privacy-first audio and video calling app for professionals and their
 - **End-to-end encrypted** 1:1 calls
 - **Zero server storage**: the server only connects calls, in memory
 - **Consent-based recording** kept only on the professional's device
-- Use our **hosted service** or **self-host** with one command
+- **Self-host** with one command (a hosted service is planned)
 
 The name comes from *sotto voce*: speaking quietly so that only the listener hears.
 
@@ -32,6 +32,21 @@ The name comes from *sotto voce*: speaking quietly so that only the listener hea
 | `tools/crypto-vectors/` | Independent implementation of the protocol that generates crypto test vectors |
 | `tools/icons/`, `tools/sounds/` | Generators for the logo and every app icon, and for the bundled sounds |
 | `docs/` | Strategy, roadmap, features and deployment guides |
+
+## Security status
+
+What holds today:
+
+- Call setup is sealed end to end with libsodium (sealed boxes: X25519 and XSalsa20-Poly1305; Ed25519 signatures). Audio and video use WebRTC's DTLS-SRTP; its key fingerprints travel inside the sealed call setup, so neither the relay nor the TURN server can decrypt a call.
+- Servers keep nothing on disk; guest links are signed, and safety numbers reveal a server in the middle.
+- The code is open, so all of this can be checked.
+
+What doesn't hold yet (details in [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md)):
+
+- **No independent security audit yet**; one is planned before the public launch.
+- **Browser guests run the code the server sends them.** A compromised or compelled server could send modified code. Run your own server, or use one you trust; the apps don't have this problem.
+- **Call setup has no forward secrecy yet** (call media does): a stolen device key could decrypt recorded past call-setup messages, which hold IP addresses and timing, not the conversation.
+- **While calls run, the servers see metadata**: who is online, who calls whom and when, and IP addresses. It is kept in memory only, never stored.
 
 ## Try it
 

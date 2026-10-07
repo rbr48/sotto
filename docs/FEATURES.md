@@ -8,7 +8,7 @@ The features planned for the product. Phase numbers refer to [ROADMAP.md](ROADMA
 
 | Feature | Description | Phase | Plan |
 |---|---|---|---|
-| Join from any browser | Clients click a link and join in Chrome, Edge, Firefox or Safari (including iPhone). No app, no account, no sign-up | 5 | Free |
+| Join from any browser | Clients click a link and join in Chrome, Edge, Firefox or Safari. No app, no account, no sign-up. Calls from Chrome and Firefox are tested automatically, Safari's engine in part; iPhone and Mac Safari are checked by hand before each release | 5 | Free |
 | Personal room link | A reusable link, like your own permanent meeting room; rotate it any time | 5 | Free |
 | One-time links | A link that works for a single call and then expires | 5 | Free |
 | Revoke links | Cancel any link instantly from the app | 5 | Free |
