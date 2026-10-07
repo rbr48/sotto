@@ -1,0 +1,53 @@
+# Sotto test server: relay + web app behind Caddy with automatic HTTPS.
+#   cd infra && cp .env.example .env && docker compose up -d --build
+name: sotto
+
+services:
+  relay:
+    build: ../server
+    restart: unless-stopped
+    environment:
+      SOTTO_DEV_ROOMS: ${SOTTO_DEV_ROOMS:-1}
+    expose:
+      - '8080'
+    # Nothing is written to disk.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    logging:
+      options:
+        max-size: '1m'
+        max-file: '1'
+
+  web:
+    build:
+      context: ..
+      dockerfile: infra/web.Dockerfile
+    restart: unless-stopped
+    depends_on: [relay]
+    environment:
+      SOTTO_DOMAIN: ${SOTTO_DOMAIN:?set SOTTO_DOMAIN in .env}
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      # TLS certificates only; no user data.
+      - caddy_data:/data
+      - caddy_config:/config
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ['no-new-privileges:true']
+    logging:
+      options:
+        max-size: '1m'
+        max-file: '1'
+
+volumes:
+  caddy_data:
+  caddy_config:

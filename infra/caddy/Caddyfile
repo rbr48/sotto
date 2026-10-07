@@ -1,0 +1,31 @@
+# Access logging is deliberately not enabled: Sotto keeps no request logs.
+{
+	admin off
+}
+
+{$SOTTO_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(self), microphone=(self), display-capture=(self)"
+		-Server
+	}
+
+	handle /health {
+		reverse_proxy relay:8080
+	}
+
+	# Phase 1 proof-of-concept signaling. Removed when the encrypted relay lands (Phase 3).
+	handle /dev/rooms {
+		reverse_proxy relay:8080
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

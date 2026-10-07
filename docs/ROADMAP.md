@@ -458,21 +458,25 @@ The roadmap has five stages. **Do not skip Stage A**: it decides whether the res
 ### Stage B — MVP (Weeks 5–17)
 
 #### Phase 0 — Foundations (Week 5)
-- [ ] Create the monorepo structure (`app/`, `server/`, `infra/`, `docs/`)
-- [ ] `flutter create --org com.izhaanintellect --project-name sotto --platforms android,windows,linux,web app`; Android `minSdk` 24+
-- [ ] Confirm the app ID is **`com.izhaanintellect.sotto`** on every platform (see section 4.1)
-- [ ] Add `flutter_webrtc` and `sodium_libs`; confirm they build on all four targets
-- [ ] Android permissions: `CAMERA`, `RECORD_AUDIO`, `INTERNET`, `MODIFY_AUDIO_SETTINGS`, `BLUETOOTH_CONNECT`, `POST_NOTIFICATIONS`
-- [ ] Server skeleton: TypeScript, `ws`, ESLint/Prettier, Vitest
-- [ ] CI (GitHub Actions): analyze, tests, Android APK, Windows/Linux builds, web build
+- [x] Create the monorepo structure (`app/`, `server/`, `infra/`, `docs/`)
+- [x] `flutter create --org com.izhaanintellect --project-name sotto --platforms android,windows,linux,web app`; Android `minSdk` 24+
+- [x] Confirm the app ID is **`com.izhaanintellect.sotto`** on every platform (see section 4.1)
+- [x] Add `flutter_webrtc` (web and Linux builds verified locally; Android and Windows built in CI)
+- [ ] Add `sodium_libs` — moved to Phase 2, where the crypto code first needs it
+- [x] Android permissions: `CAMERA`, `RECORD_AUDIO`, `INTERNET`, `MODIFY_AUDIO_SETTINGS`, `BLUETOOTH_CONNECT`, `POST_NOTIFICATIONS`
+- [x] Server skeleton: TypeScript, `ws`, ESLint/Prettier, Vitest
+- [x] CI (GitHub Actions): analyze, tests, Android APK, Windows/Linux builds, web build, end-to-end browser call test
+- [x] Test-server deployment (Docker Compose + Caddy) for `sotto.izhaanintellect.fun` — see `docs/DEPLOY_TEST_SERVER.md`
 
 **Exit criteria:** the app builds for Android, Windows, Linux and web in CI; the relay accepts a WebSocket.
 
 #### Phase 1 — WebRTC Proof of Concept (Weeks 6–7)
-- [ ] Local camera preview on Windows, Android and in the browser
-- [ ] Throwaway plaintext relay for experiments only
-- [ ] First calls on the same LAN: **Windows app ↔ browser** and Android ↔ Windows
-- [ ] Mute mic, toggle camera, hang up
+- [x] Local camera preview in the browser (verified with automated test)
+- [ ] Local camera preview on Windows and Android (needs a real device)
+- [x] Throwaway plaintext relay for experiments only (`/dev/rooms`, off by default)
+- [x] Browser ↔ browser call through the relay (automated end-to-end test)
+- [ ] First calls on the same LAN: **Windows app ↔ browser** and Android ↔ Windows (needs real devices)
+- [x] Mute mic, toggle camera, switch camera (Android), hang up
 
 **Exit criteria:** video calls work between the desktop app and a browser on the same network.
 

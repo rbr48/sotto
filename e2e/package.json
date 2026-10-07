@@ -1,0 +1,11 @@
+{
+  "name": "sotto-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node poc-call.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.47.6'
+
+jobs:
+  server:
+    name: Relay server
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  app:
+    name: App (analyze, test, web + end-to-end call)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Analyze and test
+        working-directory: app
+        run: |
+          flutter pub get
+          dart format --output=none --set-exit-if-changed lib test
+          flutter analyze
+          flutter test
+      - name: Build web (pointed at the local relay)
+        working-directory: app
+        run: flutter build web --dart-define=SOTTO_RELAY_URL=ws://localhost:8080/dev/rooms
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Start relay and web server
+        run: |
+          (cd server && npm ci && npm run build)
+          SOTTO_DEV_ROOMS=1 HOST=127.0.0.1 PORT=8080 node server/dist/index.js &
+          python3 -m http.server 8099 --bind 127.0.0.1 --directory app/build/web &
+          sleep 2
+      - name: End-to-end call test
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm test
+
+  linux:
+    name: Linux build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libpulse-dev
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - working-directory: app
+        run: flutter build linux --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sotto-linux
+          path: app/build/linux/x64/release/bundle
+
+  android:
+    name: Android build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - working-directory: app
+        run: flutter build apk --debug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sotto-android-debug
+          path: app/build/app/outputs/flutter-apk/app-debug.apk
+
+  windows:
+    name: Windows build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - working-directory: app
+        run: flutter build windows --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sotto-windows
+          path: app/build/windows/x64/runner/Release
