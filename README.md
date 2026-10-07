@@ -12,7 +12,7 @@ Sotto is a privacy-first audio and video calling app for professionals and their
 
 The name comes from *sotto voce*: speaking quietly so that only the listener hears.
 
-> Status: **Phase 6 — professional app essentials (MVP).** The app now has onboarding (create an identity or restore a backup; name and practice), an **encrypted vault** on the device for contacts, call history, private session notes and settings, an **app lock** (PIN), **encrypted backups** (Argon2id + XChaCha20-Poly1305), **contacts** added from signed contact links or QR codes, call screens with a timer, quality indicator and movable self-view, and camera/microphone/speaker pickers. Clients still join from any browser with a guest link and wait in a waiting room; all call setup is end-to-end encrypted, the servers store nothing, and the web app loads nothing from third parties. Optional **auto-answer** for verified contacts is protected by the app lock.
+> Status: **Phase 7 — self-hosting and the desktop app.** Organisations can run their own Sotto server with one command (`sudo ./infra/install.sh`, see [`docs/SELF_HOSTING.md`](docs/SELF_HOSTING.md)) and point the app at it (*Settings → Server*). On Windows and Linux, Sotto keeps running in the system tray and shows notifications for knocking guests and incoming calls; calls ring with a bundled ringtone. Phase 6 brought onboarding, an encrypted vault for contacts, history and notes, the app lock, encrypted backups and contacts from signed links or QR codes. Clients still join from any browser with a guest link; all call setup is end-to-end encrypted and the servers store nothing.
 
 **Package name / application ID:** `com.izhaanintellect.sotto` (publisher: Izhaan Intellect)
 
@@ -57,6 +57,7 @@ See [`e2e/README.md`](e2e/README.md) for the end-to-end call test.
 
 - [Product strategy, technical plan & roadmap](docs/ROADMAP.md)
 - [Feature list](docs/FEATURES.md)
+- [Self-hosting](docs/SELF_HOSTING.md)
 - [Deploying the test server](docs/DEPLOY_TEST_SERVER.md)
 - [Protocol: identities and encrypted envelopes](docs/PROTOCOL.md)
 - [Threat model](docs/THREAT_MODEL.md)

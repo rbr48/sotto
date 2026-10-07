@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+# The stubs are written in single quotes on purpose: they expand when run.
+# shellcheck disable=SC2016
+# Tests infra/install.sh with stub commands (docker, DNS, firewall, cron), so
+# nothing on this machine changes.   bash infra/test/install_test.sh
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTALL="$HERE/../install.sh"
+FAILED=0
+WORK=''
+
+setup() {
+  WORK=$(mktemp -d)
+  mkdir -p "$WORK/infra" "$WORK/bin"
+  cp "$HERE/../docker-compose.yml" "$WORK/infra/"
+  : >"$WORK/log"
+  : >"$WORK/crontab"
+  printf 'MemTotal:       4000000 kB\nSwapTotal:      0 kB\n' >"$WORK/meminfo"
+  RESOLVES_TO=203.0.113.10
+  LOCAL_IP=203.0.113.10
+  stub docker 'echo "docker $*" >>"$WORK/log"; [[ "$*" == "--version" ]] && echo "Docker version 27"; exit 0'
+  stub getent '[[ -n "${RESOLVES_TO:-}" ]] && echo "$RESOLVES_TO STREAM $3"; exit 0'
+  stub ip 'echo "2: eth0    inet ${LOCAL_IP}/24 brd x scope global eth0"'
+  stub ufw 'echo "ufw $*" >>"$WORK/log"; [[ "$1" == status ]] && echo "Status: active"; exit 0'
+  stub curl 'echo "curl $*" >>"$WORK/log"; exit 0'
+  stub crontab 'if [[ "${1:-}" == -l ]]; then cat "$WORK/crontab"; else cat >"$WORK/crontab"; fi'
+  stub git 'echo "git $*" >>"$WORK/log"; exit 1'
+  for cmd in fallocate mkswap swapon firewall-cmd; do stub "$cmd" "echo \"$cmd \$*\" >>\"\$WORK/log\""; done
+}
+
+stub() {
+  printf '#!/usr/bin/env bash\n%s\n' "$2" >"$WORK/bin/$1"
+  chmod +x "$WORK/bin/$1"
+}
+
+installer() {
+  env PATH="$WORK/bin:$PATH" WORK="$WORK" RESOLVES_TO="$RESOLVES_TO" LOCAL_IP="$LOCAL_IP" \
+    SOTTO_INFRA_DIR="$WORK/infra" SOTTO_MEMINFO="$WORK/meminfo" SOTTO_ALLOW_NONROOT=1 \
+    SOTTO_HEALTH_TIMEOUT=5 bash "$INSTALL" "$@" </dev/null
+}
+
+check() {
+  local name=$1
+  shift
+  if "$@"; then
+    printf 'ok   %s\n' "$name"
+  else
+    printf 'FAIL %s\n' "$name"
+    FAILED=1
+  fi
+}
+
+has() { grep -qF -- "$2" "$1"; }
+
+# 1. A fresh install.
+setup
+out=$(installer install --domain Calls.Example.org --yes 2>&1)
+env_file="$WORK/infra/.env"
+check 'writes .env with the domain (lowercased)' has "$env_file" 'SOTTO_DOMAIN=calls.example.org'
+check 'generates a 64-hex-digit TURN secret' grep -qE '^SOTTO_TURN_SECRET=[0-9a-f]{64}$' "$env_file"
+check '.env is private (mode 600)' test "$(stat -c %a "$env_file")" = 600
+check 'no external IP when the domain points to an interface' bash -c "! grep -q EXTERNAL_IP '$env_file'"
+check 'builds and starts the containers' has "$WORK/log" 'up -d --build'
+check 'restarts coturn after HTTPS works (TURN over TLS)' has "$WORK/log" 'restart coturn'
+check 'checks health over HTTPS' has "$WORK/log" 'https://calls.example.org/health'
+check 'opens TURN relay ports in ufw' has "$WORK/log" 'ufw allow 49152:65535/udp'
+check 'opens HTTPS in ufw' has "$WORK/log" 'ufw allow 443/tcp'
+check 'adds the weekly coturn restart' has "$WORK/crontab" 'sotto: restart coturn weekly'
+check 'tells the user how to point the app at the server' grep -q 'Use another' <<<"$out"
+secret=$(grep SOTTO_TURN_SECRET "$env_file")
+
+# 2. Running it again keeps the secret and doesn't duplicate the cron job.
+installer install --yes >/dev/null 2>&1
+check 'reinstall keeps the TURN secret' has "$env_file" "$secret"
+check 'reinstall keeps the domain from .env' has "$env_file" 'SOTTO_DOMAIN=calls.example.org'
+check 'cron job added only once' test "$(grep -c 'sotto: restart coturn' "$WORK/crontab")" = 1
+rm -rf "$WORK"
+
+# 3. Cloudflare's proxy is refused with an explanation.
+setup
+RESOLVES_TO=104.21.33.7
+out=$(installer install --domain calls.example.org --yes 2>&1) && status=0 || status=$?
+check 'refuses a Cloudflare-proxied domain' test "$status" != 0
+check 'explains "DNS only"' grep -q 'DNS only' <<<"$out"
+check 'nothing started' bash -c "! grep -q 'up -d --build' '$WORK/log'"
+rm -rf "$WORK"
+
+# 4. Behind NAT: the resolved IP becomes coturn's external IP.
+setup
+RESOLVES_TO=198.51.100.20
+LOCAL_IP=10.0.0.5
+installer install --domain calls.example.org --yes >/dev/null 2>&1
+check 'NAT: sets SOTTO_TURN_EXTERNAL_IP' has "$WORK/infra/.env" 'SOTTO_TURN_EXTERNAL_IP=198.51.100.20'
+rm -rf "$WORK"
+
+# 5. A domain that doesn't resolve, an invalid domain, an unknown option.
+setup
+RESOLVES_TO=''
+out=$(installer install --domain calls.example.org --yes 2>&1) && status=0 || status=$?
+check 'refuses a domain that does not resolve' test "$status" != 0
+check '... explains the A record' grep -q 'A record' <<<"$out"
+installer install --domain calls.example.org --yes --skip-dns-check >/dev/null 2>&1 && status=0 || status=$?
+check '--skip-dns-check installs anyway' test "$status" = 0
+out=$(installer install --domain 'not a domain' --yes 2>&1) && status=0 || status=$?
+check 'refuses an invalid domain' test "$status" != 0
+out=$(installer install --bogus 2>&1) && status=0 || status=$?
+check 'refuses unknown options' test "$status" != 0
+rm -rf "$WORK"
+
+# 6. Little memory: swap is added (shown with --dry-run, which changes nothing).
+setup
+printf 'MemTotal:       1000000 kB\nSwapTotal:      0 kB\n' >"$WORK/meminfo"
+out=$(installer install --domain calls.example.org --yes --dry-run 2>&1)
+check 'low memory: offers a 2 GB swap file' grep -q 'fallocate -l 2G /swapfile' <<<"$out"
+check 'dry run writes no .env' test ! -e "$WORK/infra/.env"
+check 'dry run starts nothing' bash -c "! grep -q 'up -d --build' '$WORK/log'"
+check 'dry run leaves cron alone' test ! -s "$WORK/crontab"
+rm -rf "$WORK"
+
+# 7. Update, status, uninstall.
+setup
+installer install --domain calls.example.org --yes --no-firewall >/dev/null 2>&1
+check '--no-firewall leaves ufw alone' bash -c "! grep -q 'ufw allow' '$WORK/log'"
+: >"$WORK/log"
+installer update >/dev/null 2>&1
+check 'update rebuilds' has "$WORK/log" 'up -d --build'
+check 'update prunes old images' has "$WORK/log" 'image prune -f'
+out=$(installer status 2>&1)
+check 'status reports health' grep -q 'health: OK' <<<"$out"
+installer uninstall --purge >/dev/null 2>&1
+check 'uninstall --purge removes containers and volumes' has "$WORK/log" 'down --volumes'
+check 'uninstall --purge deletes .env' test ! -e "$WORK/infra/.env"
+check 'uninstall removes the cron job' bash -c "! grep -q sotto '$WORK/crontab'"
+rm -rf "$WORK"
+
+if [[ $FAILED == 1 ]]; then
+  echo 'install.sh tests FAILED'
+  exit 1
+fi
+echo 'install.sh tests passed'

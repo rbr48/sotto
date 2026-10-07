@@ -6,7 +6,8 @@
 # - Relaying to private and special-purpose networks is refused, so the
 #   server can't be used to reach anything inside its own network.
 # - TURN over TLS (port 5349) is enabled automatically once Caddy has obtained
-#   the certificate for SOTTO_DOMAIN; restart coturn after the first start.
+#   the certificate for SOTTO_DOMAIN; install.sh restarts coturn after the
+#   first start and weekly (to load renewed certificates).
 # - Logs go to stdout, which docker-compose discards (logging driver "none").
 set -eu
 

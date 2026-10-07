@@ -1,5 +1,7 @@
-# Sotto test server: relay + web app behind Caddy (automatic HTTPS) + coturn.
-#   cd infra && cp .env.example .env   # then set SOTTO_TURN_SECRET
+# Sotto server: relay + web app behind Caddy (automatic HTTPS) + coturn.
+#   sudo ./infra/install.sh          (see docs/SELF_HOSTING.md)
+# or by hand:
+#   cd infra && cp .env.example .env   # then set SOTTO_DOMAIN and SOTTO_TURN_SECRET
 #   docker compose up -d --build
 name: sotto
 

@@ -142,12 +142,15 @@ class _PinEntryState extends State<_PinEntry> {
 }
 
 /// Asks for the PIN before a sensitive change (auto-answer, backups).
-/// Without a PIN, the user must set one first. Returns whether to proceed.
+/// Without a PIN, the user must set one first (unless [requirePin] is
+/// false). Returns whether to proceed.
 Future<bool> confirmWithPin(
   BuildContext context,
   AppLock lock, {
   required String reason,
+  bool requirePin = true,
 }) async {
+  if (!lock.hasPin && !requirePin) return true;
   if (!lock.hasPin) {
     return await showSetPinDialog(
       context,

@@ -76,27 +76,13 @@ git checkout claude/blissful-wozniak-w64f4v   # until this work is merged into m
 
 ## 4. Configure and start
 
-```bash
-cd infra
-cp .env.example .env
-# Put a long random secret in .env (shared by the relay and coturn):
-sed -i "s/^SOTTO_TURN_SECRET=.*/SOTTO_TURN_SECRET=$(openssl rand -hex 32)/" .env
-docker compose up -d --build
-```
-
-On the very first start Caddy hasn't obtained the HTTPS certificate yet, so coturn starts **without** TURN over TLS (UDP/TCP 3478 work immediately). Once `https://sotto.izhaanintellect.fun/health` works, restart coturn once to enable TLS on port 5349:
+The installer does the rest (checks DNS, writes `infra/.env` with a random TURN secret, builds, starts, enables TURN over TLS once the certificate exists, and schedules coturn's weekly certificate reload). Details: [`SELF_HOSTING.md`](SELF_HOSTING.md).
 
 ```bash
-docker compose restart coturn
+sudo ./infra/install.sh install --domain sotto.izhaanintellect.fun
 ```
 
-Let's Encrypt certificates are renewed by Caddy every ~60 days; coturn only reads them at start. Add a weekly restart so it picks up renewals (it takes a second and does not affect calls that are already connected directly):
-
-```bash
-( crontab -l 2>/dev/null; echo "0 4 * * 1 cd $HOME/sotto/infra && docker compose restart coturn" ) | crontab -
-```
-
-The first build takes about **5–15 minutes**, because it downloads Flutter and compiles the web app. Later builds are faster.
+If you already started it by hand earlier, that's fine: the installer keeps the existing `infra/.env` secret.
 
 ## 5. Check it works
 
@@ -123,8 +109,7 @@ To test TURN, turn on **Hide my IP address** before calling: the call must show 
 
 ```bash
 cd ~/sotto
-git pull
-cd infra && docker compose up -d --build
+sudo ./infra/install.sh update
 ```
 
 ## 7. Troubleshooting

@@ -235,5 +235,9 @@ abstract final class Backup {
   ]);
 
   /// Vault entries that belong to this device and are never backed up.
-  static const deviceOnlyKeys = {'sotto.lock.v1', 'sotto.devices.v1'};
+  static const deviceOnlyKeys = {
+    'sotto.lock.v1',
+    'sotto.devices.v1',
+    'sotto.settings.desktop',
+  };
 }

@@ -573,13 +573,17 @@ An **optional** setting on the *receiving* device: calls from people the user ha
 ### Stage C — Pilot (Weeks 18–23)
 
 #### Phase 7 — Self-Host Package & Hosted Beta (Weeks 18–19)
-- [ ] `docker-compose.yml` for relay + coturn + guest page with read-only filesystems
-- [ ] `install.sh`: domain, TLS, secrets, start, update
-- [ ] App setting to point at a custom server
-- [ ] `docs/SELF_HOSTING.md`
-- [ ] Our hosted beta environment (relay + coturn + guest page) in one region
-- [ ] Desktop tray mode so the app stays reachable; native notifications for knocking guests
-- [ ] Ringtone and chime sounds on every platform (incoming calls, knocks, auto-answer), bundled with the app
+- [x] `docker-compose.yml` for relay + coturn + web app with read-only filesystems, no capabilities, logs capped or discarded
+- [x] `infra/install.sh`: checks the domain points here (refuses Cloudflare's proxy, detects NAT), installs Docker, adds swap on small servers, opens ufw/firewalld ports, writes a private `.env` with a random TURN secret, builds and starts, waits for HTTPS, enables TURN over TLS, schedules coturn's certificate reload; `update`, `status`, `uninstall [--purge]`, `--dry-run`. Tested in CI with stubbed Docker, DNS, firewall and cron (`infra/test/install_test.sh`) and shellcheck
+- [x] App setting to point at a custom server (Settings → Server): checks that a Sotto relay answers before switching, warns that earlier links stop working, PIN if the app lock is on; kept in the vault and in backups. The browser always uses the server it was loaded from
+- [x] `docs/SELF_HOSTING.md`
+- [ ] Our hosted beta environment (relay + coturn + guest page) in one region — the test server runs (`sotto.izhaanintellect.fun`), but still behind Cloudflare's proxy: set the record to DNS only and re-deploy with `install.sh`
+- [x] Desktop tray mode: closing the window keeps Sotto running (tray icon with *Open* / *Quit*); only where a tray host exists (checked on Linux), otherwise the window closes normally
+- [x] Native notifications (Windows, Linux) for knocking guests and incoming calls while Sotto is in the background; names hidden unless the user chooses, never while locked
+- [x] Ringtone, ringback tone and chimes (knock, auto-answered), synthesized by `tools/sounds/generate.py` (original, CC0) and bundled; on/off in Settings; playback errors never affect calls
+- [x] A dialog left open no longer covers an incoming call or the lock screen
+- [ ] Single-instance desktop app (opening Sotto again shows the running window) — Phase 8
+- [ ] Verify tray and notifications on real Windows and Linux desktops (tested here on a virtual display without a tray host)
 
 **Exit criteria:** a non-expert can self-host on a fresh VPS in under 15 minutes by following the docs.
 

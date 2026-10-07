@@ -32,6 +32,23 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  installer:
+    name: Self-host installer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shellcheck
+        run: shellcheck -x infra/install.sh infra/test/install_test.sh infra/coturn/start.sh
+      - name: Installer tests (stubbed Docker, DNS, firewall and cron)
+        run: bash infra/test/install_test.sh
+      - name: Sounds and tray icon are reproducible
+        run: |
+          pip install --quiet pillow
+          python3 tools/sounds/generate.py /tmp/sounds
+          python3 tools/icons/generate.py /tmp/tray
+          for f in ringtone ringback knock answered; do cmp /tmp/sounds/$f.wav app/assets/sounds/$f.wav; done
+          echo "sounds match"
+
   app:
     name: App (analyze, test, web + end-to-end call)
     runs-on: ubuntu-latest
@@ -100,7 +117,8 @@ jobs:
       - uses: actions/checkout@v4
       - run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libpulse-dev libsecret-1-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libpulse-dev libsecret-1-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libayatana-appindicator3-dev libnotify-dev
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}

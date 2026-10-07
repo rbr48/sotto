@@ -7,12 +7,15 @@ import 'package:sodium/sodium.dart';
 import '../call/call_controller.dart';
 import '../call/devices.dart';
 import '../contacts/contact_book.dart';
+import '../core/server_address.dart';
 import '../core/test_hooks.dart';
 import '../crypto/encoding.dart';
 import '../crypto/sotto_crypto.dart';
+import '../desktop/notices.dart';
 import '../guest/guest_link.dart';
 import '../history/call_history.dart';
 import '../lock/app_lock.dart';
+import '../sound/call_sounds.dart';
 import '../storage/backup.dart';
 import '../storage/vault.dart';
 import '../storage/vault_file.dart';
@@ -86,6 +89,11 @@ class AppController extends ChangeNotifier {
                : () async => MemoryVaultFile());
 
   static const String profileKey = 'sotto.profile.v1';
+
+  static const String desktopKey = 'sotto.settings.desktop';
+
+  /// A server chosen by the user instead of the built-in one.
+  static const String serverKey = 'sotto.server.v1';
   static const String legacyHostNameKey = 'sotto.settings.host_name';
 
   /// Settings that earlier versions kept directly in the OS keystore.
@@ -143,6 +151,40 @@ class AppController extends ChangeNotifier {
 
   CallController? _calls;
   CallController? get calls => _calls;
+
+  ServerAddress? _customServer;
+
+  DesktopPrefs _desktopPrefs = const DesktopPrefs();
+
+  bool _trayAvailable = false;
+
+  /// Whether a tray icon could be shown (desktop apps).
+  bool get trayAvailable => _trayAvailable;
+  set trayAvailable(bool value) {
+    _trayAvailable = value;
+    notifyListeners();
+  }
+
+  /// Tray and notification choices (desktop apps).
+  DesktopPrefs get desktopPrefs => _desktopPrefs;
+
+  Future<void> setDesktopPrefs(DesktopPrefs prefs) async {
+    _desktopPrefs = prefs;
+    notifyListeners();
+    await _vault?.write(desktopKey, prefs.encode());
+  }
+
+  /// The built-in server (from the build configuration).
+  ServerAddress get defaultServer =>
+      ServerAddress(web: linkBase, relay: relayUrl);
+
+  /// The server in use: the user's choice, or the built-in one.
+  ServerAddress get server => _customServer ?? defaultServer;
+
+  /// Whether the user chose another server (not possible in the browser,
+  /// which always uses the server it was loaded from).
+  bool get usesCustomServer => _customServer != null;
+  bool get canChangeServer => persistent;
 
   /// Backups need Argon2id and a device that keeps the identity.
   bool get backupsAvailable =>
@@ -204,6 +246,10 @@ class AppController extends ChangeNotifier {
     await contacts.load();
     await history.load();
     _profile = Profile.decode(await vault.read(profileKey));
+    _desktopPrefs = DesktopPrefs.decode(await vault.read(desktopKey));
+    _customServer = canChangeServer
+        ? ServerAddress.decode(await vault.read(serverKey))
+        : null;
   }
 
   /// Onboarding: creates the identity (if there is none yet) and saves the
@@ -244,19 +290,39 @@ class AppController extends ChangeNotifier {
     );
     if (startCalls) {
       final calls = _calls = CallController(
-        relayUrl: relayUrl,
-        linkBase: linkBase,
+        relayUrl: server.relay,
+        linkBase: server.web,
         identity: _identity,
         settings: _vault,
         contacts: contacts,
         history: history,
         devices: devices,
         hostName: () => _profile?.label ?? '',
+        sounds: AudioplayersOutput(),
       );
       await calls.start();
     }
     publishForTests('stage', 'ready');
     _setStage(AppStage.ready);
+  }
+
+  /// Switches to another server (`null` = the built-in one) and reconnects.
+  /// Links shared earlier point to the old server.
+  Future<void> setServer(ServerAddress? server) async {
+    if (!canChangeServer) return;
+    _customServer = server == defaultServer ? null : server;
+    if (_customServer case final custom?) {
+      await _vault!.write(serverKey, custom.encode());
+    } else {
+      await _vault!.delete(serverKey);
+    }
+    if (_stage == AppStage.ready) {
+      _purgeTimer?.cancel();
+      _calls?.dispose();
+      _calls = null;
+      await _startCalls();
+    }
+    notifyListeners();
   }
 
   /// Creates an encrypted backup of the identity and the vault (without

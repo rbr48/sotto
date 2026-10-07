@@ -247,7 +247,7 @@ plaintext = JSON {"master": "<32-byte master secret>", "values": {<vault entries
 - The passphrase must be at least 12 characters (after trimming); the app offers a generated one (25 Crockford base32 characters, 125 bits).
 - Changing any header field (for example lowering the cost) changes `ad`, so decryption fails.
 - To open a backup, the app accepts only `1 ≤ ops ≤ 10` and `8 MiB ≤ mem ≤ 1 GiB`, so a crafted file can't make it hang or run out of memory.
-- `values` holds the vault (§9) except device-only entries (`sotto.lock.v1`, `sotto.devices.v1`); call history and notes are optional.
+- `values` holds the vault (§9) except device-only entries (`sotto.lock.v1`, `sotto.devices.v1`, `sotto.settings.desktop`); call history and notes are optional.
 - Restoring writes the master secret to the OS keystore and replaces the vault's contents, keeping the device's own app lock and device choices.
 
 ## 9. Local storage: the vault (Phase 6)
@@ -273,6 +273,9 @@ plaintext = JSON {"v":1, "values": {"<key>": "<string>", …}}
 | `sotto.lock.v1` | App lock: Argon2id PIN verifier (`crypto_pwhash_str`), failed attempts, auto-lock time. Device-only |
 | `sotto.devices.v1` | Chosen camera, microphone and speaker. Device-only |
 | `sotto.settings.hide_ip` | "Hide my IP address" |
+| `sotto.settings.sounds` | Ringtone and chimes on/off |
+| `sotto.server.v1` | A server chosen instead of the built-in one (web and relay URLs). Included in backups, so restored links keep working |
+| `sotto.settings.desktop` | Tray and notification choices. Device-only |
 
 Earlier versions kept settings directly in the keystore; on first start they are moved into the vault and deleted from the keystore.
 

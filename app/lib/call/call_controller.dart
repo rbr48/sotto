@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:sodium/sodium.dart';
 
@@ -15,6 +14,7 @@ import '../guest/guest_link.dart';
 import '../guest/guest_visit.dart';
 import '../history/call_history.dart';
 import '../relay/relay_client.dart';
+import '../sound/call_sounds.dart';
 import 'call_code.dart';
 import 'call_manager.dart';
 import 'devices.dart';
@@ -44,7 +44,9 @@ class CallController extends ChangeNotifier {
     this.history,
     this.devices,
     String Function()? hostName,
-  }) : _givenIdentity = identity,
+    SoundOutput? sounds,
+  }) : _sounds = sounds, // ignore: prefer_initializing_formals
+       _givenIdentity = identity,
        _settings = settings ?? MemorySecretStore(),
        _hostName = hostName ?? (() => '');
 
@@ -57,6 +59,7 @@ class CallController extends ChangeNotifier {
   ];
 
   static const hideIpSetting = 'sotto.settings.hide_ip';
+  static const soundsSetting = 'sotto.settings.sounds';
 
   final Uri relayUrl;
   final Uri linkBase;
@@ -135,6 +138,25 @@ class CallController extends ChangeNotifier {
 
   bool _hideIp = false;
 
+  final SoundOutput? _sounds;
+  late final CallSounds? _callSounds = _sounds == null
+      ? null
+      : CallSounds(_sounds, enabled: () => _soundsOn);
+  bool _soundsOn = true;
+
+  /// Ringtone, ringback and chimes.
+  bool get soundsOn => _soundsOn;
+  final _knownKnocks = <String>{};
+  final _newGuests = StreamController<WaitingGuest>.broadcast();
+  final _incomingCalls = StreamController<CallState>.broadcast();
+  String? _lastIncomingId;
+
+  /// Guests who just started waiting (for desktop notifications).
+  Stream<WaitingGuest> get newGuests => _newGuests.stream;
+
+  /// Calls that just started ringing here (for desktop notifications).
+  Stream<CallState> get incomingCalls => _incomingCalls.stream;
+
   /// "Hide my IP address": calls only use the TURN relay, so the other
   /// person never sees this device's IP address.
   bool get hideIp => _hideIp;
@@ -208,6 +230,7 @@ class CallController extends ChangeNotifier {
       final sodium = _sodium = await SottoCrypto.init();
       final identity = _identity = _givenIdentity ?? Identity.generate(sodium);
       _hideIp = await _readSetting(hideIpSetting) == '1';
+      _soundsOn = await _readSetting(soundsSetting) != '0';
       _codec = EnvelopeCodec(sodium, identity);
       await localRenderer.initialize();
       await remoteRenderer.initialize();
@@ -265,7 +288,7 @@ class CallController extends ChangeNotifier {
               inviteExtras: {'knock': guest.knockId},
             );
           },
-        )..addListener(notifyListeners);
+        )..addListener(_onHostChanged);
         publishGuestLinks();
       }
 
@@ -299,6 +322,30 @@ class CallController extends ChangeNotifier {
     } catch (_) {
       return null;
     }
+  }
+
+  Future<void> setSoundsOn(bool value) async {
+    _soundsOn = value;
+    if (!value) _callSounds?.onCallState(CallState.idle, autoAnswered: false);
+    notifyListeners();
+    try {
+      await _settings.write(soundsSetting, value ? '1' : '0');
+    } catch (_) {
+      // Not persisted; still applies until the app restarts.
+    }
+  }
+
+  /// Chimes when a new guest starts waiting.
+  void _onHostChanged() {
+    final waiting = {for (final guest in _host!.waiting) guest.knockId};
+    if (waiting.difference(_knownKnocks).isNotEmpty) _callSounds?.onKnock();
+    for (final guest in _host!.waiting) {
+      if (!_knownKnocks.contains(guest.knockId)) _newGuests.add(guest);
+    }
+    _knownKnocks
+      ..clear()
+      ..addAll(waiting);
+    notifyListeners();
   }
 
   Future<void> setHideIp(bool value) async {
@@ -463,10 +510,13 @@ class CallController extends ChangeNotifier {
     final call = this.call;
     if (call.phase == CallPhase.connecting && autoAnswered) {
       publishForTests('auto-answered', 'true');
-      // Audible cue that a call was picked up automatically (where the
-      // platform supports system sounds).
-      SystemSound.play(SystemSoundType.alert);
     }
+    if (call.phase == CallPhase.incoming && call.callId != _lastIncomingId) {
+      _lastIncomingId = call.callId;
+      _incomingCalls.add(call);
+    }
+    // Ringtone/ringback, and a chime when a call is answered automatically.
+    _callSounds?.onCallState(call, autoAnswered: autoAnswered);
     if (call.phase == CallPhase.calling || call.phase == CallPhase.incoming) {
       publishForTests('auto-answered', 'false');
       _micEnabled = true;
@@ -573,6 +623,9 @@ class CallController extends ChangeNotifier {
       subscription.cancel();
     }
     _qualityTimer?.cancel();
+    _callSounds?.dispose();
+    unawaited(_newGuests.close());
+    unawaited(_incomingCalls.close());
     _manager?.dispose();
     _host?.dispose();
     _visit?.dispose();

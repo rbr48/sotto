@@ -1,0 +1,387 @@
+#!/usr/bin/env bash
+# Sotto self-host installer: relay + web app (Caddy, automatic HTTPS) + coturn.
+#
+#   sudo ./infra/install.sh                      # interactive install
+#   sudo ./infra/install.sh install --domain calls.example.org --yes
+#   sudo ./infra/install.sh update               # pull the latest code and rebuild
+#   sudo ./infra/install.sh status               # containers and health
+#   sudo ./infra/install.sh uninstall [--purge]  # stop (and delete certificates)
+#
+# Options:
+#   --domain NAME      the server's domain (its DNS A record must point here)
+#   --external-ip IP   public IP if this server is behind NAT (detected otherwise)
+#   --yes              don't ask; accept the defaults (install Docker, add swap,
+#                      open firewall ports)
+#   --no-firewall      don't touch ufw/firewalld
+#   --skip-dns-check   install even if the domain doesn't point here yet
+#   --dry-run          print what would be done, change nothing
+#
+# Nothing here sends data anywhere except to Docker's servers (images) and
+# Let's Encrypt (certificate), and `update` fetches code with git.
+set -euo pipefail
+
+INFRA_DIR="${SOTTO_INFRA_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+ENV_FILE="$INFRA_DIR/.env"
+MEMINFO="${SOTTO_MEMINFO:-/proc/meminfo}"
+HEALTH_TIMEOUT="${SOTTO_HEALTH_TIMEOUT:-300}"
+CRON_MARK='# sotto: restart coturn weekly to load renewed certificates'
+
+COMMAND=install
+DOMAIN=''
+EXTERNAL_IP=''
+ASSUME_YES=0
+FIREWALL=1
+DNS_CHECK=1
+DRY_RUN=0
+PURGE=0
+
+say() { printf '%s\n' "$*"; }
+step() { printf '\n==> %s\n' "$*"; }
+warn() { printf 'WARNING: %s\n' "$*" >&2; }
+die() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+# Runs a command, or prints it with --dry-run.
+run() {
+  if [[ $DRY_RUN == 1 ]]; then
+    printf '[dry-run] %s\n' "$*"
+  else
+    "$@"
+  fi
+}
+
+# Asks a yes/no question; --yes answers yes.
+confirm() {
+  local question=$1
+  if [[ $ASSUME_YES == 1 ]]; then return 0; fi
+  if [[ ! -t 0 ]]; then return 1; fi
+  local answer
+  read -r -p "$question [Y/n] " answer
+  [[ -z $answer || $answer =~ ^[Yy] ]]
+}
+
+usage() {
+  sed -n '2,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+}
+
+parse_args() {
+  if [[ $# -gt 0 && $1 != -* ]]; then
+    COMMAND=$1
+    shift
+  fi
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --domain) DOMAIN=${2:-}; shift 2 ;;
+      --external-ip) EXTERNAL_IP=${2:-}; shift 2 ;;
+      --yes | -y) ASSUME_YES=1; shift ;;
+      --no-firewall) FIREWALL=0; shift ;;
+      --skip-dns-check) DNS_CHECK=0; shift ;;
+      --dry-run) DRY_RUN=1; shift ;;
+      --purge) PURGE=1; shift ;;
+      -h | --help) usage; exit 0 ;;
+      *) die "unknown option: $1 (see --help)" ;;
+    esac
+  done
+  case $COMMAND in
+    install | update | status | uninstall) ;;
+    *) die "unknown command: $COMMAND (install, update, status or uninstall)" ;;
+  esac
+}
+
+compose() {
+  run docker compose --project-directory "$INFRA_DIR" -f "$INFRA_DIR/docker-compose.yml" "$@"
+}
+
+# --- checks -----------------------------------------------------------------
+
+require_root() {
+  if [[ $DRY_RUN == 1 || ${SOTTO_ALLOW_NONROOT:-0} == 1 ]]; then return; fi
+  [[ $(id -u) == 0 ]] || die "run as root, for example: sudo $0 $COMMAND"
+}
+
+valid_domain() {
+  [[ $1 =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$ ]]
+}
+
+ask_domain() {
+  if [[ -z $DOMAIN && -f $ENV_FILE ]]; then
+    DOMAIN=$(sed -n 's/^SOTTO_DOMAIN=//p' "$ENV_FILE" | tail -n 1)
+  fi
+  if [[ -z $DOMAIN && -t 0 && $ASSUME_YES == 0 ]]; then
+    read -r -p 'Domain for this Sotto server (e.g. calls.example.org): ' DOMAIN
+  fi
+  [[ -n $DOMAIN ]] || die 'no domain given (use --domain)'
+  DOMAIN=${DOMAIN,,}
+  valid_domain "$DOMAIN" || die "not a valid domain name: $DOMAIN"
+}
+
+# IPv4 addresses the domain resolves to.
+resolved_ips() {
+  getent ahostsv4 "$1" 2>/dev/null | awk '{print $1}' | sort -u
+}
+
+# IPv4 addresses on this machine's interfaces.
+local_ips() {
+  ip -4 -o addr show 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | sort -u
+}
+
+# Cloudflare's proxy ranges (IPv4): with the orange cloud on, TURN can't work
+# and Cloudflare would see all signaling traffic.
+is_cloudflare_ip() {
+  case $1 in
+    104.1[6-9].* | 104.2[0-9].* | 104.3[01].* | 172.6[4-9].* | 172.7[01].* | 188.114.9[6-9].* | \
+      162.158.* | 141.101.* | 108.162.* | 190.93.* | 197.234.* | 198.41.* | 173.245.* | 103.21.* | 103.22.* | 103.31.* | 131.0.7[2-5].*)
+      return 0 ;;
+  esac
+  return 1
+}
+
+check_dns() {
+  step "Checking that $DOMAIN points to this server"
+  local resolved locals ip
+  resolved=$(resolved_ips "$DOMAIN")
+  locals=$(local_ips)
+  if [[ -z $resolved ]]; then
+    [[ $DNS_CHECK == 1 ]] || { warn "$DOMAIN does not resolve yet (continuing: --skip-dns-check)"; return; }
+    die "$DOMAIN does not resolve. Create an A record pointing to this server's public IP, wait a few minutes, then run this again."
+  fi
+  for ip in $resolved; do
+    if is_cloudflare_ip "$ip"; then
+      die "$DOMAIN resolves to $ip, a Cloudflare proxy address. In Cloudflare's DNS settings, set this record to \"DNS only\" (grey cloud): calls can't connect through the proxy, and it would see all traffic."
+    fi
+  done
+  for ip in $resolved; do
+    if grep -qxF "$ip" <<<"$locals"; then
+      say "OK: $DOMAIN -> $ip (on this server)"
+      return
+    fi
+  done
+  # Not on an interface: a cloud server behind 1:1 NAT (AWS, GCP, Oracle...)
+  # or the wrong server.
+  ip=$(head -n 1 <<<"$resolved")
+  if [[ -z $EXTERNAL_IP ]]; then
+    say "$DOMAIN resolves to $ip, which is not on any network interface here."
+    say 'That is normal for cloud servers behind NAT; otherwise the record points to another server.'
+    if confirm "Is $ip this server's public IP?"; then
+      EXTERNAL_IP=$ip
+    elif [[ $DNS_CHECK == 1 ]]; then
+      die "point $DOMAIN to this server, or pass --external-ip"
+    fi
+  fi
+}
+
+check_docker() {
+  step 'Checking Docker'
+  if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    say "OK: $(docker --version)"
+    return
+  fi
+  confirm 'Docker (with the Compose plugin) is not installed. Install it now from get.docker.com?' ||
+    die 'install Docker first: https://docs.docker.com/engine/install/'
+  run sh -c 'curl -fsSL https://get.docker.com | sh'
+}
+
+# The web app is compiled on the server; Flutter needs about 2.5 GB of memory.
+check_memory() {
+  step 'Checking memory'
+  local mem_kb swap_kb
+  mem_kb=$(awk '/^MemTotal:/ {print $2}' "$MEMINFO")
+  swap_kb=$(awk '/^SwapTotal:/ {print $2}' "$MEMINFO")
+  if (((mem_kb + swap_kb) >= 2500000)); then
+    say "OK: $((mem_kb / 1024)) MB memory, $((swap_kb / 1024)) MB swap"
+    return
+  fi
+  warn "only $((mem_kb / 1024)) MB memory and $((swap_kb / 1024)) MB swap: building the web app needs about 2.5 GB"
+  if confirm 'Add a 2 GB swap file (/swapfile)?'; then
+    if [[ -e /swapfile ]]; then die '/swapfile exists already; enable it or remove it'; fi
+    run fallocate -l 2G /swapfile
+    run chmod 600 /swapfile
+    run mkswap /swapfile
+    run swapon /swapfile
+    if ! grep -q '^/swapfile ' /etc/fstab 2>/dev/null; then
+      run sh -c "echo '/swapfile none swap sw 0 0' >> /etc/fstab"
+    fi
+  else
+    warn 'continuing without swap; the build may run out of memory'
+  fi
+}
+
+open_firewall() {
+  [[ $FIREWALL == 1 ]] || return 0
+  step 'Opening firewall ports'
+  local tcp=(80 443 3478 5349) udp=(443 3478)
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q 'Status: active'; then
+    local port
+    for port in "${tcp[@]}"; do run ufw allow "$port/tcp"; done
+    for port in "${udp[@]}"; do run ufw allow "$port/udp"; done
+    run ufw allow 49152:65535/udp
+  elif command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+    local port
+    for port in "${tcp[@]}"; do run firewall-cmd --permanent --add-port="$port/tcp"; done
+    for port in "${udp[@]}"; do run firewall-cmd --permanent --add-port="$port/udp"; done
+    run firewall-cmd --permanent --add-port=49152-65535/udp
+    run firewall-cmd --reload
+  else
+    say 'No active ufw or firewalld found; nothing to change here.'
+  fi
+  say "If your hosting provider has its own firewall, open there too: TCP ${tcp[*]}, UDP ${udp[*]} and UDP 49152-65535."
+}
+
+# --- configuration ------------------------------------------------------------
+
+new_secret() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 32
+  else
+    head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'
+  fi
+}
+
+write_env() {
+  step "Writing $ENV_FILE"
+  local secret=''
+  if [[ -f $ENV_FILE ]]; then
+    secret=$(sed -n 's/^SOTTO_TURN_SECRET=//p' "$ENV_FILE" | tail -n 1)
+  fi
+  if [[ -z $secret ]]; then secret=$(new_secret); fi
+  local content
+  content="# Written by install.sh. The TURN secret is shared by the relay and coturn.
+SOTTO_DOMAIN=$DOMAIN
+SOTTO_TURN_SECRET=$secret"
+  if [[ -n $EXTERNAL_IP ]]; then
+    content+="
+SOTTO_TURN_EXTERNAL_IP=$EXTERNAL_IP"
+  fi
+  if [[ $DRY_RUN == 1 ]]; then
+    say "[dry-run] would write $ENV_FILE (SOTTO_DOMAIN=$DOMAIN${EXTERNAL_IP:+, SOTTO_TURN_EXTERNAL_IP=$EXTERNAL_IP})"
+    return
+  fi
+  (
+    umask 077
+    printf '%s\n' "$content" >"$ENV_FILE"
+  )
+  say "OK (kept private: mode 600)"
+}
+
+# coturn reads the TLS certificate only at start; restart it weekly so it
+# picks up Caddy's renewals.
+install_cron() {
+  local line="17 4 * * 1 docker compose --project-directory $INFRA_DIR restart coturn >/dev/null 2>&1 $CRON_MARK"
+  if crontab -l 2>/dev/null | grep -qF "$CRON_MARK"; then return; fi
+  if [[ $DRY_RUN == 1 ]]; then
+    say "[dry-run] would add to root's crontab: $line"
+    return
+  fi
+  { crontab -l 2>/dev/null || true; printf '%s\n' "$line"; } | crontab -
+}
+
+remove_cron() {
+  if ! crontab -l 2>/dev/null | grep -qF "$CRON_MARK"; then return; fi
+  if [[ $DRY_RUN == 1 ]]; then
+    say '[dry-run] would remove the coturn restart from crontab'
+    return
+  fi
+  { crontab -l 2>/dev/null | grep -vF "$CRON_MARK" || true; } | crontab -
+}
+
+wait_for_health() {
+  step "Waiting for https://$DOMAIN/health (getting the certificate can take a minute)"
+  if [[ $DRY_RUN == 1 ]]; then
+    say '[dry-run] would wait for the health check'
+    return 0
+  fi
+  local waited=0
+  until curl -fsS --max-time 5 "https://$DOMAIN/health" >/dev/null 2>&1; do
+    if ((waited >= HEALTH_TIMEOUT)); then
+      warn "https://$DOMAIN/health did not answer within ${HEALTH_TIMEOUT}s. Check: docker compose -f $INFRA_DIR/docker-compose.yml logs web"
+      return 1
+    fi
+    sleep 5
+    waited=$((waited + 5))
+  done
+  say 'OK: the server answers over HTTPS'
+}
+
+# --- commands ---------------------------------------------------------------
+
+cmd_install() {
+  require_root
+  ask_domain
+  check_dns
+  check_docker
+  check_memory
+  open_firewall
+  write_env
+  step 'Building and starting (the first build takes 5-15 minutes)'
+  compose up -d --build
+  if wait_for_health; then
+    # Now that Caddy has the certificate, coturn can also offer TURN over TLS.
+    compose restart coturn
+  fi
+  install_cron
+  cat <<EOF
+
+Sotto is running at https://$DOMAIN/
+
+  - Professionals: in the Sotto app, open Settings -> Server -> "Use another
+    server" and enter: $DOMAIN
+  - Guests open the guest links the app creates; they point to this server.
+  - Update later with:  sudo $0 update
+  - The server keeps no user data; see docs/SELF_HOSTING.md.
+EOF
+}
+
+cmd_update() {
+  require_root
+  [[ -f $ENV_FILE ]] || die "not installed yet (no $ENV_FILE); run: sudo $0 install"
+  DOMAIN=$(sed -n 's/^SOTTO_DOMAIN=//p' "$ENV_FILE" | tail -n 1)
+  step 'Fetching the latest version'
+  if git -C "$INFRA_DIR/.." rev-parse --git-dir >/dev/null 2>&1; then
+    run git -C "$INFRA_DIR/.." pull --ff-only
+  else
+    warn 'not a git checkout; rebuilding the current files'
+  fi
+  step 'Rebuilding and restarting'
+  compose up -d --build
+  run docker image prune -f
+  if wait_for_health; then compose restart coturn; fi
+  say 'Updated.'
+}
+
+cmd_status() {
+  compose ps
+  if [[ -f $ENV_FILE ]]; then
+    DOMAIN=$(sed -n 's/^SOTTO_DOMAIN=//p' "$ENV_FILE" | tail -n 1)
+    if curl -fsS --max-time 5 "https://$DOMAIN/health" >/dev/null 2>&1; then
+      say "https://$DOMAIN/health: OK"
+    else
+      say "https://$DOMAIN/health: not answering"
+    fi
+  fi
+}
+
+cmd_uninstall() {
+  require_root
+  if [[ $PURGE == 1 ]]; then
+    compose down --volumes
+    if [[ $DRY_RUN == 1 ]]; then say "[dry-run] would delete $ENV_FILE"; else rm -f "$ENV_FILE"; fi
+  else
+    compose down
+  fi
+  remove_cron
+  say 'Stopped. (The server never stored user data; --purge also deletes the TLS certificates and .env.)'
+}
+
+main() {
+  parse_args "$@"
+  case $COMMAND in
+    install) cmd_install ;;
+    update) cmd_update ;;
+    status) cmd_status ;;
+    uninstall) cmd_uninstall ;;
+  esac
+}
+
+main "$@"

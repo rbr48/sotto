@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sotto/app/app_controller.dart';
 import 'package:sotto/call/call_controller.dart';
 import 'package:sotto/call/call_manager.dart';
+import 'package:sotto/core/server_address.dart';
 import 'package:sotto/crypto/sotto_crypto.dart';
 import 'package:sotto/history/call_history.dart';
 import 'package:sotto/lock/app_lock.dart';
@@ -65,6 +66,37 @@ void main() {
     expect(second.contacts.find(colleague)!.name, 'Arun');
     expect(second.lock.locked, isTrue, reason: 'starts locked with a PIN');
     expect(await second.lock.unlock('135790'), UnlockResult.unlocked);
+  });
+
+  test('a custom server is kept, backed up, and can be reset', () async {
+    final keystore = MemorySecretStore();
+    final first = app(keystore);
+    await first.start();
+    await first.completeOnboarding(name: 'Dr Rao');
+    expect(first.server.label, 'localhost:1');
+    expect(first.usesCustomServer, isFalse);
+
+    final own = ServerAddress.parse('sotto.clinic.example');
+    await first.setServer(own);
+    expect(first.server, own);
+    expect(first.stage, AppStage.ready);
+
+    final second = app(keystore);
+    await second.start();
+    expect(second.server, own);
+    expect(second.usesCustomServer, isTrue);
+
+    final backup = await second.exportBackup('a long passphrase');
+    final restored = app(MemorySecretStore(), file: 'restored.vault');
+    await restored.start();
+    await restored.restoreBackup(backup, 'a long passphrase');
+    expect(restored.server, own, reason: 'links point to the same server');
+
+    await second.setServer(null);
+    expect(second.usesCustomServer, isFalse);
+    final third = app(keystore);
+    await third.start();
+    expect(third.server.label, 'localhost:1');
   });
 
   test(

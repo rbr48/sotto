@@ -1,6 +1,6 @@
 # End-to-end tests
 
-`call.mjs`, `guest.mjs`, `autoanswer.mjs` and `phase6.mjs` run real calls between headless Chromium tabs (fake camera and
+`call.mjs`, `guest.mjs`, `autoanswer.mjs`, `phase6.mjs` and `phase7.mjs` run real calls between headless Chromium tabs (fake camera and
 microphone) through the real relay and a real TURN server. They check:
 
 - the crypto self-test passes in the browser
@@ -10,6 +10,7 @@ microphone) through the real relay and a real TURN server. They check:
 - guest links: knock, waiting room, admit, decline, replaced, one-time and tampered links
 - auto-answer: only for a verified contact, behind the app lock's PIN; voice only; decline wins; strangers ring
 - Phase 6: contact links, calling from contacts, call timer and quality, history with talk time and a note, the app lock (a call rings on top of it), the device picker
+- Phase 7: ringtone and ringback tone, a dialog left open closes for an incoming call, the knock chime, no server setting in the browser
 - every frame sent to the relay is a login, an ICE request or an opaque encrypted envelope, with no names, notes or PINs; pages contact no third-party hosts
 
 ```bash

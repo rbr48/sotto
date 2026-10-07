@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../call/call_controller.dart';
+import '../../core/server_address.dart';
+import '../../desktop/desktop_integration.dart';
 import '../../call/ui/common.dart';
 import '../../contacts/contact_book.dart';
 import '../../history/call_history.dart';
@@ -26,6 +28,67 @@ class SettingsTab extends StatelessWidget {
         _Section('Profile', [_ProfileForm(app: app)]),
         _Section('App lock', _lock(context)),
         _Section('Auto-answer', _autoAnswer(context)),
+        _Section('Sounds', [
+          ListenableBuilder(
+            listenable: calls,
+            builder: (context, _) => SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Ringtone and chimes'),
+              subtitle: const Text(
+                'Ring for incoming calls, a ringing tone for your calls, and a '
+                'chime when a guest knocks or a call is answered automatically.',
+              ),
+              value: calls.soundsOn,
+              onChanged: calls.setSoundsOn,
+            ),
+          ),
+        ]),
+        if (isDesktop)
+          _Section('Desktop', [
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Keep running in the tray'),
+              subtitle: Text(
+                app.trayAvailable
+                    ? 'Closing the window keeps Sotto running, so calls and '
+                          'waiting guests still reach you. Quit from the tray icon.'
+                    : 'No system tray was found on this desktop, so closing '
+                          'the window quits Sotto.',
+              ),
+              value: app.desktopPrefs.keepInTray && app.trayAvailable,
+              onChanged: app.trayAvailable
+                  ? (v) => app.setDesktopPrefs(
+                      app.desktopPrefs.copyWith(keepInTray: v),
+                    )
+                  : null,
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Notifications'),
+              subtitle: const Text(
+                'When Sotto is in the background: a guest knocks, or a call '
+                'comes in.',
+              ),
+              value: app.desktopPrefs.notifications,
+              onChanged: (v) => app.setDesktopPrefs(
+                app.desktopPrefs.copyWith(notifications: v),
+              ),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Show names in notifications'),
+              subtitle: const Text(
+                'Off: notifications only say that someone is waiting or '
+                'calling. The system may keep notifications in its history.',
+              ),
+              value: app.desktopPrefs.showNames,
+              onChanged: app.desktopPrefs.notifications
+                  ? (v) => app.setDesktopPrefs(
+                      app.desktopPrefs.copyWith(showNames: v),
+                    )
+                  : null,
+            ),
+          ]),
         _Section('Privacy', [
           ListenableBuilder(
             listenable: calls,
@@ -45,6 +108,42 @@ class SettingsTab extends StatelessWidget {
             ),
           ),
         ]),
+        if (app.canChangeServer)
+          _Section('Server', [
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.dns_outlined),
+              title: Text(app.server.label, key: const Key('server-label')),
+              subtitle: Text(
+                app.usesCustomServer
+                    ? 'Your own server. Calls, guest links and your contact '
+                          'link use it.'
+                    : 'The Sotto server. You can use your own instead '
+                          '(see the self-hosting guide).',
+              ),
+            ),
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () => _changeServer(context),
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('Use another server'),
+                ),
+                if (app.usesCustomServer)
+                  TextButton(
+                    onPressed: () async {
+                      if (await _confirmServerChange(context) &&
+                          context.mounted) {
+                        await app.setServer(null);
+                      }
+                    },
+                    child: const Text('Use the Sotto server'),
+                  ),
+              ],
+            ),
+          ]),
         _Section('Call history', [
           ListTile(
             contentPadding: EdgeInsets.zero,
@@ -301,6 +400,53 @@ class SettingsTab extends StatelessWidget {
     if (chosen != null) await app.contacts.setDelaySeconds(chosen);
   }
 
+  Future<bool> _confirmServerChange(BuildContext context) async {
+    if (!await confirmWithPin(
+          context,
+          app.lock,
+          reason: 'Changing the server',
+          requirePin: false,
+        ) ||
+        !context.mounted) {
+      return false;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Change the server?'),
+        content: const SizedBox(
+          width: 420,
+          child: Text(
+            'Guest links and the contact link you already shared point to the '
+            'current server, so they stop reaching you. Share new links '
+            'afterwards. Your identity and contacts stay the same, but '
+            'colleagues must use the same server to call you.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Change server'),
+          ),
+        ],
+      ),
+    );
+    return ok ?? false;
+  }
+
+  Future<void> _changeServer(BuildContext context) async {
+    final chosen = await showDialog<ServerAddress>(
+      context: context,
+      builder: (_) => const _ServerDialog(),
+    );
+    if (chosen == null || !context.mounted) return;
+    if (await _confirmServerChange(context)) await app.setServer(chosen);
+  }
+
   Future<void> _restore(BuildContext context) async {
     if (!await confirmWithPin(
           context,
@@ -353,10 +499,13 @@ class SettingsTab extends StatelessWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Erase Sotto from this device?'),
-        content: const Text(
-          'Your identity, contacts, guest links, history and notes are '
-          'deleted from this device. Without a backup, your links stop '
-          'working for good.',
+        content: const SizedBox(
+          width: 420,
+          child: Text(
+            'Your identity, contacts, guest links, history and notes are '
+            'deleted from this device. Without a backup, your links stop '
+            'working for good.',
+          ),
         ),
         actions: [
           TextButton(
@@ -457,6 +606,93 @@ class _ProfileFormState extends State<_ProfileForm> {
           },
           child: const Text('Save profile'),
         ),
+      ),
+    ],
+  );
+}
+
+/// Asks for a server address and checks that a Sotto relay answers there.
+class _ServerDialog extends StatefulWidget {
+  const _ServerDialog();
+
+  @override
+  State<_ServerDialog> createState() => _ServerDialogState();
+}
+
+class _ServerDialogState extends State<_ServerDialog> {
+  final _address = TextEditingController();
+  String? _error;
+  bool _checking = false;
+
+  @override
+  void dispose() {
+    _address.dispose();
+    super.dispose();
+  }
+
+  Future<void> _check() async {
+    final ServerAddress server;
+    try {
+      server = ServerAddress.parse(_address.text);
+    } on FormatException catch (e) {
+      setState(() => _error = e.message);
+      return;
+    }
+    setState(() {
+      _checking = true;
+      _error = null;
+    });
+    final problem = await checkServer(server);
+    if (!mounted) return;
+    setState(() {
+      _checking = false;
+      _error = problem;
+    });
+    if (problem == null) Navigator.of(context).pop(server);
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Use another server'),
+    content: SizedBox(
+      width: 420,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Enter the address of a Sotto server, for example one your '
+            'organisation runs with the self-hosting package.',
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _address,
+            autofocus: true,
+            keyboardType: TextInputType.url,
+            decoration: InputDecoration(
+              labelText: 'Server address',
+              hintText: 'sotto.example.com',
+              errorText: _error,
+              errorMaxLines: 3,
+            ),
+            onSubmitted: (_) => _check(),
+          ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: _checking ? null : _check,
+        child: _checking
+            ? const SizedBox.square(
+                dimension: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Text('Check and use'),
       ),
     ],
   );

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../call/ui/call_screen.dart';
 import '../../call/ui/common.dart';
+import '../../desktop/desktop_integration.dart';
 import '../../lock/ui/lock_ui.dart';
 import '../app_controller.dart';
 import 'home_shell.dart';
@@ -21,21 +22,25 @@ class AppRoot extends StatefulWidget {
 
 class _AppRootState extends State<AppRoot> with WidgetsBindingObserver {
   AppController get _app => widget.app;
+  DesktopIntegration? _desktop;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (isDesktop) _desktop = DesktopIntegration(_app)..start();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _desktop?.dispose();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _desktop?.inFront = state == AppLifecycleState.resumed;
     if (_app.stage != AppStage.ready) return;
     switch (state) {
       case AppLifecycleState.hidden || AppLifecycleState.paused:
@@ -90,6 +95,21 @@ class _AppRootState extends State<AppRoot> with WidgetsBindingObserver {
     },
   );
 
+  bool _covered = false;
+
+  /// A call or the lock replaces the home screen; dialogs opened from it
+  /// (contact details, share, history…) must not stay on top: they would
+  /// hide the Accept button, or show data while locked.
+  void _closeDialogsWhenCovered(BuildContext context, bool covered) {
+    if (covered && !_covered) {
+      final navigator = Navigator.of(context);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) navigator.popUntil((route) => route.isFirst);
+      });
+    }
+    _covered = covered;
+  }
+
   Widget _ready() {
     final calls = _app.calls!;
     return ListenableBuilder(
@@ -102,6 +122,7 @@ class _AppRootState extends State<AppRoot> with WidgetsBindingObserver {
       ]),
       builder: (context, _) {
         final call = calls.call;
+        _closeDialogsWhenCovered(context, call.active || _app.lock.locked);
         if (calls.startupError case final error?) {
           return _Titled(
             label: 'Error',

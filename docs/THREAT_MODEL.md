@@ -1,4 +1,4 @@
-# Sotto Threat Model (v0.6 — Phase 6)
+# Sotto Threat Model (v0.7 — Phase 7)
 
 This is a living document. It records what Sotto protects, against whom, and what it honestly does not protect yet. Update it whenever the design changes.
 
@@ -52,6 +52,9 @@ This is a living document. It records what Sotto protects, against whom, and wha
 | Stolen or copied device storage (disk image, phone backup, another user on a shared PC) | Contacts, history, notes and settings are in an encrypted vault whose key is in the OS keystore, never next to the file; the identity's master secret is in the keystore too | ✅ |
 | Someone picks up the unlocked device and the app is open | App lock with a PIN (auto-lock after leaving the app, *Lock now*); wrong PINs make the next try wait (30 s, doubling to an hour, counted across restarts). Auto-answer, backups, changing or removing the PIN and erasing all ask for the PIN | ✅ (biometrics: Phase 12) |
 | Stolen device: identity theft | Master secret in the OS keystore (hardware-backed where available); the app lock hides the app. Someone who can unlock the operating system and extract keystore items (e.g. root on Android) can still copy the identity: the user should then create a new identity and tell contacts | Partial |
+| Notifications reveal who is calling or waiting (screen visible to others, the system's notification history) | Desktop notifications say only "A guest is waiting" / "Incoming call" unless the user turns on names; never names while the app is locked | ✅ |
+| Someone switches a professional's app to a server they control | Changing the server asks for the PIN when the app lock is on; the app checks a Sotto relay answers. Even then the server can't read calls (end-to-end encryption, safety numbers); it would see metadata, like any relay | ✅ |
+| Self-hosted server misconfigured (proxy in front, logs on) | `install.sh` refuses Cloudflare-proxied domains, generates a private TURN secret, keeps containers read-only and coturn's logs discarded; `SELF_HOSTING.md` lists what the server sees | ✅ |
 | Backup file falls into the wrong hands | Encrypted with Argon2id (64 MiB, 3 passes) + XChaCha20-Poly1305; passphrase of at least 12 characters, or a generated 125-bit one; header parameters are authenticated, and absurd parameters are refused when opening | ✅ (as strong as the passphrase) |
 | A forged contact link (someone else's keys under a colleague's name) | The name is signed by the key in the link, but anyone can sign their own name. Contacts start as *not verified*; only comparing the safety number marks them verified, and only verified contacts can be auto-answered | ✅ |
 | Malformed input crashes or confuses clients | Strict parsing; every failure is a typed rejection; fuzz tests | ✅ |

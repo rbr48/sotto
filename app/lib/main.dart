@@ -12,11 +12,14 @@ import 'core/theme.dart';
 import 'diagnostics/crypto_self_test_page.dart';
 import 'guest/guest_link.dart';
 import 'guest/ui/guest_page.dart';
+import 'sound/call_sounds.dart';
 
 void main() {
   // Keep Flutter's router away from the URL so link payloads after `#` are
   // left alone.
   setUrlStrategy(null);
+  // Desktop plugins (window, tray) talk to the engine before the first frame.
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const SottoApp());
 }
 
@@ -50,6 +53,7 @@ class _SottoAppState extends State<SottoApp> {
       guestLinkPayload: _mode == _Mode.guest
           ? GuestLink.payloadOf(Uri.base.fragment)
           : null,
+      sounds: AudioplayersOutput(),
     )..start(),
     _ => null,
   };
