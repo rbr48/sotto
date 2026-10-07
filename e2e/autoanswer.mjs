@@ -9,6 +9,7 @@
 //  5. A stranger's call keeps ringing; it is never auto-answered.
 import assert from 'node:assert/strict';
 import {
+  dumpPages,
   assertNoThirdPartyRequests,
   assertRelaySawOnlyCiphertext,
   base,
@@ -102,6 +103,9 @@ try {
   assertNoThirdPartyRequests(assert, [new URL(base).host, 'localhost:8080']);
   console.log(`✓ relay saw ${sends} encrypted messages; trust settings never left Bob's device`);
   console.log('PASS');
+} catch (error) {
+  await dumpPages();
+  throw error;
 } finally {
   await browser.close();
 }

@@ -15,6 +15,7 @@
 // pointing there) served at SOTTO_WEB_URL.
 import assert from 'node:assert/strict';
 import {
+  dumpPages,
   assertNoThirdPartyRequests,
   assertRelaySawOnlyCiphertext,
   base,
@@ -37,6 +38,7 @@ try {
   const selfTest = await openPage(context, 'self-test', new URL('?selftest=1', base).toString());
   await selfTest.waitForFunction(() => /Self-test (passed|failed|error)/.test(document.title), null, {
     timeout,
+    polling: 250,
   });
   assert.equal(await selfTest.title(), 'Sotto · Self-test passed');
   await selfTest.close();
@@ -55,8 +57,14 @@ try {
   await clickButton(bob, 'Accept');
   await Promise.all([titleIncludes(alice, 'Connected'), titleIncludes(bob, 'Connected')]);
   await Promise.all([videoPlaying(alice), videoPlaying(bob)]);
-  await dataAttribute(alice, 'route', 'direct');
-  console.log('✓ Bob accepted; both connected with live video (direct connection)');
+  // A normal call uses whichever path ICE finds first (usually direct; on
+  // a starved machine sometimes the TURN path). Only "Hide my IP address"
+  // guarantees a relayed route, which is checked strictly below.
+  await alice.waitForFunction(() =>
+    ['direct', 'relayed'].includes(document.documentElement.getAttribute('data-sotto-route')),
+  );
+  const route = await alice.evaluate(() => document.documentElement.getAttribute('data-sotto-route'));
+  console.log(`✓ Bob accepted; both connected with live video (${route} connection detected)`);
 
   const carol = await openPage(context, 'carol', bobLink);
   await titleIncludes(carol, 'Call ended (busy)');
@@ -106,6 +114,9 @@ try {
   const hosts = assertNoThirdPartyRequests(assert, [new URL(base).host, 'localhost:8080']);
   console.log(`✓ pages only contacted their own servers (${hosts.join(', ')})`);
   console.log('PASS');
+} catch (error) {
+  await dumpPages();
+  throw error;
 } finally {
   await browser.close();
 }

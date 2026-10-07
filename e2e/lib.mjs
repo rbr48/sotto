@@ -1,12 +1,21 @@
 // Shared helpers for the browser end-to-end tests.
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { chromium } from 'playwright';
+import { writeFakeCamera } from './fake-camera.mjs';
 
 export const base = process.env.SOTTO_WEB_URL ?? 'http://localhost:8099/';
 export const timeout = 60_000;
 
 export async function launch() {
+  const camera = join(tmpdir(), 'sotto-fake-camera.y4m');
+  writeFakeCamera(camera);
   return chromium.launch({
-    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
+    args: [
+      '--use-fake-ui-for-media-stream',
+      '--use-fake-device-for-media-stream',
+      `--use-file-for-fake-video-capture=${camera}`,
+    ],
   });
 }
 
@@ -21,8 +30,20 @@ export const framesToRelay = [];
 /** Every host any page contacted (HTTP and WebSocket). */
 export const contactedHosts = new Set();
 
+/** Open pages and their console output, printed if a test fails. */
+const pages = [];
+
 export async function openPage(context, name, url) {
   const page = await context.newPage();
+  const log = [];
+  pages.push({ name, page, log });
+  // Poll on a timer, not on animation frames: background tabs on a busy
+  // machine get few or no frames, so frame-based polling can miss changes
+  // for a long time (this made CI time out while the page was correct).
+  const waitForFunction = page.waitForFunction.bind(page);
+  page.waitForFunction = (fn, arg, options = {}) =>
+    waitForFunction(fn, arg, { timeout, polling: 250, ...options });
+  page.on('console', (m) => log.push(`${m.type()}: ${m.text()}`.slice(0, 300)));
   page.on('pageerror', (error) => console.error(`${name} page error: ${error.message}`));
   page.on('request', (request) => {
     const url = new URL(request.url());
@@ -38,7 +59,7 @@ export async function openPage(context, name, url) {
 }
 
 export const titleIncludes = (page, text) =>
-  page.waitForFunction((t) => document.title.includes(t), text, { timeout });
+  page.waitForFunction((t) => document.title.includes(t), text, { timeout, polling: 250 });
 
 export async function enableSemantics(page) {
   if ((await page.locator('flt-semantics-placeholder').count()) > 0) {
@@ -50,7 +71,7 @@ export async function enableSemantics(page) {
 export async function clickButton(page, name) {
   await enableSemantics(page);
   const button = page.getByRole('button', { name, exact: typeof name === 'string' }).first();
-  await button.waitFor({ timeout });
+  await button.waitFor({ timeout, polling: 250 });
   try {
     await button.click({ timeout: 5000 });
   } catch {
@@ -64,7 +85,7 @@ export async function clickButton(page, name) {
 export async function toggleSwitch(page, name) {
   await enableSemantics(page);
   const toggle = page.getByRole('switch', { name }).or(page.getByRole('checkbox', { name }));
-  await toggle.first().waitFor({ timeout });
+  await toggle.first().waitFor({ timeout, polling: 250 });
   await toggle.first().click();
 }
 
@@ -72,7 +93,7 @@ export async function toggleSwitch(page, name) {
 export async function typeInto(page, label, text) {
   await enableSemantics(page);
   const field = page.getByRole('textbox', { name: label });
-  await field.first().waitFor({ timeout });
+  await field.first().waitFor({ timeout, polling: 250 });
   await field.first().click();
   await page.keyboard.type(text);
 }
@@ -81,7 +102,7 @@ export const dataAttribute = (page, name, value) =>
   page.waitForFunction(
     ([n, v]) => document.documentElement.getAttribute(`data-sotto-${n}`) === v,
     [name, value],
-    { timeout },
+    { timeout, polling: 250 },
   );
 
 export const readAttribute = (page, name) =>
@@ -95,7 +116,7 @@ export const videoPlaying = (page) =>
       return videos.length >= 2 && videos.every((v) => v.videoWidth > 0 && !v.paused);
     },
     null,
-    { timeout },
+    { timeout, polling: 250 },
   );
 
 /** Every frame sent to the relay must be a login, ICE request or opaque envelope. */
@@ -121,4 +142,31 @@ export function assertNoThirdPartyRequests(assert, allowed) {
     assert.ok(allowed.includes(host), `page contacted a third party: ${host}`);
   }
   return [...contactedHosts];
+}
+
+/** Prints every page's title and recent console output (for CI failures). */
+export async function dumpPages() {
+  for (const { name, page, log } of pages) {
+    let title = '(closed)';
+    try {
+      if (!page.isClosed()) title = await page.title();
+    } catch {
+      // ignore
+    }
+    let attrs = '';
+    try {
+      if (!page.isClosed()) {
+        attrs = await page.evaluate(() =>
+          [...document.documentElement.attributes]
+            .filter((a) => a.name.startsWith('data-sotto-') && !a.name.endsWith('-link'))
+            .map((a) => `${a.name.slice(11)}=${a.value}`)
+            .join(' '),
+        );
+      }
+    } catch {
+      // ignore
+    }
+    console.error(`--- ${name}: "${title}" ${attrs}`);
+    for (const line of log.slice(-15)) console.error(`    ${line}`);
+  }
 }

@@ -10,6 +10,7 @@
 //  7. The relay never sees guest names or any readable guest/call data.
 import assert from 'node:assert/strict';
 import {
+  dumpPages,
   assertNoThirdPartyRequests,
   assertRelaySawOnlyCiphertext,
   base,
@@ -50,7 +51,7 @@ try {
       return json.includes('"n":"Dr Rao"');
     },
     null,
-    { timeout: 30_000 },
+    { timeout: 30_000, polling: 250 },
   );
   const personalLink = await readAttribute(pro, 'guest-link');
   assert.ok(personalLink.includes('/#g='), 'guest link uses the URL fragment');
@@ -122,6 +123,9 @@ try {
   console.log(`✓ pages only contacted their own servers (${hosts.join(', ')})`);
   await dataAttribute(pro, 'call-phase', 'ended');
   console.log('PASS');
+} catch (error) {
+  await dumpPages();
+  throw error;
 } finally {
   await browser.close();
 }

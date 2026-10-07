@@ -438,10 +438,11 @@ class CallController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Reads the selected ICE candidate pair a few times after connecting
-  /// (stats can lag behind the "connected" event).
+  /// Reads the selected ICE candidate pair after connecting, retrying for
+  /// about 15 s: stats can lag well behind the "connected" event on a busy
+  /// device.
   Future<void> _detectRoute() async {
-    for (final delay in const [300, 1000, 3000]) {
+    for (final delay in const [300, 700, 1000, 1000, 2000, 2000, 4000, 4000]) {
       await Future<void>.delayed(Duration(milliseconds: delay));
       if (call.phase != CallPhase.connected) return;
       final route = await _manager?.media?.currentRoute();
