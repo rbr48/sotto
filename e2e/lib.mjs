@@ -72,6 +72,13 @@ export async function clickButton(page, name) {
   await enableSemantics(page);
   const button = page.getByRole('button', { name, exact: typeof name === 'string' }).first();
   await button.waitFor({ timeout, polling: 250 });
+  if (page.context().browser()?.browserType().name() === 'firefox') {
+    // Firefox: the accessibility tree is rebuilt while a call's timer ticks,
+    // and a real click can straddle the rebuild and get lost. One click
+    // event on the button itself is reliable.
+    await button.dispatchEvent('click');
+    return;
+  }
   try {
     await button.click({ timeout: 5000 });
   } catch {
