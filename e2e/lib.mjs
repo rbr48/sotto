@@ -164,8 +164,15 @@ export const dataAttribute = (page, name, value) =>
     { timeout, polling: 250 },
   );
 
-export const readAttribute = (page, name) =>
-  page.evaluate((n) => document.documentElement.getAttribute(`data-sotto-${n}`), name);
+/** Waits until the app has published a value (a dialog may still be opening). */
+export const readAttribute = async (page, name) => {
+  const value = await page.waitForFunction(
+    (n) => document.documentElement.getAttribute(`data-sotto-${n}`),
+    name,
+    { timeout, polling: 250 },
+  );
+  return value.jsonValue();
+};
 
 export const videoPlaying = (page) =>
   page.waitForFunction(
