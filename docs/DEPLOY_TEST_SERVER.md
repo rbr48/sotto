@@ -71,7 +71,7 @@ The repository is on GitHub (`rbr48/sotto`). If it is private, authenticate firs
 ```bash
 git clone https://github.com/rbr48/sotto.git
 cd sotto
-git checkout claude/blissful-wozniak-w64f4v   # until this work is merged into main
+git checkout main
 ```
 
 ## 4. Configure and start

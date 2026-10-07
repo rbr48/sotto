@@ -2,6 +2,7 @@
   "name": "sotto-crypto-vectors",
   "private": true,
   "description": "Independent implementation of docs/PROTOCOL.md that generates known-answer test vectors.",
+  "license": "AGPL-3.0-or-later",
   "scripts": {
     "generate": "node gen.js"
   },

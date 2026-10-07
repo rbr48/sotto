@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Sotto signaling relay: routes encrypted envelopes in memory and stores nothing.",
-  "license": "UNLICENSED",
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "engines": {
     "node": ">=20"
