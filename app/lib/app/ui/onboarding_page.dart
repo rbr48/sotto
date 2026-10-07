@@ -59,7 +59,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Center(child: SottoLogo(size: 88)),
+                const Center(child: SottoLogo(size: 80)),
                 const SizedBox(height: 16),
                 const Center(child: SottoWordmark(height: 52)),
                 const SizedBox(height: 16),

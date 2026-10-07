@@ -42,6 +42,7 @@ class _HomeShellState extends State<HomeShell> {
       2 => HistoryTab(app: app, calls: calls),
       _ => SettingsTab(app: app, calls: calls),
     };
+    final theme = Theme.of(context);
     final wide = MediaQuery.sizeOf(context).width >= 760;
     final waiting = calls.guestHost?.waiting.length ?? 0;
     Widget icon(int index, bool selected) {
@@ -52,9 +53,62 @@ class _HomeShellState extends State<HomeShell> {
           : widget;
     }
 
+    String initials(String name) {
+      final parts = name.trim().split(RegExp(r'\s+'));
+      if (parts.isEmpty || parts.first.isEmpty) return 'S';
+      if (parts.length == 1) {
+        return parts.first.characters.first.toUpperCase();
+      }
+      return '${parts.first.characters.first}${parts.last.characters.first}'
+          .toUpperCase();
+    }
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(app.profile?.name ?? 'Sotto'),
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 12, top: 8, bottom: 8),
+          child: Tooltip(
+            message: 'Settings',
+            child: InkWell(
+              onTap: () => setState(() => _tab = 3),
+              borderRadius: BorderRadius.circular(20),
+              child: CircleAvatar(
+                backgroundColor: theme.colorScheme.primaryContainer,
+                foregroundColor: theme.colorScheme.onPrimaryContainer,
+                child: Text(
+                  initials(app.profile?.name ?? 'Sotto'),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (app.profile?.name case final name? when name.isNotEmpty) ...[
+              Text(
+                name,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (app.profile?.practice case final p? when p.isNotEmpty)
+                Text(
+                  p,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+            ] else ...[
+              const SottoWordmark(height: 30),
+            ],
+          ],
+        ),
         actions: [
           if (app.lock.hasPin)
             IconButton(
@@ -63,6 +117,7 @@ class _HomeShellState extends State<HomeShell> {
               icon: const Icon(Icons.lock_outline),
             ),
           RelayStatusChip(status: calls.relayStatus),
+          const SizedBox(width: 8),
         ],
       ),
       body: SafeArea(
@@ -70,6 +125,10 @@ class _HomeShellState extends State<HomeShell> {
             ? Row(
                 children: [
                   NavigationRail(
+                    leading: const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: SottoLogo(size: 36),
+                    ),
                     selectedIndex: _tab,
                     onDestinationSelected: (i) => setState(() => _tab = i),
                     labelType: NavigationRailLabelType.all,
@@ -108,7 +167,7 @@ class _HomeShellState extends State<HomeShell> {
   Widget _constrained(Widget child) => Align(
     alignment: Alignment.topCenter,
     child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 640),
+      constraints: const BoxConstraints(maxWidth: 680),
       child: child,
     ),
   );
@@ -181,40 +240,91 @@ class _HomeTabState extends State<HomeTab> {
           const SizedBox(height: 16),
         ],
         GuestLinksCard(controller: calls, shownAs: app.profile?.label ?? ''),
-        const SizedBox(height: 32),
-        Text('Call a link', style: theme.textTheme.titleMedium),
-        const SizedBox(height: 4),
-        Text(
-          'Paste a colleague\'s contact link or call link. To call your '
-          'contacts, use the Contacts tab.',
-          style: theme.textTheme.bodySmall,
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          key: const Key('call-link-field'),
-          controller: _linkField,
-          decoration: InputDecoration(
-            labelText: 'Their link',
-            errorText: _linkError,
+        const SizedBox(height: 20),
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: theme.colorScheme.outlineVariant),
           ),
-          onSubmitted: (_) => _call(video: true),
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            FilledButton.icon(
-              onPressed: () => _call(video: true),
-              icon: const Icon(Icons.videocam),
-              label: const Text('Video call'),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primaryContainer.withValues(
+                          alpha: 0.5,
+                        ),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(
+                        Icons.phone_forwarded_rounded,
+                        color: theme.colorScheme.primary,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Call a link',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            'Paste a colleague\'s contact link or call link. To call your contacts, use the Contacts tab.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  key: const Key('call-link-field'),
+                  controller: _linkField,
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.link_rounded),
+                    labelText: 'Their link',
+                    hintText: 'Paste call or contact link',
+                    errorText: _linkError,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onSubmitted: (_) => _call(video: true),
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: () => _call(video: true),
+                      icon: const Icon(Icons.videocam),
+                      label: const Text('Video call'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () => _call(video: false),
+                      icon: const Icon(Icons.call),
+                      label: const Text('Voice call'),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            OutlinedButton.icon(
-              onPressed: () => _call(video: false),
-              icon: const Icon(Icons.call),
-              label: const Text('Voice call'),
-            ),
-          ],
+          ),
         ),
       ],
     );
