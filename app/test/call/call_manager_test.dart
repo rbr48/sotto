@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sodium/sodium.dart';
 import 'package:sotto/call/call_manager.dart';
 import 'package:sotto/call/media_engine.dart';
+import 'package:sotto/call/trusted_callers.dart';
 import 'package:sotto/crypto/sotto_crypto.dart';
 
 import 'fakes.dart';
@@ -31,7 +32,7 @@ class Person {
   final String name;
   final Identity identity;
   final Network network;
-  Duration? Function(OpenedMessage invite)? autoAnswer;
+  AutoAnswer? Function(OpenedMessage invite)? autoAnswer;
   late final CallManager manager;
   FakeMediaEngine? media;
   final sent = <String>[];
@@ -357,7 +358,8 @@ void main() {
     test('answers after the delay; both sides know it was automatic', () {
       fakeAsync((async) {
         final (:network, :alice, :bob, carol: _) = setup();
-        bob.autoAnswer = (_) => const Duration(seconds: 5);
+        bob.autoAnswer = (_) =>
+            const AutoAnswer(delay: Duration(seconds: 5), video: true);
         alice.manager.call(bob.public);
         async.flushMicrotasks();
         async.elapse(const Duration(seconds: 4));
@@ -381,7 +383,8 @@ void main() {
     test('declining during the delay wins', () {
       fakeAsync((async) {
         final (:network, :alice, :bob, carol: _) = setup();
-        bob.autoAnswer = (_) => const Duration(seconds: 5);
+        bob.autoAnswer = (_) =>
+            const AutoAnswer(delay: Duration(seconds: 5), video: true);
         alice.manager.call(bob.public);
         async.flushMicrotasks();
         bob.manager.decline();
@@ -414,8 +417,9 @@ void main() {
       () {
         fakeAsync((async) {
           final (:network, :alice, :bob, carol: _) = setup();
-          bob.autoAnswer = (invite) =>
-              invite.body['knock'] == 'k1' ? Duration.zero : null;
+          bob.autoAnswer = (invite) => invite.body['knock'] == 'k1'
+              ? const AutoAnswer(delay: Duration.zero, video: true)
+              : null;
           alice.manager.call(bob.public, inviteExtras: {'knock': 'k1'});
           async.flushMicrotasks();
           async.elapse(Duration.zero);
@@ -424,12 +428,26 @@ void main() {
       },
     );
 
+    test('auto-answer without video opens only the microphone', () {
+      fakeAsync((async) {
+        final (:network, :alice, :bob, carol: _) = setup();
+        bob.autoAnswer = (_) =>
+            const AutoAnswer(delay: Duration.zero, video: false);
+        alice.manager.call(bob.public);
+        async.flushMicrotasks();
+        async.elapse(Duration.zero);
+        expect(bob.phase, CallPhase.connecting);
+        expect(bob.media!.log.first, 'prepare(video: false)');
+      });
+    });
+
     test(
       'auto-answer never interrupts an ongoing call (busy still applies)',
       () {
         fakeAsync((async) {
           final (:network, :alice, :bob, :carol) = setup();
-          bob.autoAnswer = (_) => Duration.zero;
+          bob.autoAnswer = (_) =>
+              const AutoAnswer(delay: Duration.zero, video: true);
           alice.manager.call(bob.public);
           async.flushMicrotasks();
           async.elapse(Duration.zero);

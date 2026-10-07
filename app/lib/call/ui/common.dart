@@ -52,6 +52,10 @@ class InCallView extends StatelessWidget {
                   children: [
                     if (controller.safetyNumber case final number?)
                       SafetyNumberBadge(number: number),
+                    if (controller.autoAnswered) ...[
+                      const SizedBox(height: 8),
+                      const Pill(text: 'Auto-answered'),
+                    ],
                     if (controller.route case final route?) ...[
                       const SizedBox(height: 8),
                       Pill(
@@ -65,7 +69,7 @@ class InCallView extends StatelessWidget {
                   ],
                 ),
               ),
-              if (call.video)
+              if (call.video && controller.sendingVideo)
                 Positioned(
                   right: 16,
                   bottom: 16,
@@ -94,7 +98,7 @@ class InCallView extends StatelessWidget {
               onPressed: controller.toggleMic,
               icon: Icon(controller.micEnabled ? Icons.mic : Icons.mic_off),
             ),
-            if (call.video)
+            if (call.video && controller.sendingVideo)
               IconButton.filledTonal(
                 tooltip: controller.cameraEnabled
                     ? 'Turn camera off'
@@ -107,6 +111,7 @@ class InCallView extends StatelessWidget {
                 ),
               ),
             if (call.video &&
+                controller.sendingVideo &&
                 Theme.of(context).platform == TargetPlatform.android)
               IconButton.filledTonal(
                 tooltip: 'Switch camera',

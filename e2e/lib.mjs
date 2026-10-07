@@ -47,9 +47,15 @@ export async function enableSemantics(page) {
 /** Clicks a Flutter button by its label, via Flutter's accessibility tree. */
 export async function clickButton(page, name) {
   await enableSemantics(page);
-  const button = page.getByRole('button', { name, exact: typeof name === 'string' });
-  await button.first().waitFor({ timeout });
-  await button.first().click();
+  const button = page.getByRole('button', { name, exact: typeof name === 'string' }).first();
+  await button.waitFor({ timeout });
+  try {
+    await button.click({ timeout: 5000 });
+  } catch {
+    // Another accessibility node can overlap the button after a layout
+    // change; deliver the click to the button itself.
+    await button.dispatchEvent('click');
+  }
 }
 
 /** Flips a Flutter switch whose label matches `name`. */

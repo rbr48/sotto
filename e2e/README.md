@@ -1,6 +1,6 @@
 # End-to-end tests
 
-`call.mjs` runs real calls between headless Chromium tabs (fake camera and
+`call.mjs`, `guest.mjs` and `autoanswer.mjs` run real calls between headless Chromium tabs (fake camera and
 microphone) through the real relay. It checks:
 
 - the crypto self-test passes in the browser

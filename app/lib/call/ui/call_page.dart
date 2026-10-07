@@ -9,6 +9,7 @@ import '../../relay/relay_client.dart';
 import '../call_controller.dart';
 import '../../guest/guest_host.dart';
 import '../call_manager.dart';
+import '../trusted_callers.dart';
 import 'common.dart';
 
 /// The test call screen: share your call link, call someone else's, and
@@ -123,15 +124,43 @@ class _CallPageState extends State<CallPage> {
             _WaitingRoom(controller: _controller, host: host),
             const SizedBox(height: 16),
           ],
+          if (_controller.trustedCallers.enabled &&
+              _controller.trustedCallers.callers.isNotEmpty) ...[
+            Card(
+              color: theme.colorScheme.tertiaryContainer,
+              child: ListTile(
+                leading: const Icon(Icons.phone_callback),
+                title: const Text('Auto-answer is on'),
+                subtitle: Text(
+                  'Calls from ${_controller.trustedCallers.callers.map((c) => c.name).join(', ')} '
+                  'connect by themselves after ${_controller.trustedCallers.delaySeconds} s.',
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
           if (call.phase == CallPhase.ended) ...[
             Card(
               color: theme.colorScheme.secondaryContainer,
               child: ListTile(
                 leading: const Icon(Icons.call_end),
                 title: Text(describeEnd(call)),
-                trailing: TextButton(
-                  onPressed: _controller.dismiss,
-                  child: const Text('OK'),
+                trailing: Wrap(
+                  spacing: 4,
+                  children: [
+                    if (_controller.canTrustPeer)
+                      TextButton(
+                        onPressed: () => showDialog<void>(
+                          context: context,
+                          builder: (_) => _TrustDialog(controller: _controller),
+                        ),
+                        child: const Text('Trust this caller'),
+                      ),
+                    TextButton(
+                      onPressed: _controller.dismiss,
+                      child: const Text('OK'),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -142,6 +171,8 @@ class _CallPageState extends State<CallPage> {
             const SizedBox(height: 16),
           ],
           _GuestLinks(controller: _controller),
+          const SizedBox(height: 24),
+          _AutoAnswerSettings(controller: _controller),
           const SizedBox(height: 32),
           Text('Your direct call link', style: theme.textTheme.titleMedium),
           const SizedBox(height: 4),
@@ -492,6 +523,167 @@ class _GuestLinksState extends State<_GuestLinks> {
             icon: const Icon(Icons.add_link),
             label: const Text('Create one-time link'),
           ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Auto-answer for trusted callers: off by default, only for people the
+/// user added after comparing safety numbers.
+class _AutoAnswerSettings extends StatelessWidget {
+  const _AutoAnswerSettings({required this.controller});
+
+  final CallController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final trusted = controller.trustedCallers;
+    final hasCallers = trusted.callers.isNotEmpty;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('Auto-answer', style: theme.textTheme.titleMedium),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Auto-answer calls from trusted callers'),
+          subtitle: Text(
+            hasCallers
+                ? 'Their calls ring for a moment, then connect by themselves (voice '
+                      'only unless you allow video). You can still decline while it rings.'
+                : 'Add a trusted caller first: after a call, choose "Trust this caller".',
+          ),
+          value: trusted.enabled && hasCallers,
+          onChanged: hasCallers ? trusted.setEnabled : null,
+        ),
+        if (trusted.enabled && hasCallers)
+          Row(
+            children: [
+              const Text('Ring first for'),
+              Expanded(
+                child: Slider(
+                  value: trusted.delaySeconds.toDouble(),
+                  max: TrustedCallers.maxDelaySeconds.toDouble(),
+                  divisions: TrustedCallers.maxDelaySeconds,
+                  label: '${trusted.delaySeconds} s',
+                  onChanged: (value) => trusted.setDelaySeconds(value.round()),
+                ),
+              ),
+              Text('${trusted.delaySeconds} s'),
+            ],
+          ),
+        for (final caller in trusted.callers)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.verified_user_outlined),
+            title: Text(caller.name),
+            subtitle: Text(caller.allowVideo ? 'Video allowed' : 'Voice only'),
+            trailing: Wrap(
+              spacing: 4,
+              children: [
+                IconButton(
+                  tooltip: caller.allowVideo
+                      ? 'Answer ${caller.name} with voice only'
+                      : 'Allow video for ${caller.name}',
+                  icon: Icon(
+                    caller.allowVideo ? Icons.videocam : Icons.videocam_off,
+                  ),
+                  onPressed: () => trusted.setAllowVideo(
+                    caller.identity,
+                    !caller.allowVideo,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Remove ${caller.name}',
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed: () => trusted.remove(caller.identity),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Adds the last call's peer as a trusted caller, after the user confirms
+/// they compared safety numbers.
+class _TrustDialog extends StatefulWidget {
+  const _TrustDialog({required this.controller});
+
+  final CallController controller;
+
+  @override
+  State<_TrustDialog> createState() => _TrustDialogState();
+}
+
+class _TrustDialogState extends State<_TrustDialog> {
+  final _name = TextEditingController();
+  bool _compared = false;
+  bool _allowVideo = false;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final number = widget.controller.safetyNumber;
+    return AlertDialog(
+      title: const Text('Trust this caller?'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'If auto-answer is on, calls from this person will connect by '
+              'themselves. Only trust someone whose safety number you compared '
+              'with them, in person or on a call.',
+            ),
+            if (number != null) ...[
+              const SizedBox(height: 12),
+              SafetyNumberBadge(number: number),
+            ],
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _compared,
+              onChanged: (value) => setState(() => _compared = value ?? false),
+              title: const Text('I compared this safety number with them'),
+            ),
+            TextField(
+              controller: _name,
+              decoration: const InputDecoration(labelText: 'Name'),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _allowVideo,
+              onChanged: (value) => setState(() => _allowVideo = value),
+              title: const Text('Allow video when auto-answering'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _compared
+              ? () async {
+                  final navigator = Navigator.of(context);
+                  await widget.controller.trustPeer(
+                    name: _name.text,
+                    allowVideo: _allowVideo,
+                  );
+                  navigator.pop();
+                }
+              : null,
+          child: const Text('Trust'),
         ),
       ],
     );

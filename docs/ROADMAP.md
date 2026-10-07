@@ -533,16 +533,17 @@ The roadmap has five stages. **Do not skip Stage A**: it decides whether the res
 #### Phase 5B — Auto-Answer for Trusted Callers, open app (≈3 days, right after Phase 5)
 An **optional** setting on the *receiving* device: calls from people the user has chosen are answered automatically, so family members (or a colleague on duty) can always get through. Only the device owner can turn it on; a caller can never force it.
 
-- [ ] Setting **Auto-answer calls from trusted callers** (off by default), stored on the device only; never sent to anyone
-- [ ] **Trusted callers** list: only people who have called before and whose safety number the user marked as verified; strangers, guests and unverified callers always ring normally
-- [ ] **Rings first** for a chosen delay (0–10 s, default 5 s) so the user can still decline
-- [ ] Answers as a **voice call with camera off** by default; video allowed per trusted caller
-- [ ] Clear **sound and "Auto-answered" banner** when the call connects; the caller sees *"Auto-answered"* too (`call.accept` carries `{"auto": true}`)
-- [ ] Persistent reminder on the home screen while auto-answer is on, listing who is trusted
-- [ ] Never auto-answers while already in a call (busy still applies) or when the trusted list is empty
-- [ ] Tests: state-machine tests for auto-answer, delay and decline-during-delay; e2e: trusted caller auto-connects, untrusted caller rings
-- [ ] Threat model entry: abuse as a listening device, and the mitigations above
-- [ ] Works while the app is open (desktop; Android in the foreground). Locked phone / closed app: Phase 12
+- [x] Setting **Auto-answer calls from trusted callers** (off by default, can't be switched on until someone is trusted), stored on the device only; never sent to anyone
+- [x] **Trusted callers** list: added only after a call, through a dialog that requires confirming "I compared this safety number with them"; exact key match; strangers, guests and unverified callers always ring normally
+- [x] **Rings first** for a chosen delay (0–10 s, default 5 s) so the user can still decline
+- [x] Answers as a **voice call with the camera never opened** by default; video allowed per trusted caller
+- [x] **"Auto-answered" banner** on both sides (`call.accept` carries `{"auto": true}`); system alert sound where the platform provides one
+- [ ] A proper ringtone/chime sound on every platform (web and Linux have no system alert sound) — with Phase 6 call screens
+- [x] Persistent reminder on the home screen while auto-answer is on, listing who is trusted
+- [x] Never auto-answers while already in a call (busy still applies) or when the trusted list is empty
+- [x] Tests: state-machine tests (delay, decline during delay, voice-only, busy), trusted-caller rules and storage; e2e `e2e/autoanswer.mjs`: trusted caller auto-connects voice-only after the delay, decline wins, stranger keeps ringing
+- [x] Threat model entry: abuse as a listening device, and the mitigations above
+- [x] Works while the app is open (desktop; Android in the foreground). Locked phone / closed app: Phase 12
 
 **Exit criteria:** a verified trusted caller's call connects by itself after the ring delay with a visible and audible indication on both sides; anyone else's call rings normally.
 

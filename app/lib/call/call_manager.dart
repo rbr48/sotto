@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../crypto/envelope.dart';
 import '../crypto/identity.dart';
 import 'media_engine.dart';
+import 'trusted_callers.dart';
 
 enum CallPhase {
   /// No call.
@@ -143,8 +144,8 @@ class CallManager extends ChangeNotifier {
 
   /// Decides whether an incoming invite is answered automatically: `null`
   /// rings normally, otherwise the call is accepted after the returned delay
-  /// (during which the user can still decline).
-  final Duration? Function(OpenedMessage invite)? autoAnswer;
+  /// (during which the user can still decline), with or without camera.
+  final AutoAnswer? Function(OpenedMessage invite)? autoAnswer;
 
   /// How long an outgoing call rings before giving up.
   final Duration ringTimeout;
@@ -205,7 +206,11 @@ class CallManager extends ChangeNotifier {
   /// Answers the ringing incoming call.
   Future<void> accept() => _serial(() => _accept(auto: false));
 
-  Future<void> _accept({required bool auto, String? onlyCallId}) async {
+  Future<void> _accept({
+    required bool auto,
+    String? onlyCallId,
+    bool withVideo = true,
+  }) async {
     if (_state.phase != CallPhase.incoming) return;
     if (onlyCallId != null && _state.callId != onlyCallId) return;
     _autoAnswerTimer?.cancel();
@@ -213,7 +218,7 @@ class CallManager extends ChangeNotifier {
     _setState(_state.copyWith(phase: CallPhase.connecting, autoAnswered: auto));
     final media = _startMedia();
     try {
-      await media.prepare(video: _state.video);
+      await media.prepare(video: _state.video && withVideo);
     } catch (e) {
       send(_state.peer!, 'call.reject', const {}, callId);
       await _end(
@@ -288,10 +293,16 @@ class CallManager extends ChangeNotifier {
       );
       send(message.sender, 'call.ringing', const {}, callId);
       _startTimer(incomingTimeout, callId, () => _end(CallEndReason.missed));
-      final delay = autoAnswer?.call(message);
-      if (delay != null) {
-        _autoAnswerTimer = Timer(delay, () {
-          _serial(() => _accept(auto: true, onlyCallId: callId));
+      final decision = autoAnswer?.call(message);
+      if (decision != null) {
+        _autoAnswerTimer = Timer(decision.delay, () {
+          _serial(
+            () => _accept(
+              auto: true,
+              onlyCallId: callId,
+              withVideo: decision.video,
+            ),
+          );
         });
       }
       return;

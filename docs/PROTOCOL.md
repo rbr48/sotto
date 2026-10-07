@@ -167,7 +167,7 @@ With **Hide my IP address**, the app sets `iceTransportPolicy: "relay"`, so it o
 | `sdp.offer` / `sdp.answer` | caller → callee / callee → caller | `{"sdp": "…"}` |
 | `ice.candidate` | either | `{"candidate", "sdpMid", "sdpMLineIndex"}` |
 
-Every call message carries the same random `callId` (16 bytes). Messages for another call, or from anyone but the call's peer, are ignored. An incoming call stops ringing after 60 s if no `call.cancel` arrives; media setup must finish within 30 s of acceptance.
+`call.accept` may carry `{"auto": true}` when the callee's device answered automatically (an admitted guest, or a trusted caller with auto-answer on); both sides then show *Auto-answered* (not shown for guest admissions). Every call message carries the same random `callId` (16 bytes). Messages for another call, or from anyone but the call's peer, are ignored. An incoming call stops ringing after 60 s if no `call.cancel` arrives; media setup must finish within 30 s of acceptance.
 
 ### 5.6 Call links (Phase 3)
 

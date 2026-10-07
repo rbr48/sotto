@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:sodium/sodium.dart';
 
@@ -13,6 +14,7 @@ import '../guest/guest_visit.dart';
 import '../relay/relay_client.dart';
 import 'call_code.dart';
 import 'call_manager.dart';
+import 'trusted_callers.dart';
 import 'media_engine.dart';
 import 'webrtc_media_engine.dart';
 
@@ -64,6 +66,13 @@ class CallController extends ChangeNotifier {
 
   GuestLinkStore? _links;
   GuestHost? _host;
+
+  late final TrustedCallers trustedCallers = TrustedCallers(_settings)
+    ..addListener(_onTrustedChanged);
+
+  /// Peer of a call that admitted a guest from the waiting room (shown
+  /// differently from a trusted caller's auto-answer).
+  String? _admittedGuestId;
 
   /// The professional's waiting room (not in guest mode).
   GuestHost? get guestHost => _host;
@@ -156,10 +165,17 @@ class CallController extends ChangeNotifier {
         ),
         newCallId: () => b64Encode(sodium.randombytes.buf(16)),
         // A guest's page answers the call that admits it from the waiting room.
-        autoAnswer: (invite) =>
-            _visit?.isAdmission(invite) == true ? Duration.zero : null,
+        autoAnswer: _decideAutoAnswer,
       );
       manager.addListener(_onCallChanged);
+
+      if (!isGuest) {
+        try {
+          await trustedCallers.load();
+        } catch (_) {
+          // Keystore unavailable: auto-answer stays off.
+        }
+      }
 
       if (guestLinkPayload case final payload?) {
         try {
@@ -185,6 +201,7 @@ class CallController extends ChangeNotifier {
           send: _sendGuestMessage,
           onAdmit: (guest) async {
             manager.dismiss();
+            _admittedGuestId = guest.guest.id;
             await manager.call(
               guest.guest,
               video: guest.video,
@@ -248,6 +265,63 @@ class CallController extends ChangeNotifier {
     } catch (_) {
       // Not persisted; still applies until the app restarts.
     }
+  }
+
+  /// Auto-answer: a guest's page answers the call that admits it; a
+  /// professional's device answers verified trusted callers if switched on.
+  AutoAnswer? _decideAutoAnswer(OpenedMessage invite) {
+    if (_visit?.isAdmission(invite) == true) {
+      return const AutoAnswer(delay: Duration.zero, video: true);
+    }
+    if (isGuest) return null;
+    return trustedCallers.decide(
+      invite.sender,
+      videoCall: invite.body['video'] != false,
+    );
+  }
+
+  /// Whether this device's camera is part of the current call (false for
+  /// voice calls and voice-only auto-answers).
+  bool get sendingVideo =>
+      call.active &&
+      (localRenderer.srcObject?.getVideoTracks().isNotEmpty ?? false);
+
+  /// Whether the current call was answered automatically because of the
+  /// callee's auto-answer setting (not a guest being admitted).
+  bool get autoAnswered {
+    final call = this.call;
+    return call.autoAnswered && call.peer?.id != _admittedGuestId && !isGuest;
+  }
+
+  void _onTrustedChanged() {
+    publishForTests('auto-answer', '${trustedCallers.enabled}');
+    notifyListeners();
+  }
+
+  /// Marks the peer of the last call as a trusted caller. The UI must have
+  /// had the user confirm they compared the safety number.
+  Future<void> trustPeer({
+    required String name,
+    required bool allowVideo,
+  }) async {
+    final peer = call.peer;
+    if (peer == null || isGuest || peer.id == _admittedGuestId) return;
+    await trustedCallers.trust(
+      TrustedCaller(
+        identity: peer,
+        name: name.trim().isEmpty ? 'Trusted caller' : name.trim(),
+        allowVideo: allowVideo,
+      ),
+    );
+  }
+
+  /// Whether the last call's peer can be offered as a trusted caller.
+  bool get canTrustPeer {
+    final peer = call.peer;
+    return peer != null &&
+        !isGuest &&
+        peer.id != _admittedGuestId &&
+        trustedCallers.find(peer) == null;
   }
 
   void _sendGuestMessage(
@@ -340,10 +414,22 @@ class CallController extends ChangeNotifier {
   }
 
   void _onCallChanged() {
+    if (call.phase == CallPhase.connecting && autoAnswered) {
+      publishForTests('auto-answered', 'true');
+      // Audible cue that a call was picked up automatically (where the
+      // platform supports system sounds).
+      SystemSound.play(SystemSoundType.alert);
+    }
+    if (call.phase == CallPhase.calling || call.phase == CallPhase.incoming) {
+      publishForTests('auto-answered', 'false');
+    }
     if (call.phase == CallPhase.calling || call.phase == CallPhase.incoming) {
       _micEnabled = true;
       _cameraEnabled = true;
       _route = null;
+    }
+    if (call.phase == CallPhase.connected) {
+      publishForTests('sending-video', '$sendingVideo');
     }
     if (call.phase == CallPhase.connected && _route == null) {
       unawaited(_detectRoute());
@@ -405,6 +491,7 @@ class CallController extends ChangeNotifier {
     }
     _manager?.dispose();
     _host?.dispose();
+    trustedCallers.dispose();
     _visit?.dispose();
     unawaited(_relay?.stop());
     _identity?.dispose();
