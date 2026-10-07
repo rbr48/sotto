@@ -188,6 +188,22 @@ calling/
     └── SELF_HOSTING.md
 ```
 
+### 4.1 App identifiers
+
+The package name / application ID is **`com.izhaanintellect.sotto`** on every platform. It can't be changed after the Play Store release, so set it before the first build.
+
+| Platform | Where it is set | Value |
+|---|---|---|
+| Android | `app/android/app/build.gradle(.kts)` → `namespace` and `applicationId`; Kotlin package `com.izhaanintellect.sotto` | `com.izhaanintellect.sotto` |
+| Linux | `app/linux/CMakeLists.txt` → `APPLICATION_ID`; Flatpak / `.desktop` file ID | `com.izhaanintellect.sotto` |
+| Windows | MSIX `identity_name` (in `msix_config` of `pubspec.yaml`); publisher: Izhaan Intellect | `com.izhaanintellect.sotto` |
+| Web (guest page) | `app/web/manifest.json` → `id` | `com.izhaanintellect.sotto` |
+| iOS / macOS (later) | Bundle identifier | `com.izhaanintellect.sotto` |
+| Firebase (FCM) | Android app registered in the Firebase project | `com.izhaanintellect.sotto` |
+| Dart package | `pubspec.yaml` → `name` | `sotto` |
+
+Native code (the Android audio mixer, desktop recording plugin) lives under the `com.izhaanintellect.sotto` package / namespace.
+
 ---
 
 ## 5. Key Technical Design
@@ -443,7 +459,8 @@ The roadmap has five stages. **Do not skip Stage A**: it decides whether the res
 
 #### Phase 0 — Foundations (Week 5)
 - [ ] Create the monorepo structure (`app/`, `server/`, `infra/`, `docs/`)
-- [ ] `flutter create` with `android`, `windows`, `linux`, **`web`**; Android `minSdk` 24+
+- [ ] `flutter create --org com.izhaanintellect --project-name sotto --platforms android,windows,linux,web app`; Android `minSdk` 24+
+- [ ] Confirm the app ID is **`com.izhaanintellect.sotto`** on every platform (see section 4.1)
 - [ ] Add `flutter_webrtc` and `sodium_libs`; confirm they build on all four targets
 - [ ] Android permissions: `CAMERA`, `RECORD_AUDIO`, `INTERNET`, `MODIFY_AUDIO_SETTINGS`, `BLUETOOTH_CONNECT`, `POST_NOTIFICATIONS`
 - [ ] Server skeleton: TypeScript, `ws`, ESLint/Prettier, Vitest

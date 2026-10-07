@@ -14,6 +14,8 @@ The name comes from *sotto voce*: speaking quietly so that only the listener hea
 
 > Status: planning. No code yet.
 
+**Package name / application ID:** `com.izhaanintellect.sotto` (publisher: Izhaan Intellect)
+
 ## Documents
 
 - [Product strategy, technical plan & roadmap](docs/ROADMAP.md)
