@@ -1,86 +1,163 @@
-# Calling App — Technical Plan & Roadmap (Privacy-First, Zero Server Storage)
+# Calling App — Product Strategy, Technical Plan & Roadmap
 
-A VoIP audio/video calling app built with **Flutter + `flutter_webrtc`**, using a **self-built, stateless signaling relay** and a **self-hosted TURN server (coturn)**.
+**Private calls for professionals and their clients: no accounts, no data stored, on our servers or yours.**
 
-- **Primary targets:** Android, Windows, Linux (macOS is cheap to add later)
-- **Initial scope:** 1:1 audio and video calls between contacts
-- **Later scope:** on-device call recording, linking several devices to one identity, small group calls (mesh, up to ~4 people)
+A privacy-first audio/video calling product built with **Flutter + `flutter_webrtc`**, a **stateless signaling relay** and a **self-hosted TURN server (coturn)**.
+
+- **Who it's for:** professionals and small organisations that must protect conversations with clients and colleagues
+- **Professional apps:** Windows, Linux and Android (iOS and macOS later)
+- **Guests (clients):** join from **any browser** with a link; no app, no account
+- **Deployment:** our hosted service, or one-command self-hosting on the customer's own server
 
 ---
 
-## 1. Privacy Principles
+## 1. Product Strategy
+
+### 1.1 The problem
+Lawyers, therapists, doctors, accountants, journalists and NGOs talk about sensitive matters over Zoom, Teams, Google Meet or WhatsApp. Those services hold account data, metadata and sometimes recordings on servers the professional doesn't control. Many of these professionals have legal or ethical duties to protect client confidentiality.
+
+### 1.2 The solution
+- **Guest links:** the professional sends a link; the client joins from a browser with no install or sign-up.
+- **End-to-end encrypted 1:1 calls** by default.
+- **Zero server storage:** "we can't leak what we don't have."
+- **Consent-based recording on the professional's own device** (both voices, voice-only or video).
+- **Self-host in one command** for organisations that want full control.
+
+### 1.3 First target group (beachhead)
+Pick **one** group and serve it very well before expanding. Candidates:
+
+| Group | Why they might pay | Watch out for |
+|---|---|---|
+| Therapists / counsellors | Confidential 1:1 sessions are the whole job; many are solo practitioners who decide quickly | Health-data rules (HIPAA in the US, GDPR in the EU) |
+| Small law firms | Attorney–client privilege; already pay for software | Slower buying decisions |
+| Small clinics / doctors | Telehealth demand | Strongest compliance requirements |
+| Journalists / NGOs | Source protection; value self-hosting | Low budgets; grants and donations more likely |
+| Accountants / financial advisers | Confidential client calls | Less urgent privacy concern |
+
+The choice is made in Stage A (validation), based on interviews.
+
+### 1.4 Competition and how we differ
+
+| Competitor | Their strength | Where we differ |
+|---|---|---|
+| Zoom / Teams / Google Meet | Familiar, feature-rich | They store accounts, metadata and cloud recordings; E2E is optional or limited |
+| Jitsi Meet | Free, open source, self-hostable, browser-based | Server-side media routing (SFU); E2EE optional; general-purpose meetings, not a professional–client workflow; no native recording with consent |
+| Doxy.me / therapy-specific tools | Built for telehealth | Cloud accounts and stored data; can't self-host |
+| Signal / SimpleX / Jami | Strong privacy | Both sides must install the app; no guest links, waiting room, scheduling or professional features |
+
+**Positioning:** the simplest way for a professional to have a truly private call with a client, with nothing stored anywhere except on the professional's own device.
+
+### 1.5 Business model
+
+| Plan | Price (initial guess, to be validated) | Includes |
+|---|---|---|
+| **Free / open source** | $0 | Apps and relay source code; self-host with community support |
+| **Pro (hosted)** | ~$8–12 per professional per month | Our hosted relay + TURN, guest links, waiting room, scheduling, recording, priority support |
+| **Business self-hosted** | ~$500–2,000 per year per organisation | Licence for branding (logo/name), team features, setup help and support contract |
+
+- Payments go through a merchant-of-record provider (Paddle or Lemon Squeezy, or Stripe), so **billing data stays with the payment provider, not our servers**.
+- Access is checked with **signed licence tokens** verified offline, so the relay still stores nothing (section 5.15).
+
+### 1.6 Go-to-market
+1. Interviews and a landing page with a waitlist for the chosen group.
+2. Free pilots with 3–5 organisations in exchange for weekly feedback and a testimonial.
+3. Content aimed at the group ("How to run confidential online sessions"), plus professional associations, forums and conferences.
+4. Every guest call shows a small "Secured by <app>" footer: each client a professional calls sees the product.
+5. Referral discount: a professional who brings a colleague gets a free month.
+
+### 1.7 Success metrics
+
+| Stage | Target |
+|---|---|
+| Validation (week 4) | 15–20 interviews done; **50+ waitlist sign-ups** from the target group |
+| MVP (week 16) | Guest link call works on Chrome, Edge, Firefox and Safari (iPhone); call setup success > 95% |
+| Pilot (week 22) | **3+ organisations using it every week**; at least 2 say they'd pay |
+| Paid launch (~month 7) | **First paying customers**; monthly churn < 5% |
+| Month 12 | 100+ paying professionals or 5+ business licences; a second target group started |
+
+If validation fails (few sign-ups, nobody would pay), change the target group or idea **before** building the full product.
+
+---
+
+## 2. Privacy Principles
 
 These rules override every other design decision in this document.
 
-1. **Zero server storage.** The server has no database and writes no user data to disk. Everything it knows lives in RAM and disappears when a connection closes or the server restarts.
-2. **The server is a switchboard, not a participant.** It routes encrypted envelopes between public keys. It cannot read call setup data, contact lists, names or messages.
-3. **No accounts and no personal identifiers.** No email, phone number, username or password. A user *is* a key pair generated on their own device.
-4. **No directory.** Nobody can be searched for. People connect only by exchanging a QR code or invite link directly.
-5. **All user data lives on the user's device**, encrypted at rest: identity key, contacts, call history, settings, recordings.
+1. **Zero server storage.** The server has no user database and writes no user data to disk. Everything it knows lives in RAM and disappears when a connection closes or the server restarts.
+2. **The server is a switchboard, not a participant.** It routes encrypted envelopes. It cannot read call setup data, contact lists, names or messages.
+3. **No accounts and no personal identifiers.** Professionals are identified by a key pair created on their own device. Guests get a temporary key in their browser that is thrown away after the call.
+4. **No directory.** Nobody can be searched for. People connect only through QR codes, invite links or guest links.
+5. **All user data lives on the professional's device**, encrypted at rest: identity key, contacts, call history, scheduled links, settings, recordings.
 6. **End-to-end encryption everywhere.** Signaling is E2E encrypted and signed. Media is DTLS-SRTP, and the media fingerprints are authenticated end to end so the server can't intercept the call.
-7. **No logs, no analytics, no tracking.** Diagnostics are opt-in and are exported by the user, never uploaded automatically.
-8. **Open source server.** The relay code is public so anyone can verify what it does and does not keep.
+7. **No logs, no analytics, no tracking**, including on the guest web page (no cookies, no third-party scripts). Diagnostics are opt-in and exported by the user.
+8. **Open source.** Apps and relay code are public so anyone can verify what they do and do not keep.
 
 ---
 
-## 2. Architecture Overview
+## 3. Architecture Overview
 
 ```
- ┌──────────────────────┐                                 ┌──────────────────────┐
- │  Flutter client A    │                                 │  Flutter client B    │
- │  - identity key pair │                                 │  - identity key pair │
- │  - encrypted local DB│                                 │  - encrypted local DB│
- │  - flutter_webrtc    │                                 │  - flutter_webrtc    │
- └───┬──────────────▲───┘                                 └───▲──────────────┬───┘
-     │ WSS: {to, ciphertext}                                   │              │
-     │              │       ┌──────────────────────────┐      │              │
-     └──────────────┼──────▶│  Signaling relay         │──────┘              │
-                    │       │  - RAM only, no DB/disk  │                     │
-                    │       │  - routes by public key  │──▶ FCM / UnifiedPush│
-                    │       │  - can't read payloads   │    ("wake up" only) │
-                    │       └──────────────────────────┘                     │
-                    │                                                        │
-                    │      SRTP media (direct P2P when possible)             │
-                    └───────────────────────────────────────────────────────┘
-                                   │ fallback │
-                             ┌─────▼──────────▼──┐
-                             │      coturn       │  relays encrypted packets,
-                             │  logging disabled │  can't decrypt them
-                             └───────────────────┘
+ ┌───────────────────────────┐                              ┌──────────────────────────┐
+ │ Professional app          │                              │ Guest (any browser)      │
+ │ Windows / Linux / Android │                              │ Flutter Web page         │
+ │ - identity key pair       │                              │ - temporary key pair     │
+ │ - encrypted local DB      │                              │ - no install, no account │
+ └──────┬─────────────▲──────┘                              └──────▲────────────┬──────┘
+        │ WSS {to, ciphertext}                                     │            │
+        │             │        ┌──────────────────────────┐        │            │
+        └─────────────┼───────▶│ Signaling relay          │────────┘            │
+                      │        │ - RAM only, no DB/disk   │                     │
+                      │        │ - routes by public key   │──▶ FCM / UnifiedPush│
+                      │        │ - checks licence tokens  │    ("wake up" only) │
+                      │        └──────────────────────────┘                     │
+                      │                                                         │
+                      │     SRTP media (direct P2P when possible)               │
+                      └─────────────────────────────────────────────────────────┘
+                                     │ fallback │
+                               ┌─────▼──────────▼──┐      ┌─────────────────────┐
+                               │      coturn       │      │ Static web host     │
+                               │  logging disabled │      │ guest page (no logs,│
+                               └───────────────────┘      │ no cookies)         │
+                                                          └─────────────────────┘
 ```
 
 ### Components
 
 | Component | Technology | Stores user data? |
 |---|---|---|
-| Client app | Flutter 3.x, `flutter_webrtc`, Riverpod, libsodium | **Yes, locally only**, encrypted |
+| Professional app | Flutter 3.x, `flutter_webrtc`, Riverpod, libsodium | **Yes, locally only**, encrypted |
+| Guest web client | Flutter Web, `flutter_webrtc` (web), libsodium.js | **No.** Temporary key in memory, gone when the tab closes |
 | Signaling relay | Node.js 20+ / TypeScript, `ws` | **No.** RAM only: live sockets, short-lived queues |
 | TURN/STUN | coturn | **No.** Logging disabled; stateless HMAC credentials |
-| Push | FCM (Google) or UnifiedPush (self-hostable) | Content-free "wake up" pings only |
-| Reverse proxy | Caddy | Access logging disabled |
+| Static web host | Caddy serving the guest page | **No.** Access logs disabled |
+| Push | FCM or UnifiedPush | Content-free "wake up" pings only |
+| Billing | Paddle / Lemon Squeezy / Stripe | Billing details held by the payment provider, never by our servers |
 
 There is **no Postgres and no Redis** in v1. If the relay later needs several instances, use Redis pub/sub with persistence turned off (`save ""`, `appendonly no`) purely for routing between instances.
 
 ---
 
-## 3. Repository Layout
+## 4. Repository Layout
 
 ```
 calling/
-├── app/                          # Flutter application
-│   ├── android/  windows/  linux/
+├── app/                          # Flutter: professional app (Android/Windows/Linux) + guest web build
+│   ├── android/  windows/  linux/  web/
 │   └── lib/
-│       ├── main.dart
-│       ├── core/                 # config, DI, logging (local only), theme
+│       ├── main.dart             # professional app entry
+│       ├── main_guest.dart       # guest web entry (small, no local storage)
+│       ├── core/                 # config, DI, local-only logging, theme, branding
 │       ├── crypto/               # identity keys, envelopes, safety numbers, backup encryption
-│       ├── storage/              # encrypted local database (contacts, history, settings)
-│       ├── relay/                # WebSocket client, envelope send/receive, offline queue
+│       ├── storage/              # encrypted local database
+│       ├── relay/                # WebSocket client, envelopes, offline queue
 │       ├── features/
-│       │   ├── onboarding/       # create identity / restore from backup
-│       │   ├── contacts/         # QR + invite links, contact requests, verification
+│       │   ├── onboarding/       # create identity / restore from backup / enter licence
+│       │   ├── guest_links/      # create, schedule, revoke links; waiting room
+│       │   ├── guest/            # guest join flow: device check, knock, call
+│       │   ├── contacts/         # QR + invite links for colleagues
 │       │   ├── history/
 │       │   ├── settings/
-│       │   ├── recording/        # Phase 12
+│       │   ├── recording/
 │       │   └── call/
 │       │       ├── call_controller.dart   # state machine
 │       │       ├── webrtc_session.dart    # RTCPeerConnection wrapper
@@ -90,30 +167,32 @@ calling/
 │           ├── android/          # push wake-up, native incoming-call UI, foreground service
 │           └── desktop/          # tray, window, notifications
 ├── server/                       # Stateless relay (TypeScript)
-│   ├── src/
-│   │   ├── auth.ts               # challenge-response with public keys
-│   │   ├── router.ts             # in-memory publicKey → socket map
-│   │   ├── queue.ts              # RAM-only short-lived envelope queue (TTL 60 s)
-│   │   ├── push.ts               # forwards wake-ups to FCM / UnifiedPush, stores nothing
-│   │   ├── turn.ts               # stateless HMAC TURN credentials
-│   │   └── limits.ts             # in-memory rate limiting
-│   └── test/
+│   └── src/
+│       ├── auth.ts               # challenge-response with public keys
+│       ├── router.ts             # in-memory publicKey → socket map
+│       ├── queue.ts              # RAM-only envelope queue (TTL 60 s)
+│       ├── push.ts               # forwards wake-ups, stores nothing
+│       ├── turn.ts               # stateless HMAC TURN credentials
+│       ├── licence.ts            # offline verification of signed licence tokens
+│       └── limits.ts             # in-memory rate limiting
 ├── infra/
-│   ├── docker-compose.yml        # relay + coturn (read-only filesystems, tmpfs only)
+│   ├── docker-compose.yml        # relay + coturn + guest web page (read-only filesystems)
+│   ├── install.sh                # one-command self-host setup (domain, TLS, secrets)
 │   ├── coturn/turnserver.conf
 │   └── caddy/Caddyfile
 └── docs/
     ├── ROADMAP.md                # this file
     ├── FEATURES.md
-    ├── PROTOCOL.md               # envelope + message formats
-    └── THREAT_MODEL.md
+    ├── PROTOCOL.md
+    ├── THREAT_MODEL.md
+    └── SELF_HOSTING.md
 ```
 
 ---
 
-## 4. Key Technical Design
+## 5. Key Technical Design
 
-### 4.1 Identity (no accounts)
+### 5.1 Identity (no accounts)
 
 - On first launch the app generates an **Ed25519 identity key pair** with libsodium.
 - The private key is stored with `flutter_secure_storage`, which uses Android Keystore, Windows DPAPI or Linux libsecret.
@@ -121,19 +200,19 @@ calling/
 - For encryption, the identity key is converted to X25519 (`crypto_sign_ed25519_pk_to_curve25519`).
 - **Display name and avatar** are stored locally and sent to contacts only inside encrypted messages. The server never sees them.
 
-### 4.2 Adding contacts (no directory)
+### 5.2 Adding contacts (no directory)
 
 1. User B opens *Add contact → Show my code*. The app shows a **QR code** or produces an **invite link**:
    `https://call.example.com/i#<base64url payload>`
    The payload goes after `#`, which browsers never send to the server. It contains B's public key, display name and a one-time invite secret, signed by B.
 2. User A scans the QR code or opens the link. A's app sends an encrypted `contact.request` to B through the relay.
 3. B's app checks the invite secret (or asks B to approve) and replies with `contact.accept`.
-4. Both apps then exchange, end to end encrypted: display name, avatar, and **push wake-up tokens** (section 4.7).
+4. Both apps then exchange, end to end encrypted: display name, avatar, and **push wake-up tokens** (section 5.7).
 5. Contacts are saved only in each device's encrypted local database.
 
 Because public keys can't be guessed and there is no directory, **strangers cannot call you** unless you shared your code.
 
-### 4.3 Relay protocol: what the server sees
+### 5.3 Relay protocol: what the server sees
 
 Outer envelope (the only thing the server can read):
 
@@ -162,7 +241,7 @@ Inner messages (encrypted; the server can't see them):
 - **Ring timeout:** the caller's app gives up after 45 s and sends `call.cancel`.
 - **Calls from non-contacts:** the callee's app silently drops them.
 
-### 4.4 Relay server behaviour (RAM only)
+### 5.4 Relay server behaviour (RAM only)
 
 - **Connect:** the server sends a random 32-byte challenge, the client signs it with its identity key, and the server verifies it. The socket is now bound to that public key, in memory only.
 - **Routing:** an in-memory `Map<publicKey, Set<socket>>`. If the recipient is online, the envelope is forwarded immediately.
@@ -171,7 +250,7 @@ Inner messages (encrypted; the server can't see them):
 - **Rate limits** are in-memory counters per socket and per IP, using a salted hash that rotates daily and is never persisted.
 - **Monitoring** uses aggregate counters only (connected sockets, envelopes per second, error counts).
 
-### 4.5 WebRTC session and MITM protection
+### 5.5 WebRTC session and MITM protection
 
 - Use the **"perfect negotiation"** pattern; trickle ICE; ICE restart when the network changes.
 - **Media can't be intercepted by the server:** the DTLS fingerprint in the SDP is inside the E2E-encrypted, sender-authenticated envelope. The relay can't swap it, so it can't put itself in the middle of the media.
@@ -179,7 +258,7 @@ Inner messages (encrypted; the server can't see them):
 - Codecs: Opus for audio; VP8 by default for video, optional H.264.
 - Optional **"Hide my IP address"** setting: forces `iceTransportPolicy: relay`, so the other person only sees the TURN server's IP. It costs some latency and TURN bandwidth.
 
-### 4.6 TURN (coturn), stateless and log-free
+### 5.6 TURN (coturn), stateless and log-free
 
 - Credentials are time-limited HMAC values (`username = "<expiry>:<random>"`, `credential = base64(HMAC-SHA1(secret, username))`). The relay issues them on request, so **nothing is stored** and they contain no user identifier.
 - Minimal `turnserver.conf`:
@@ -206,7 +285,7 @@ total-quota=300
 user-quota=12
 ```
 
-### 4.7 Waking Android for incoming calls without storing push tokens
+### 5.7 Waking Android for incoming calls without storing push tokens
 
 To ring a closed app, *someone* has to know its push token. In this design, **the user's contacts hold it, not the server**.
 
@@ -218,14 +297,14 @@ To ring a closed app, *someone* has to know its push token. In this design, **th
 
 The server holds the FCM *project* credential, which is server configuration, not user data. Google sees only that a device received a ping.
 
-### 4.8 Local data on the device
+### 5.8 Local data on the device
 
 - **Encrypted database:** `drift` with SQLCipher (`sqlcipher_flutter_libs`). The database key is random and stored in `flutter_secure_storage`.
 - Tables: `contacts` (public key, name, avatar, push token, verified flag), `calls` (history), `settings`, `seen_nonces` (pruned automatically).
 - Optional **app lock**: PIN or biometrics (`local_auth`).
 - Optional **auto-delete call history** after N days.
 
-### 4.9 Encrypted backup and restore
+### 5.9 Encrypted backup and restore
 
 Without accounts, a lost device means a lost identity, so the user gets a **backup file**:
 - Contents: identity key, contacts and settings. Recordings are optional because they are large.
@@ -233,7 +312,7 @@ Without accounts, a lost device means a lost identity, so the user gets a **back
 - The user saves it wherever they choose: a file, USB drive or their own cloud. The app never uploads it.
 - Restore: on first launch, *Restore from backup*, enter the password.
 
-### 4.10 What the server can and cannot see
+### 5.10 What the server can and cannot see
 
 | The server **never** sees | The server **briefly** sees, in RAM only, while it happens |
 |---|---|
@@ -244,7 +323,7 @@ Without accounts, a lost device means a lost identity, so the user gets a **back
 
 Hiding even this short-lived metadata would need onion routing (like Tor), which adds too much latency for real-time calls. This limit is documented honestly in `THREAT_MODEL.md` and the privacy policy.
 
-### 4.11 Abuse prevention without accounts
+### 5.11 Abuse prevention without accounts
 
 - No directory, so strangers can't find you.
 - Calls and requests from unknown keys are dropped by the app.
@@ -252,11 +331,12 @@ Hiding even this short-lived metadata would need onion routing (like Tor), which
 - Block a contact: their key is ignored locally. Optionally, the app stops sharing its push token with them.
 - The relay applies in-memory rate limits per socket and IP and caps envelope size and queue length.
 
-### 4.12 Key Flutter packages
+### 5.12 Key Flutter packages
 
 | Need | Package |
 |---|---|
-| WebRTC | `flutter_webrtc` |
+| WebRTC | `flutter_webrtc` (native and web) |
+| Guest web client | Flutter Web build; `sodium_libs` uses libsodium.js in the browser |
 | Cryptography (Ed25519, X25519, secretbox, Argon2id) | `sodium_libs` (libsodium) |
 | Secure key storage | `flutter_secure_storage` |
 | Encrypted local database | `drift` + `sqlcipher_flutter_libs` |
@@ -272,139 +352,207 @@ Hiding even this short-lived metadata would need onion routing (like Tor), which
 | Network change detection | `connectivity_plus` |
 | Desktop window / tray / notifications | `window_manager`, `tray_manager`, `local_notifier` |
 
+### 5.13 Guest links (no app, no account for clients)
+
+**Link format**
+
+```
+https://call.example.com/j#<base64url payload>
+```
+
+The payload sits after `#`, so it is **never sent to the web server**. It contains:
+- the professional's public key
+- a random link ID and a one-time or reusable secret
+- an optional validity window (for scheduled calls) and display name
+- a signature by the professional's identity key
+
+**Join flow**
+1. The client opens the link. The static guest page loads, with no cookies and no third-party scripts.
+2. The page creates a **temporary key pair in memory** and runs a **device check**: camera and microphone preview, speaker test, browser compatibility.
+3. The guest types a name (optional) and taps *Join*. The page sends an encrypted `guest.knock` (name, link ID, secret) to the professional's key through the relay.
+4. The professional's app shows the guest in the **waiting room**. The professional taps *Admit* or *Decline*.
+5. On admit, the normal call flow runs (`call.invite`, SDP, ICE), all end-to-end encrypted.
+6. When the tab closes, the temporary key is gone. Nothing about the guest is stored anywhere except the professional's own local call history.
+
+**Link types**
+- **Personal room link:** reusable, like a permanent meeting room. Can be rotated at any time.
+- **Scheduled link:** valid only in a time window, for example Tuesday 14:00–15:00. The app can export an `.ics` calendar file to send with it.
+- **One-time link:** works for a single call and then expires.
+- All links can be **revoked** from the app; revoked link IDs are kept in the local database.
+
+**Browser support:** Chrome, Edge, Firefox, and Safari on iPhone/iPad and Mac, tested in every release.
+
+**Abuse protection:** guests can only *knock*. Nothing reaches the professional without a valid signed link secret, and the professional must admit every guest. The relay rate-limits knocks per IP in memory.
+
+### 5.14 Professional workflow features
+- **Waiting room** with guest name, a "knocking since" timer and *Admit* / *Decline* / *Message* ("I'll be with you in 5 minutes").
+- **Busy handling:** a guest who knocks while the professional is on another call sees "Please wait, you'll be admitted shortly".
+- **Optional session notes** stored only in the local encrypted database and attached to the call history entry.
+- **Branding** (Business plan): practice name, logo and colour shown on the guest page.
+
+### 5.15 Licensing without storing customer data
+- After payment, the payment provider triggers creation of a **licence token**: a small document (`plan`, `seats`, `expiry`, `licence ID`) signed with our private licence key.
+- The professional pastes or opens the token in the app; it is stored locally.
+- When connecting, the app presents the token to the relay. The relay checks the **signature and expiry** with our public licence key, **offline**, and stores nothing.
+- Pro features (hosted TURN quota, scheduling, recording, branding) are unlocked on the client and the relay according to the token.
+- Self-hosted installations use the same mechanism; the free tier works without a token.
+- Seat limits are enforced loosely (concurrent connections per licence ID, counted in RAM). This trusts honest customers rather than tracking them.
+
+### 5.16 Self-hosting package
+- `curl -fsSL https://get.example.com | sh`, or download and run `infra/install.sh`. The script asks for the domain, gets TLS certificates, generates secrets and starts `docker compose`.
+- It runs the relay, coturn and the guest web page, all on read-only filesystems.
+- **Minimum server:** 1 vCPU, 1 GB RAM, public IP, ports 443 and 3478/5349 plus the UDP relay range open.
+- The professional app points to the custom server domain (one setting, or a link from the admin that sets it).
+- Updates: `./install.sh update` pulls signed images.
+- `docs/SELF_HOSTING.md` covers firewalls, DNS and troubleshooting.
+
 ---
 
-## 5. Roadmap
+## 6. Roadmap
 
-Estimates assume **one full-time developer** familiar with Flutter. A second developer for crypto and the server can shorten the calendar by roughly 30–40%.
+Estimates assume **one full-time developer** familiar with Flutter. A second developer for crypto, server and web can shorten the calendar by roughly 30–40%.
 
-### Phase 0 — Foundations (Week 1)
+The roadmap has five stages. **Do not skip Stage A**: it decides whether the rest is worth building.
+
+| Stage | Weeks | Goal |
+|---|---|---|
+| A. Validate | 1–4 | Prove that a specific group wants this and would pay |
+| B. MVP | 5–17 | Private 1:1 calls with browser guest links |
+| C. Pilot | 18–23 | 3–5 real organisations using it weekly; self-hosting works |
+| D. Paid launch | 24–36 | Revenue, recording, scheduling, Android background calls, public launch |
+| E. Grow | Months 9–12+ | iOS, teams, group calls, second target group |
+
+---
+
+### Stage A — Validate (Weeks 1–4)
+
+#### Phase A — Customer Research & Waitlist
+- [ ] Try the competitors for a week (Jitsi Meet, Doxy.me or a similar tool for your group, Signal, SimpleX); list what frustrates you and your target users
+- [ ] Shortlist 2–3 candidate groups from section 1.3
+- [ ] Interview **15–20** people from those groups: current tools, privacy worries, how they invite clients, what they pay today, what they'd pay
+- [ ] Choose **one** beachhead group
+- [ ] Landing page (no trackers): promise, 3 key features, pricing preview, waitlist form (email kept by the newsletter tool only, with consent)
+- [ ] Share in the group's forums, associations and social channels
+- [ ] Optional: a clickable prototype (Figma) of the guest join flow and the waiting room to show in interviews
+
+**Exit criteria (go / no-go):** 50+ waitlist sign-ups from the chosen group and at least 5 people who say they would pay. If not, try the next group or rethink before writing product code.
+
+---
+
+### Stage B — MVP (Weeks 5–17)
+
+#### Phase 0 — Foundations (Week 5)
 - [ ] Create the monorepo structure (`app/`, `server/`, `infra/`, `docs/`)
-- [ ] `flutter create` with `android`, `windows`, `linux`; Android `minSdk` 24+
-- [ ] Add `flutter_webrtc` and `sodium_libs`; confirm they build on all three platforms
+- [ ] `flutter create` with `android`, `windows`, `linux`, **`web`**; Android `minSdk` 24+
+- [ ] Add `flutter_webrtc` and `sodium_libs`; confirm they build on all four targets
 - [ ] Android permissions: `CAMERA`, `RECORD_AUDIO`, `INTERNET`, `MODIFY_AUDIO_SETTINGS`, `BLUETOOTH_CONNECT`, `POST_NOTIFICATIONS`
 - [ ] Server skeleton: TypeScript, `ws`, ESLint/Prettier, Vitest
-- [ ] CI (GitHub Actions): analyze, tests, Android APK and Windows/Linux builds
+- [ ] CI (GitHub Actions): analyze, tests, Android APK, Windows/Linux builds, web build
 
-**Exit criteria:** an empty app builds on Android, Windows and Linux in CI; the relay starts and accepts a WebSocket.
+**Exit criteria:** the app builds for Android, Windows, Linux and web in CI; the relay accepts a WebSocket.
 
-### Phase 1 — WebRTC Proof of Concept (Weeks 2–3)
-- [ ] Local camera preview on Android and Windows
-- [ ] Loopback call (two peer connections in one app)
-- [ ] Throwaway plaintext relay (rooms by code) for experiments only
-- [ ] First real call: Android ↔ Windows on the same LAN with public STUN
+#### Phase 1 — WebRTC Proof of Concept (Weeks 6–7)
+- [ ] Local camera preview on Windows, Android and in the browser
+- [ ] Throwaway plaintext relay for experiments only
+- [ ] First calls on the same LAN: **Windows app ↔ browser** and Android ↔ Windows
 - [ ] Mute mic, toggle camera, hang up
 
-**Exit criteria:** a video call works between an Android phone and a Windows PC on the same Wi-Fi.
+**Exit criteria:** video calls work between the desktop app and a browser on the same network.
 
-### Phase 2 — Identity & Crypto Core (Weeks 4–5)
-- [ ] Generate and securely store the Ed25519 identity key; display the public key and QR code
-- [ ] Envelope library: `seal(recipientPk, message)` / `open(senderPk, ciphertext)` with libsodium `crypto_box`
+#### Phase 2 — Identity & Crypto Core (Weeks 8–9)
+- [ ] Generate and securely store the professional's Ed25519 identity key
+- [ ] Temporary in-memory key pairs for guests (web)
+- [ ] Envelope library `seal` / `open` with libsodium `crypto_box`, working identically on native and web
 - [ ] Inner message format with `callId`, timestamp, nonce; replay protection
-- [ ] Safety-number generation (deterministic from both keys)
-- [ ] Unit tests and known-answer test vectors; fuzz tests for malformed ciphertexts
+- [ ] Safety-number generation
+- [ ] Unit tests, known-answer test vectors, fuzz tests for malformed ciphertexts
 - [ ] Write `docs/PROTOCOL.md` and the first version of `docs/THREAT_MODEL.md`
 
-**Exit criteria:** two app instances can exchange encrypted, authenticated test messages through a local relay; tampered or replayed messages are rejected.
+**Exit criteria:** native and web clients exchange encrypted, authenticated messages through a local relay; tampered or replayed messages are rejected.
 
-### Phase 3 — Stateless Relay Server (Weeks 6–7)
-- [ ] Challenge-response login with the public key
-- [ ] In-memory routing map; forward envelopes; multi-device fan-out for the same key
-- [ ] RAM-only queue (TTL 60 s, size caps) for recipients being woken up
-- [ ] Heartbeat; dead-socket cleanup
-- [ ] In-memory rate limiting and envelope size limits
-- [ ] **No-storage enforcement:** read-only container filesystem, no DB, logging that excludes keys, IPs and tokens; automated test that the process writes nothing to disk
-- [ ] Client: relay connection with reconnect/backoff, outgoing queue, call state machine driven by the encrypted messages (busy, timeout and cancel handled on the clients)
+#### Phase 3 — Stateless Relay Server (Weeks 10–11)
+- [ ] Challenge-response login with the public key (professionals and guests)
+- [ ] In-memory routing map; envelope forwarding; multi-device fan-out
+- [ ] RAM-only queue (TTL 60 s, size caps)
+- [ ] Heartbeat; dead-socket cleanup; in-memory rate limiting and size limits
+- [ ] **No-storage enforcement:** read-only container filesystem, no DB, logs without keys, IPs or tokens; automated test that nothing is written to disk
+- [ ] Client relay connection with reconnect/backoff and outgoing queue; call state machine (busy, timeout, cancel handled on the clients)
 
-**Exit criteria:** users A and B call each other by public key with ringing, accept, reject, cancel and busy behaviour. The relay can't read any message body.
+**Exit criteria:** encrypted calls between two clients by public key with ringing, accept, reject, cancel and busy behaviour. The relay can't read any message body.
 
-### Phase 4 — NAT Traversal with coturn (Week 8)
+#### Phase 4 — NAT Traversal with coturn (Week 12)
 - [ ] Deploy coturn with TLS, logging disabled, private IP ranges denied
 - [ ] Stateless TURN credential endpoint on the relay
-- [ ] Test matrix: same Wi-Fi, Wi-Fi ↔ 4G, 4G ↔ 4G, forced relay, TLS-only firewall
+- [ ] Test matrix: same Wi-Fi, Wi-Fi ↔ 4G, 4G ↔ 4G, forced relay, TLS-only firewall, browser behind a corporate proxy
 - [ ] "Hide my IP address" setting (forced relay)
 
 **Exit criteria / Milestone M1:** an E2E-encrypted call connects across the internet in every network in the test matrix.
 
-### Phase 5 — Contacts, Local Data & Backup (Weeks 9–11)
-- [ ] Onboarding: create a new identity or restore from backup; choose display name and avatar
-- [ ] Encrypted local database (drift + SQLCipher)
-- [ ] Show my QR code / share invite link (single-use and expiring options)
-- [ ] Scan QR code / open invite link, then the `contact.request` → `contact.accept` exchange
-- [ ] Contact list, rename, delete, block
-- [ ] Safety-number screen and **verified** badge
-- [ ] Call history (local only), with optional auto-delete
-- [ ] Encrypted backup export and restore (Argon2id + XChaCha20-Poly1305)
-- [ ] App lock (PIN / biometrics)
+#### Phase 5 — Guest Links & Web Guest Client (Weeks 13–14)
+- [ ] Create personal room links and one-time links in the professional app; copy / share / revoke
+- [ ] Guest web page: no cookies, no third-party scripts, small download
+- [ ] Device check: camera/mic preview, speaker test, clear permission help per browser
+- [ ] `guest.knock` → **waiting room** → *Admit* / *Decline* / quick message
+- [ ] Guest in-call screen: mute, camera, hang up, "Secured by <app>" footer
+- [ ] Browser testing: Chrome, Edge, Firefox, Safari on iPhone/iPad and Mac
+- [ ] Clear error pages: link expired, link revoked, professional unavailable, browser not supported
 
-**Exit criteria:** two users add each other by QR code with no server-side account, call from the contact list, verify safety numbers, and restore everything on a new device from a backup file.
+**Exit criteria:** a client on an iPhone or a PC browser joins a call from a link in under 30 seconds with no install.
 
-### Phase 6 — Call Experience & Media Controls (Weeks 12–13)
-- [ ] Outgoing, incoming and in-call screens (draggable local preview)
-- [ ] Audio-only calls; upgrade audio → video mid-call
-- [ ] Switch front/back camera; speaker / earpiece / Bluetooth / wired routing (Android)
+#### Phase 6 — Professional App Essentials (Weeks 15–17)
+- [ ] Onboarding: create identity or restore from backup; display name and practice name
+- [ ] Encrypted local database (drift + SQLCipher); app lock (PIN / biometrics)
+- [ ] Call history (local only) with optional session notes and auto-delete
+- [ ] Call screens: draggable preview, call timer, quality indicator (local only)
 - [ ] Desktop pickers for camera, microphone and speaker, with hot-plug handling
-- [ ] Ringtone and ringback; proximity screen-off (Android)
-- [ ] Call-quality indicator from `getStats()`, computed and shown locally only
-- [ ] Picture-in-Picture (Android)
+- [ ] Android: switch camera; speaker / earpiece / Bluetooth routing
+- [ ] Encrypted backup export and restore (Argon2id + XChaCha20-Poly1305)
+- [ ] Colleagues: add by QR code or invite link; call colleagues directly
 
-**Exit criteria / Milestone M2 — Internal Alpha:** usable private 1:1 calling while both apps are open.
+**Exit criteria / Milestone M2 — MVP:** a professional installs the desktop app, sends a guest link and holds a private, encrypted call with a client who is using only a browser.
 
-### Phase 7 — Android Background & Incoming Calls (Weeks 14–16)
-- [ ] Obtain an FCM token; add **UnifiedPush** support as an alternative
-- [ ] Share push tokens only with contacts via E2E `contact.update`, and re-send on change
-- [ ] Caller includes the callee's token in `wake`; relay sends a **content-free** high-priority push and keeps nothing
-- [ ] Background handler: connect to the relay, receive the queued `call.invite`, show the native incoming-call UI (`flutter_callkit_incoming`), lock screen and full-screen intent
-- [ ] Foreground service during calls with types `phoneCall|microphone|camera` (Android 14+)
-- [ ] Permissions: `USE_FULL_SCREEN_INTENT`, `FOREGROUND_SERVICE_PHONE_CALL`, `FOREGROUND_SERVICE_MICROPHONE`, `FOREGROUND_SERVICE_CAMERA`
-- [ ] Handle a normal phone call interrupting a VoIP call
-- [ ] Test on Samsung, Xiaomi and Pixel, with Doze and battery savers; in-app battery-optimisation guidance
+---
 
-**Exit criteria:** an incoming call rings on a locked Android phone with the app killed, within about 3 seconds, and the server stores no token.
+### Stage C — Pilot (Weeks 18–23)
 
-### Phase 8 — Desktop Polish (Weeks 17–18)
-- [ ] System tray; minimise to tray so the relay connection stays open
-- [ ] Optional start at login; single-instance enforcement
-- [ ] Native notification and an incoming-call window
-- [ ] Screen sharing with a screen/window picker
-- [ ] Keyboard shortcuts
-- [ ] Add contacts on desktop: invite links, and QR scanning by webcam where supported
-- [ ] Packaging: Windows MSIX / installer; Linux AppImage / `.deb`
+#### Phase 7 — Self-Host Package & Hosted Beta (Weeks 18–19)
+- [ ] `docker-compose.yml` for relay + coturn + guest page with read-only filesystems
+- [ ] `install.sh`: domain, TLS, secrets, start, update
+- [ ] App setting to point at a custom server
+- [ ] `docs/SELF_HOSTING.md`
+- [ ] Our hosted beta environment (relay + coturn + guest page) in one region
+- [ ] Desktop tray mode so the app stays reachable; native notifications for knocking guests
 
-**Exit criteria:** installable desktop builds that receive calls while minimised.
+**Exit criteria:** a non-expert can self-host on a fresh VPS in under 15 minutes by following the docs.
 
-### Phase 9 — Reliability & Call Quality (Weeks 19–20)
-- [ ] ICE restart on network change and on `disconnected`, with "Reconnecting…" UI and a 30 s give-up
-- [ ] Relay reconnect mid-call without dropping media
+#### Phase 8 — Pilot Programme & Reliability (Weeks 20–23)
+- [ ] Onboard **3–5 pilot organisations** from the waitlist (free in exchange for weekly feedback and a testimonial)
+- [ ] Weekly 20-minute feedback calls; a prioritised list of requests
+- [ ] ICE restart on network change; reconnect mid-call; "Reconnecting…" UI
 - [ ] Bandwidth adaptation; audio-only fallback
-- [ ] **Local-only diagnostics:** per-call stats kept on the device; *Export diagnostic report* lets the user share an anonymised file manually
-- [ ] Crash reporting **opt-in only**, with a self-hosted collector or a user-exported crash file
-- [ ] Relay health metrics as aggregate counters only
+- [ ] Local diagnostics with *Export diagnostic report*; opt-in crash reports only
+- [ ] Security hardening: log audit, read-only servers verified, dependency and secret scanning in CI
+- [ ] Privacy policy and terms that plainly list the short-lived metadata in section 5.10
+- [ ] Windows installer (MSIX / Inno Setup) and Linux AppImage / `.deb`
 
-**Exit criteria:** call setup success above 95% in the test matrix; calls survive a Wi-Fi → 4G switch.
+**Exit criteria / Milestone M3 — Pilot success:** 3+ organisations use it every week; call setup success > 95%; at least 2 pilots say they'd pay.
 
-### Phase 10 — Security & Privacy Hardening (Weeks 21–22)
-- [ ] Review the threat model; check every log line on the server and client for data leaks
-- [ ] Prove there is no disk write: run the relay and coturn with read-only root filesystems and inspect tmpfs usage
-- [ ] Dependency, secret and static-analysis scanning in CI
-- [ ] Crypto code review, ideally an independent external audit before the public launch
-- [ ] Publish the relay source code and deployment config
-- [ ] Privacy policy that plainly lists the short-lived metadata in section 4.10
-- [ ] Optional: reproducible Android builds so users can check that releases match the source
+---
 
-**Milestone M3 — Closed Beta (end of Week 22):** 20–50 testers via Play Console internal testing and a desktop download.
+### Stage D — Paid Launch (Weeks 24–36)
 
-### Phase 11 — Release (Weeks 23–25)
-- [ ] Beta feedback fixes
-- [ ] Play Store listing: data-safety form ("no data collected" where accurate), foreground-service and full-screen-intent declarations
-- [ ] Windows code-signing certificate
-- [ ] Production relay and coturn in at least two regions; monitoring and alerting with no user data
-- [ ] Load test the relay (WebSocket clients with k6)
+#### Phase 9 — Licensing & Billing (Weeks 24–25)
+- [ ] Merchant-of-record payment provider (Paddle / Lemon Squeezy, or Stripe)
+- [ ] Licence token generation after payment (signed with our licence key)
+- [ ] App: enter or open licence; show plan and expiry; renewal reminders
+- [ ] Relay: offline licence verification; feature and quota checks in RAM
+- [ ] Pricing page on the website
+- [ ] Convert pilots to paid plans (with a pilot discount)
 
-**Milestone M4 — v1.0 public release (about 6 months).**
+**Milestone M4 — First revenue (~month 6).**
 
-### Phase 12 — On-Device Call Recording (Weeks 26–29, post v1.0)
-Recording happens **only on the user's device**. Media stays peer-to-peer and end-to-end encrypted, and the server never sees or stores call content.
+#### Phase 10 — On-Device Call Recording with Consent (Weeks 26–29)
+Recording happens **only on the professional's device**. Media stays peer-to-peer and end-to-end encrypted, and the server never sees or stores call content. For guests in a browser, the consent prompt and recording indicator are shown on the guest page.
 
 **Shared (all platforms)**
 - [ ] E2E messages `call.recording.started` / `call.recording.stopped`, sent to the other participant
@@ -435,103 +583,149 @@ Recording happens **only on the user's device**. Media stays peer-to-peer and en
 - [ ] Update the privacy policy and the Play Store data-safety form (audio/video recorded and stored on device only)
 - [ ] In-app notice explaining that the user is responsible for consent under local recording laws
 
-**Exit criteria / Milestone M5:** both sides of a call are recorded into a single playable file on Android and desktop, and the other participant always sees the recording indicator.
+**Exit criteria:** both sides of a call are recorded into a single playable file on desktop and Android, and the guest always sees the recording indicator and consent prompt.
 
-### Phase 13 — Linked Devices (Weeks 30–32, optional)
-- [ ] Link a PC to a phone by scanning a QR code shown on the PC
-- [ ] Each device keeps its own key; the primary key signs a **device list**
-- [ ] Contacts receive the signed device list over E2E messages; calls ring every linked device
-- [ ] Contacts and history sync between linked devices **directly, end to end encrypted**, never stored on the server
-- [ ] Unlink / revoke a lost device
+#### Phase 11 — Scheduling, Waiting Room, Branding & Screen Sharing (Weeks 30–31)
+- [ ] Scheduled links with a validity window; `.ics` calendar file export; copyable invitation text
+- [ ] Upcoming sessions list (local only)
+- [ ] Waiting room: knock sound, "knocking since" timer, quick replies ("5 minutes", "running late")
+- [ ] Busy handling: a guest knocking during another call sees a waiting message
+- [ ] Branding (Business plan): practice name, logo and colour on the guest page
+- [ ] Screen sharing from the desktop app (screen or window picker), for going through documents with a client
 
-### Phase 14 — Group Calls, Mesh (Weeks 33–35, optional)
-- [ ] Group invite sent as separate E2E envelopes to each participant
-- [ ] One `RTCPeerConnection` per pair of participants (mesh); every pair is end-to-end encrypted
-- [ ] Grid layout, active-speaker detection
-- [ ] Hard cap at **4 participants**
+#### Phase 12 — Android Background & Incoming Calls (Weeks 32–34)
+- [ ] Obtain FCM token; **UnifiedPush** as an alternative
+- [ ] Share push tokens only with contacts via E2E `contact.update`
+- [ ] For guest links: the guest page includes the professional's wake token (stored in the signed link payload, only if the professional enables "Wake my phone for guests")
+- [ ] Relay sends a **content-free** high-priority push and keeps nothing
+- [ ] Native incoming-call / knocking UI (`flutter_callkit_incoming`), lock screen and full-screen intent
+- [ ] Foreground service during calls with types `phoneCall|microphone|camera` (Android 14+)
+- [ ] Permissions: `USE_FULL_SCREEN_INTENT`, `FOREGROUND_SERVICE_PHONE_CALL`, `FOREGROUND_SERVICE_MICROPHONE`, `FOREGROUND_SERVICE_CAMERA`
+- [ ] Test on Samsung, Xiaomi and Pixel with Doze and battery savers
 
-> Larger groups need an SFU (media server). Standard SFUs can see media unless you add **WebRTC Insertable Streams / SFrame** end-to-end encryption. That is a separate project with its own privacy review.
+**Exit criteria:** a knocking guest or calling colleague rings a locked Android phone with the app killed, within about 3 seconds, and the server stores no token.
+
+#### Phase 13 — Public Launch (Weeks 35–36)
+- [ ] **External security review** of the crypto and relay
+- [ ] Play Store listing (data-safety form, foreground-service and full-screen-intent declarations)
+- [ ] Windows code-signing certificate
+- [ ] Production hosting in at least two regions; monitoring with aggregate counters only
+- [ ] Load test the relay (k6 WebSocket clients)
+- [ ] Launch content for the target group: guides, case studies from pilots, association partnerships
+- [ ] Support channel and documentation site
+
+**Milestone M5 — Public launch (~month 9).**
+
+---
+
+### Stage E — Grow (Months 9–12+)
+
+Prioritise using paying customers' requests. Likely candidates:
+
+- [ ] **iOS app** for professionals (CallKit + VoIP push) and **macOS** build
+- [ ] **Team features** (Business plan): an admin creates a signed team roster and server settings and shares them E2E with members; shared branding; colleagues directory stored only on members' devices
+- [ ] **Linked devices:** use one identity on phone and PC; contacts and history sync device-to-device, end to end encrypted
+- [ ] **Small group calls (mesh, up to 4):** for example family therapy, or a lawyer with two clients
+- [ ] **E2E-encrypted chat and file sharing during calls** (send a document to a client)
+- [ ] **Compliance pack:** GDPR data-processing documentation and a HIPAA-readiness assessment (with legal advice) for the chosen market
+- [ ] **Second target group**, chosen with the same validation steps as Stage A
+
+> Larger groups (5+) need an SFU media server plus SFrame end-to-end encryption so the server still can't see media. That is a separate project with its own privacy review.
 
 ### Summary timeline
 
 | Weeks | Phase | Milestone |
 |---|---|---|
-| 1 | Foundations | |
-| 2–3 | WebRTC PoC | First LAN call |
-| 4–5 | Identity & crypto core | |
-| 6–7 | Stateless relay | |
-| 8 | coturn | **M1: E2E call over the internet** |
-| 9–11 | Contacts, local data, backup | |
-| 12–13 | Call UX | **M2: internal alpha** |
-| 14–16 | Android background calls | |
-| 17–18 | Desktop polish | |
-| 19–20 | Reliability | |
-| 21–22 | Security & privacy hardening | **M3: closed beta** |
-| 23–25 | Release | **M4: v1.0** |
-| 26–29 | On-device call recording | **M5: recording** |
-| 30–32 | Linked devices (optional) | |
-| 33–35 | Group calls (optional) | |
+| 1–4 | A. Customer research & waitlist | Go / no-go |
+| 5 | 0. Foundations | |
+| 6–7 | 1. WebRTC PoC | First app ↔ browser call |
+| 8–9 | 2. Identity & crypto core | |
+| 10–11 | 3. Stateless relay | |
+| 12 | 4. coturn | **M1: E2E call over the internet** |
+| 13–14 | 5. Guest links & web client | |
+| 15–17 | 6. Professional app essentials | **M2: MVP** |
+| 18–19 | 7. Self-host package & hosted beta | |
+| 20–23 | 8. Pilot & reliability | **M3: pilot success** |
+| 24–25 | 9. Licensing & billing | **M4: first revenue (~month 6)** |
+| 26–29 | 10. Consent recording | |
+| 30–31 | 11. Scheduling, waiting room, branding, screen sharing | |
+| 32–34 | 12. Android background calls | |
+| 35–36 | 13. Public launch | **M5: public launch (~month 9)** |
+| Months 9–12+ | E. Grow | iOS, teams, group calls, second group |
 
 ---
 
-## 6. Infrastructure & Cost Estimate
+## 7. Infrastructure & Cost Estimate
 
-Infrastructure is simpler and cheaper than an account-based design: no database, no backups of user data, no Redis.
+There is no user database to run or back up, so infrastructure is simple and cheap.
 
 | Stage | Setup | Approx. monthly cost |
 |---|---|---|
 | Development | Relay locally; one small VPS for coturn | $5–10 |
-| Beta | 1 small VPS for the relay, 1 VPS for coturn | $10–30 |
-| Production | 2+ relay instances, 2+ coturn nodes in different regions | $60+ (TURN bandwidth driven) |
+| Pilot | 1 small VPS (relay + guest page), 1 VPS (coturn) | $10–30 |
+| Launch | 2+ relay instances, 2+ coturn nodes in different regions, static guest page | $60–150 (TURN bandwidth driven) |
+| Business tools | Payment provider fees (~5% for merchant of record), website, newsletter tool, code-signing certificate | ~5% of revenue + $20–40 |
 
-**TURN bandwidth is the main cost.** About 15–20% of calls normally need relaying. Users who turn on "Hide my IP address" are always relayed. A relayed 720p call is roughly 1–2 GB per hour, so choose hosts with generous included traffic, such as Hetzner or OVH.
-
-Server location matters less here, because there is no stored data to hand over. Still choose a jurisdiction with strong privacy law, since live metadata could in principle be observed while it is in memory.
+**TURN bandwidth is the main variable cost.** About 15–20% of calls normally need relaying; guests on corporate or hotel networks may need it more often. A relayed 720p call uses roughly 1–2 GB per hour, so choose hosts with generous included traffic, such as Hetzner or OVH. Price the Pro plan so that a heavy user's TURN traffic stays well under their subscription.
 
 ---
 
-## 7. Testing Strategy
+## 8. Testing Strategy
 
-- **Crypto unit tests:** known-answer vectors, tampering, replay, wrong-key and truncated ciphertexts
-- **Relay tests:** routing, queue expiry, rate limits; an automated **"no persistence" test** that runs the relay on a read-only filesystem and checks no files are created
-- **State machine tests:** busy, timeout, cancel, glare (both sides calling at once), driven by fake envelopes
-- **Widget tests:** onboarding, contact exchange, call screens
+- **Crypto unit tests:** known-answer vectors, tampering, replay, wrong-key and truncated ciphertexts, on native **and web**
+- **Relay tests:** routing, queue expiry, rate limits, licence verification; an automated **"no persistence" test** on a read-only filesystem
+- **State machine tests:** busy, timeout, cancel, glare, guest knock/admit/decline
+- **Widget tests:** onboarding, guest join flow, waiting room, call screens
+- **Browser matrix for guests:** Chrome, Edge, Firefox (Windows/Mac/Android) and Safari (iPhone/iPad/Mac), in every release
 - **Manual device matrix:**
   - Android 9, 11, 13, 14, 15+ on Samsung, Xiaomi and Pixel
   - Windows 10/11; Ubuntu 22.04/24.04
-  - Networks: same LAN, Wi-Fi ↔ 4G, forced relay, TLS-only firewall
-  - Scenarios: app killed, screen locked, network switch mid-call, Bluetooth headset, backup/restore on a new phone, push token rotation
-- **Privacy test:** inspect relay traffic and memory dumps to confirm no names, SDP or plaintext appear
+  - Networks: same LAN, Wi-Fi ↔ 4G, forced relay, TLS-only firewall, corporate proxy, hotel Wi-Fi
+  - Scenarios: app killed, screen locked, network switch mid-call, Bluetooth headset, backup/restore on a new device, expired / revoked links
+- **Self-host test:** a fresh VPS install following only the docs, timed
+- **Privacy test:** inspect relay traffic and memory to confirm no names, SDP or plaintext appear; confirm the guest page sets no cookies and loads no third-party resources
 - **Soak test:** a 1-hour call for memory and stability
+- **Pilot feedback:** treated as a test input, reviewed weekly
 
 ---
 
-## 8. Risks & Mitigations
+## 9. Risks & Mitigations
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Users lose their phone and therefore their identity and contacts | High | Prominent backup reminders; encrypted backup file; linked devices (Phase 13) |
-| Incoming calls unreliable on Android (Doze, OEM battery killers) | High | High-priority FCM, UnifiedPush option, native call UI, foreground service; test Xiaomi and Samsung early |
-| A contact holds a stale push token, so wake-ups fail | Medium | Re-send tokens on change and periodically; caller sees "unreachable, try again" |
-| Mistakes in home-made crypto code | High | Use only libsodium high-level APIs; never invent primitives; test vectors; external audit before v1.0 |
-| Calls fail behind strict NAT/firewalls | High | coturn with TLS on 443; forced-relay testing |
-| Short-lived metadata (who calls whom, IPs) visible to the relay while in RAM | Medium | No logging; read-only servers; documented honestly in the threat model; "Hide my IP" option |
-| Spam or abuse without accounts | Medium | No directory, contacts-only calling, revocable invites, in-memory rate limits |
-| Harder to debug production issues without logs | Medium | Good local diagnostics and user-exported reports; aggregate server counters |
-| Recording without the other person's consent (legal exposure) | High | Always-visible indicator for both sides, consent prompt on by default, in-app notice |
+| Nobody in the chosen group will pay | High | Stage A validation before building; switch group early if sign-ups are weak |
+| Free alternatives (Jitsi, Meet) are "good enough" for many | High | Focus on the professional–client workflow (guest links, waiting room, consent recording, zero storage) and on groups with real confidentiality duties |
+| Guest experience fails in some browsers (especially Safari on iPhone) | High | Browser matrix in every release; device check page; clear help messages |
+| Compliance expectations (HIPAA, GDPR) for health or legal customers | High | Zero storage reduces exposure; get legal advice before marketing to regulated groups; don't claim certifications you don't have |
+| Professionals lose their device and their identity | High | Prominent backup reminders; encrypted backup file; linked devices later |
+| Mistakes in home-made crypto code | High | Only libsodium high-level APIs; test vectors; external security review before public launch |
+| Calls fail behind strict NAT/firewalls | High | coturn with TLS on 443; forced-relay testing; corporate proxy testing |
+| One developer can't keep up with support and features | Medium | Strict prioritisation from paying customers; good self-service docs; consider a co-founder after pilot success |
+| Licence sharing or abuse | Low | Concurrent-connection limits per licence ID in RAM; accept some leakage rather than tracking users |
+| Short-lived metadata (who connects to whom, IPs) visible to the relay in RAM | Medium | No logging; read-only servers; documented honestly; self-hosting option; "Hide my IP" |
+| Recording without consent (legal exposure) | High | Consent prompt on by default, indicator for both sides, in-app notice |
 | Desktop recording needs native code | Medium | Check `flutter_webrtc` support first; otherwise an FFmpeg-based plugin |
 | Play Store policy rejection (foreground service / full-screen intent) | Medium | Declare service types correctly; provide a demo video for the review |
 
 ---
 
-## 9. Definition of Done for v1.0
+## 10. Definition of Done for the Public Launch (M5)
 
-- 1:1 audio and video calls between Android, Windows and Linux in any combination
-- **No accounts and no personal identifiers**; identity is a key pair on the device
-- **The server stores nothing**: no database, no logs of users, verified by tests and a read-only deployment
-- Signaling end-to-end encrypted and authenticated; media protected against interception; safety-number verification
-- Contacts by QR code or invite link only; all user data encrypted on the device; encrypted backup and restore
-- Calls connect across the internet with a setup success rate above 95%
-- Incoming calls ring on Android when the app is killed and the phone is locked, without the server keeping push tokens
-- Desktop receives calls while minimised to the tray
-- Published relay source code, threat model and an honest privacy policy
+**Product**
+- A professional on Windows, Linux or Android sends a guest link; a client joins from any major browser with no install or account
+- Waiting room, scheduled and one-time links, revocation
+- End-to-end encrypted 1:1 audio and video, with safety-number verification between colleagues
+- Consent-based on-device recording (voice only or video + voice, both sides' voices)
+- Incoming calls and knocking guests ring an Android phone even when the app is closed
+- Call setup success above 95% across the network test matrix
+
+**Privacy**
+- No accounts and no personal identifiers; the server stores nothing (verified by tests and read-only deployment)
+- Guest page with no cookies and no third-party scripts
+- Published source code, threat model and an honest privacy policy
+- External security review completed and findings fixed
+
+**Business**
+- Hosted Pro plan and Business self-hosted licence on sale
+- One-command self-hosting with documentation
+- Paying customers from the pilot, with at least 2 published testimonials or case studies
