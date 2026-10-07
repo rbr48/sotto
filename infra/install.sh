@@ -23,6 +23,7 @@ set -euo pipefail
 INFRA_DIR="${SOTTO_INFRA_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 ENV_FILE="$INFRA_DIR/.env"
 MEMINFO="${SOTTO_MEMINFO:-/proc/meminfo}"
+SWAPFILE="${SOTTO_SWAPFILE:-/swapfile}"
 HEALTH_TIMEOUT="${SOTTO_HEALTH_TIMEOUT:-300}"
 CRON_MARK='# sotto: restart coturn weekly to load renewed certificates'
 
@@ -194,14 +195,20 @@ check_memory() {
     return
   fi
   warn "only $((mem_kb / 1024)) MB memory and $((swap_kb / 1024)) MB swap: building the web app needs about 2.5 GB"
-  if confirm 'Add a 2 GB swap file (/swapfile)?'; then
-    if [[ -e /swapfile ]]; then die '/swapfile exists already; enable it or remove it'; fi
-    run fallocate -l 2G /swapfile
-    run chmod 600 /swapfile
-    run mkswap /swapfile
-    run swapon /swapfile
-    if ! grep -q '^/swapfile ' /etc/fstab 2>/dev/null; then
-      run sh -c "echo '/swapfile none swap sw 0 0' >> /etc/fstab"
+  # An existing but inactive /swapfile isn't ours to change: use our own.
+  local swapfile=$SWAPFILE
+  if [[ -e $swapfile ]]; then swapfile="$SWAPFILE-sotto"; fi
+  if [[ -e $swapfile ]]; then
+    warn "$swapfile exists but no swap is active; run 'swapon $swapfile' if the build runs out of memory"
+    return
+  fi
+  if confirm "Add a 2 GB swap file ($swapfile)?"; then
+    run fallocate -l 2G "$swapfile"
+    run chmod 600 "$swapfile"
+    run mkswap "$swapfile"
+    run swapon "$swapfile"
+    if ! grep -q "^$swapfile " /etc/fstab 2>/dev/null; then
+      run sh -c "echo '$swapfile none swap sw 0 0' >> /etc/fstab"
     fi
   else
     warn 'continuing without swap; the build may run out of memory'
