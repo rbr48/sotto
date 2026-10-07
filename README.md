@@ -1,4 +1,9 @@
-# Sotto
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/sotto-logo-dark.png">
+    <img src="docs/brand/sotto-logo-light.png" alt="Sotto" height="72">
+  </picture>
+</h1>
 
 **Speak freely. Nothing is kept.**
 
@@ -25,6 +30,7 @@ The name comes from *sotto voce*: speaking quietly so that only the listener hea
 | `infra/` | Docker Compose + Caddy deployment for the test server |
 | `e2e/` | End-to-end tests: real calls between headless browsers through the real relay and TURN server |
 | `tools/crypto-vectors/` | Independent implementation of the protocol that generates crypto test vectors |
+| `tools/icons/`, `tools/sounds/` | Generators for the logo and every app icon, and for the bundled sounds |
 | `docs/` | Strategy, roadmap, features and deployment guides |
 
 ## Try it

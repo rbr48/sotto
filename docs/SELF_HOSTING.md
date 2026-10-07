@@ -41,7 +41,9 @@ Non-interactive: `sudo ./infra/install.sh install --domain calls.yourpractice.or
 
 ### Shared server (alongside Nginx, Apache, or existing sites)
 
-If your server already hosts other websites or uses ports 80/443 (e.g. managed by Nginx), run the installer with `--behind-proxy`:
+If your server already hosts other websites or uses ports 80/443 (e.g. managed by Nginx), run the installer with `--behind-proxy`. It needs Docker Compose 2.24 or newer (`docker compose version`).
+
+Get the certificate for the domain in your web server first (for example `sudo certbot --nginx -d calls.yourpractice.org`), then:
 
 ```bash
 sudo ./infra/install.sh install --domain calls.yourpractice.org --behind-proxy 8185 --yes
@@ -50,8 +52,11 @@ sudo ./infra/install.sh install --domain calls.yourpractice.org --behind-proxy 8
 In this mode, Sotto:
 - binds its web container to `127.0.0.1:8185` (or any local port you pass) instead of public ports 80 and 443;
 - leaves ports 80 and 443 alone in your firewall;
-- runs coturn on ports 3478, 5349, and 49152–65535 (TURN media requires direct UDP);
-- prints the Nginx configuration snippet ready to paste into your virtual host.
+- runs coturn on ports 3478 and 49152–65535 (TURN media requires direct UDP), and on 5349 for TURN over TLS when it can use your web server's certificate (see below);
+- trusts the address your web server forwards (`X-Forwarded-For`), so its per-address connection limit applies to each client rather than to the web server;
+- writes these settings to `infra/docker-compose.override.yml` (rewritten by each install) and prints the Nginx configuration snippet ready to paste into your virtual host.
+
+**TURN over TLS** (port 5349) lets calls connect from networks that only allow HTTPS-like traffic. Without its own HTTPS, Sotto uses your web server's certificate: Certbot's (`/etc/letsencrypt/live/<domain>/`) is found automatically; for other locations pass `--tls-cert /path/fullchain.pem --tls-key /path/privkey.pem`. Without a certificate, Sotto works but leaves TURN over TLS off; run the installer again once there is one. coturn is restarted weekly to load renewed certificates.
 
 In your Nginx site configuration (`/etc/nginx/sites-available/...`):
 
@@ -59,7 +64,8 @@ In your Nginx site configuration (`/etc/nginx/sites-available/...`):
 server {
     server_name calls.yourpractice.org;
     listen 443 ssl http2;
-    # (configure your ssl_certificate and ssl_certificate_key here)
+    ssl_certificate     /etc/letsencrypt/live/calls.yourpractice.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/calls.yourpractice.org/privkey.pem;
 
     location / {
         proxy_pass http://127.0.0.1:8185;
@@ -68,7 +74,8 @@ server {
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # Only the client's own address (Sotto limits connections per address).
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
@@ -145,4 +152,6 @@ While running, the relay knows which Sotto IDs (public keys) are online and who 
 | Calls stay on *Connecting…* between different networks | UDP 3478 and 49152–65535 must be open (server and provider firewall). Test with *Hide my IP address* on |
 | The app says "not a Sotto relay" | The domain serves something else on `/relay`; check that you entered the Sotto server's domain |
 | Ports 80 or 443 are already in use by Nginx/Apache | Run the installer with `--behind-proxy [PORT]` to bind locally and proxy from your existing server |
+| "--behind-proxy needs Docker Compose 2.24 or newer" | Update Docker from Docker's own repository (https://docs.docker.com/engine/install/); distribution packages are often older |
+| Behind a proxy: "TURN over TLS … is off" | Get a certificate for the domain in your web server (e.g. `certbot --nginx -d <domain>`), then run the installer again; or pass `--tls-cert` and `--tls-key` |
 | Need coturn's logs to debug | Temporarily remove `logging: driver: none` from the coturn service in `infra/docker-compose.yml`, run `docker compose up -d coturn`, then put it back: coturn logs IP addresses |

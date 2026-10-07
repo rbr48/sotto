@@ -6,14 +6,17 @@
 # - Relaying to private and special-purpose networks is refused, so the
 #   server can't be used to reach anything inside its own network.
 # - TURN over TLS (port 5349) is enabled automatically once Caddy has obtained
-#   the certificate for SOTTO_DOMAIN; install.sh restarts coturn after the
-#   first start and weekly (to load renewed certificates).
+#   the certificate for SOTTO_DOMAIN (or, behind another reverse proxy, with
+#   that proxy's certificate: SOTTO_TLS_CERT and SOTTO_TLS_KEY); install.sh
+#   restarts coturn after the first start and weekly (to load renewals).
 # - Logs go to stdout, which docker-compose discards (logging driver "none").
 set -eu
 
 : "${SOTTO_DOMAIN:?set SOTTO_DOMAIN}"
 : "${SOTTO_TURN_SECRET:?set SOTTO_TURN_SECRET}"
 CERT_DIR="${SOTTO_CERT_DIR:-/certs/caddy/certificates/acme-v02.api.letsencrypt.org-directory/$SOTTO_DOMAIN}"
+CERT="${SOTTO_TLS_CERT:-$CERT_DIR/$SOTTO_DOMAIN.crt}"
+KEY="${SOTTO_TLS_KEY:-$CERT_DIR/$SOTTO_DOMAIN.key}"
 
 set -- \
   -n \
@@ -54,16 +57,16 @@ if [ -n "${SOTTO_TURN_EXTERNAL_IP:-}" ]; then
   set -- "$@" --external-ip="$SOTTO_TURN_EXTERNAL_IP"
 fi
 
-if [ -r "$CERT_DIR/$SOTTO_DOMAIN.crt" ] && [ -r "$CERT_DIR/$SOTTO_DOMAIN.key" ]; then
+if [ -r "$CERT" ] && [ -r "$KEY" ]; then
   set -- "$@" \
     --tls-listening-port=5349 \
-    --cert="$CERT_DIR/$SOTTO_DOMAIN.crt" \
-    --pkey="$CERT_DIR/$SOTTO_DOMAIN.key" \
+    --cert="$CERT" \
+    --pkey="$KEY" \
     --no-dtls
   echo "sotto-coturn: TURN over TLS enabled on port 5349"
 else
   set -- "$@" --no-tls --no-dtls
-  echo "sotto-coturn: no certificate yet; TURN over TLS disabled (restart coturn once Caddy has a certificate)"
+  echo "sotto-coturn: no certificate yet ($CERT); TURN over TLS disabled (restart coturn once there is one)"
 fi
 
 exec turnserver "$@"

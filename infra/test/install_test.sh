@@ -19,7 +19,11 @@ setup() {
   printf 'MemTotal:       4000000 kB\nSwapTotal:      0 kB\n' >"$WORK/meminfo"
   RESOLVES_TO=203.0.113.10
   LOCAL_IP=203.0.113.10
-  stub docker 'echo "docker $*" >>"$WORK/log"; [[ "$*" == "--version" ]] && echo "Docker version 27"; exit 0'
+  COMPOSE_VERSION=2.29.1
+  stub docker 'echo "docker $*" >>"$WORK/log"
+[[ "$*" == "--version" ]] && echo "Docker version 27"
+[[ "$*" == "compose version --short" ]] && echo "${COMPOSE_VERSION:-2.29.1}"
+exit 0'
   stub getent '[[ -n "${RESOLVES_TO:-}" ]] && echo "$RESOLVES_TO STREAM $3"; exit 0'
   stub ip 'echo "2: eth0    inet ${LOCAL_IP}/24 brd x scope global eth0"'
   stub ufw 'echo "ufw $*" >>"$WORK/log"; [[ "$1" == status ]] && echo "Status: active"; exit 0'
@@ -36,8 +40,9 @@ stub() {
 
 installer() {
   env PATH="$WORK/bin:$PATH" WORK="$WORK" RESOLVES_TO="$RESOLVES_TO" LOCAL_IP="$LOCAL_IP" \
+    COMPOSE_VERSION="$COMPOSE_VERSION" \
     SOTTO_INFRA_DIR="$WORK/infra" SOTTO_MEMINFO="$WORK/meminfo" SOTTO_ALLOW_NONROOT=1 \
-    SOTTO_SWAPFILE="$WORK/swapfile" \
+    SOTTO_SWAPFILE="$WORK/swapfile" SOTTO_LETSENCRYPT_DIR="$WORK/letsencrypt" \
     SOTTO_HEALTH_TIMEOUT=5 bash "$INSTALL" "$@" </dev/null
 }
 
@@ -71,6 +76,8 @@ check 'restarts coturn after HTTPS works (TURN over TLS)' has "$WORK/log" 'resta
 check 'checks health over HTTPS' has "$WORK/log" 'https://calls.example.org/health'
 check 'opens TURN relay ports in ufw' has "$WORK/log" 'ufw allow 49152:65535/udp'
 check 'opens HTTPS in ufw' has "$WORK/log" 'ufw allow 443/tcp'
+check 'opens TURN over TLS in ufw' has "$WORK/log" 'ufw allow 5349/tcp'
+check 'no override file without --behind-proxy' test ! -e "$WORK/infra/docker-compose.override.yml"
 check 'adds the weekly coturn restart' has "$WORK/crontab" 'sotto: restart coturn weekly'
 check 'tells the user how to point the app at the server' grep -q 'Use another' <<<"$out"
 secret=$(grep SOTTO_TURN_SECRET "$env_file")
@@ -126,6 +133,7 @@ check 'an existing swap file is left alone; a separate one is used' grep -q "fal
 check 'dry run writes no .env' test ! -e "$WORK/infra/.env"
 check 'dry run starts nothing' bash -c "! grep -q 'up -d --build' '$WORK/log'"
 check 'dry run leaves cron alone' test ! -s "$WORK/crontab"
+check 'dry run mentions no proxy port without --behind-proxy' bash -c "! grep -q BEHIND_PROXY <<<\"\$1\"" _ "$out"
 rm -rf "$WORK"
 
 # 7. Update, status, uninstall.
@@ -157,6 +165,13 @@ check 'does not open port 443 in ufw' bash -c "! grep -q 'ufw allow 443/tcp' '$W
 check 'opens TURN ports in ufw' has "$WORK/log" 'ufw allow 3478/tcp'
 check 'checks health on local port' has "$WORK/log" 'http://127.0.0.1:8185/health'
 check 'prints proxy configuration advice' grep -q 'proxy_pass http://127.0.0.1:8185;' <<<"$out"
+override="$WORK/infra/docker-compose.override.yml"
+check 'Caddy trusts the proxy for client addresses' has "$override" 'SOTTO_TRUSTED_PROXIES: private_ranges'
+check 'the proxy passes only the client address' grep -qF 'X-Forwarded-For $remote_addr;' <<<"$out"
+check 'checks the Compose version (needs 2.24 for !override)' has "$WORK/log" 'compose version --short'
+check 'no certificate: TURN over TLS is not offered' has "$override" "SOTTO_TURN_URLS: 'turn:calls.example.org:3478?transport=udp,turn:calls.example.org:3478?transport=tcp'"
+check 'no certificate: port 5349 stays closed' bash -c "! grep -q 'ufw allow 5349/tcp' '$WORK/log'"
+check 'no certificate: says how to turn on TURN over TLS' grep -q 'TURN over TLS (port 5349) is off' <<<"$out"
 
 # Re-running install keeps behind-proxy settings from .env
 installer install --yes >/dev/null 2>&1
@@ -167,6 +182,53 @@ installer install --domain calls.example.org --yes --behind-proxy 9000 >/dev/nul
 check 'custom port used in override' has "$WORK/infra/docker-compose.override.yml" '127.0.0.1:9000:80'
 installer uninstall --purge >/dev/null 2>&1
 check 'uninstall --purge deletes override file' test ! -e "$WORK/infra/docker-compose.override.yml"
+rm -rf "$WORK"
+
+# 9. Behind a proxy with Certbot's certificate: coturn uses it for TURN over TLS.
+setup
+le="$WORK/letsencrypt"
+mkdir -p "$le/archive/calls.example.org" "$le/live/calls.example.org"
+: >"$le/archive/calls.example.org/fullchain1.pem"
+: >"$le/archive/calls.example.org/privkey1.pem"
+ln -s ../../archive/calls.example.org/fullchain1.pem "$le/live/calls.example.org/fullchain.pem"
+ln -s ../../archive/calls.example.org/privkey1.pem "$le/live/calls.example.org/privkey.pem"
+out=$(installer install --domain calls.example.org --yes --behind-proxy 2>&1) || true
+override="$WORK/infra/docker-compose.override.yml"
+check 'finds Certbot'"'"'s certificate' has "$override" "SOTTO_TLS_CERT: '$le/live/calls.example.org/fullchain.pem'"
+check '... and key' has "$override" "SOTTO_TLS_KEY: '$le/live/calls.example.org/privkey.pem'"
+check 'mounts the live directory for coturn' has "$override" "- '$le/live/calls.example.org:$le/live/calls.example.org:ro'"
+check 'mounts the archive directory the links point to' has "$override" "- '$le/archive/calls.example.org:$le/archive/calls.example.org:ro'"
+check 'keeps offering TURN over TLS' bash -c "! grep -q SOTTO_TURN_URLS '$override'"
+check 'opens port 5349' has "$WORK/log" 'ufw allow 5349/tcp'
+check 'saves the certificate path in .env' has "$WORK/infra/.env" "SOTTO_TLS_CERT=$le/live/calls.example.org/fullchain.pem"
+check 'nginx example uses the same certificate' grep -qF "ssl_certificate     $le/live/calls.example.org/fullchain.pem;" <<<"$out"
+rm -rf "$WORK"
+
+# 10. Behind a proxy: certificate options, and an old Docker Compose.
+setup
+mkdir -p "$WORK/tls"
+: >"$WORK/tls/cert.pem"
+: >"$WORK/tls/key.pem"
+installer install --domain calls.example.org --yes --behind-proxy \
+  --tls-cert "$WORK/tls/cert.pem" --tls-key "$WORK/tls/key.pem" >/dev/null 2>&1 || true
+check '--tls-cert/--tls-key are used' has "$WORK/infra/docker-compose.override.yml" "- '$WORK/tls:$WORK/tls:ro'"
+installer install --yes >/dev/null 2>&1 || true
+check 'reinstall keeps the given certificate' has "$WORK/infra/docker-compose.override.yml" "SOTTO_TLS_CERT: '$WORK/tls/cert.pem'"
+out=$(installer install --domain calls.example.org --yes --behind-proxy --tls-cert "$WORK/tls/cert.pem" 2>&1) && status=0 || status=$?
+check 'refuses --tls-cert without --tls-key' test "$status" != 0
+out=$(installer install --domain calls.example.org --yes --behind-proxy --tls-cert tls/cert.pem --tls-key tls/key.pem 2>&1) && status=0 || status=$?
+check 'refuses relative certificate paths' test "$status" != 0
+rm -rf "$WORK"
+setup
+out=$(installer install --domain calls.example.org --yes --tls-cert /a.pem --tls-key /b.pem 2>&1) && status=0 || status=$?
+check 'refuses --tls-cert without --behind-proxy' test "$status" != 0
+COMPOSE_VERSION=v2.20.2
+out=$(installer install --domain calls.example.org --yes --behind-proxy 2>&1) && status=0 || status=$?
+check 'refuses Docker Compose older than 2.24 behind a proxy' test "$status" != 0
+check '... and says why' grep -q 'Compose 2.24 or newer' <<<"$out"
+check '... before starting anything' bash -c "! grep -q 'up -d --build' '$WORK/log'"
+installer install --domain calls.example.org --yes >/dev/null 2>&1 && status=0 || status=$?
+check 'an old Compose is fine without --behind-proxy' test "$status" = 0
 rm -rf "$WORK"
 
 if [[ $FAILED == 1 ]]; then
