@@ -53,10 +53,10 @@ Also open ports **80** and **443** (TCP) and **443** (UDP) in your hosting provi
 
 ## 3. Get the code
 
-The repository is on GitHub (`rbr48/calling`). If it is private, authenticate first (for example `gh auth login`, or add a read-only deploy key).
+The repository is on GitHub (`rbr48/sotto`). If it is private, authenticate first (for example `gh auth login`, or add a read-only deploy key).
 
 ```bash
-git clone https://github.com/rbr48/calling.git sotto
+git clone https://github.com/rbr48/sotto.git
 cd sotto
 git checkout claude/blissful-wozniak-w64f4v   # until this work is merged into main
 ```
