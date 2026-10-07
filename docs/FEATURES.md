@@ -78,7 +78,21 @@ These run automatically; users never have to configure them.
 | Short-lived TURN passwords | No permanent password is stored in the app, so the relay server can't be freely abused | 3 |
 | Rate limiting | Protection against spam calls and password guessing | 9 |
 
-## 7. After v1.0 (later)
+## 7. Call recording (later — Phase 12)
+
+Recording happens **on the device**. Calls stay end-to-end encrypted and nothing is uploaded to the server.
+
+| Feature | Description |
+|---|---|
+| Record calls | Record both sides of a voice or video call into one file (voice → `.m4a`, video → `.mp4`) |
+| Recording indicator | A "● Recording" badge is shown to **both** people for as long as the recording runs |
+| Consent prompt | Optionally, the other person must accept before recording starts (on by default) |
+| Recordings library | List, play, share, rename and delete recordings in the app |
+| Private storage | Recordings are kept in the app's private storage, encrypted |
+| Storage management | Low-space warning, optional maximum length and auto-delete after N days |
+| Platforms | Android and Windows/Linux |
+
+## 8. After v1.0 (later)
 
 | Feature | Description |
 |---|---|
@@ -89,4 +103,4 @@ These run automatically; users never have to configure them.
 
 ## v1.0 scope
 
-v1.0 includes groups 1–6: reliable 1:1 voice and video calls between Android and PC, with contacts, history, incoming calls that work even when the app is closed, and calls that survive network problems. Group calls and chat come after v1.0.
+v1.0 includes groups 1–6: reliable 1:1 voice and video calls between Android and PC, with contacts, history, incoming calls that work even when the app is closed, and calls that survive network problems. Call recording, group calls and chat come after v1.0.

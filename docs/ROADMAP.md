@@ -4,7 +4,7 @@ A VoIP audio/video calling app built with **Flutter + `flutter_webrtc`**, using 
 
 - **Primary targets:** Android, Windows, Linux (macOS is cheap to add later)
 - **Initial scope:** 1:1 audio and video calls between registered users
-- **Later scope:** small group calls (mesh, up to ~4 people), screen sharing, chat over data channels
+- **Later scope:** on-device call recording, small group calls (mesh, up to ~4 people), chat over data channels
 
 ---
 
@@ -322,6 +322,36 @@ This is usually the **hardest part** of the project, so leave buffer time.
 
 **Milestone M4 — v1.0 public release (about 6 months).**
 
+### Phase 12 — On-Device Call Recording (Weeks 25–28, post v1.0)
+Recording happens **on the user's device**. Media stays peer-to-peer and end-to-end encrypted, and the server never sees or stores call content.
+
+**Shared (all platforms)**
+- [ ] Signaling messages `call.recording.started` / `call.recording.stopped`, relayed to the other participant
+- [ ] Visible **"● Recording"** indicator shown to **both** participants for the whole time recording is on
+- [ ] Optional consent prompt: the other participant must accept before recording starts (configurable; on by default)
+- [ ] Recording is stopped automatically on hang-up, call failure or the app being killed (finalise the file safely)
+- [ ] Recordings library screen: list, play, share, rename, delete
+- [ ] Recordings stored in app-private storage, encrypted at rest (AES-GCM, key in `flutter_secure_storage`)
+- [ ] Audio-only recordings for voice calls (`.m4a`/AAC); video recordings for video calls (`.mp4`, H.264 + AAC)
+- [ ] Storage checks: warn when free space is low; optional maximum length / auto-delete after N days
+
+**Android (about 1–1.5 weeks)**
+- [ ] Start with `flutter_webrtc`'s `MediaRecorder` to capture the video track to MP4
+- [ ] Native (Kotlin) audio mixer that combines the **local mic** and **remote audio** into a single track. Out of the box, the recorder captures only one side
+- [ ] Video layout: record the remote video, optionally with the local preview composited picture-in-picture
+- [ ] Keep recording alive in the background under the existing call foreground service
+
+**Windows / Linux (about 2 weeks)**
+- [ ] Check the current `flutter_webrtc` desktop `MediaRecorder` support first; use it if it is available
+- [ ] Otherwise, a native plugin (C++) that taps the decoded remote audio/video frames and the local capture, mixes the audio and encodes with **FFmpeg** (libavcodec)
+- [ ] Bundle FFmpeg libraries with the Windows installer and the Linux AppImage/`.deb` (check the licence: use an LGPL build)
+
+**Compliance**
+- [ ] Update the privacy policy and the Play Store data-safety form (audio/video recorded and stored on device)
+- [ ] In-app notice explaining that the user is responsible for consent under local recording laws
+
+**Exit criteria / Milestone M5:** both sides of a call are recorded into a single playable file on Android and desktop, and the other participant always sees the recording indicator.
+
 ### Summary timeline
 
 | Weeks | Phase | Milestone |
@@ -338,6 +368,7 @@ This is usually the **hardest part** of the project, so leave buffer time.
 | 18 | Security | **M3: closed beta** |
 | 19–21 | Group calls (optional) | |
 | 22–24 | Release | **M4: v1.0** |
+| 25–28 | On-device call recording | **M5: recording** |
 
 ---
 
@@ -378,6 +409,8 @@ This is usually the **hardest part** of the project, so leave buffer time.
 | Mesh group calls do not scale | Medium | Cap at 4; plan an SFU as a later project |
 | Echo or audio-routing issues on Android | Medium | Use WebRTC's built-in AEC; test speaker vs earpiece vs Bluetooth explicitly |
 | Play Store policy rejection (foreground service / full-screen intent) | Medium | Declare service types correctly; provide a demo video for the review |
+| Recording without the other person's consent (legal exposure) | High | Always-visible indicator for both sides, consent prompt on by default, in-app notice and privacy policy |
+| Desktop recording needs native code (no ready-made Flutter support) | Medium | Check `flutter_webrtc` support first; otherwise an FFmpeg-based native plugin, with time budgeted in Phase 12 |
 
 ---
 
