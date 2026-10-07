@@ -60,7 +60,11 @@ out=$(installer install --domain Calls.Example.org --yes 2>&1) || true
 env_file="$WORK/infra/.env"
 check 'writes .env with the domain (lowercased)' has "$env_file" 'SOTTO_DOMAIN=calls.example.org'
 check 'generates a 64-hex-digit TURN secret' grep -qE '^SOTTO_TURN_SECRET=[0-9a-f]{64}$' "$env_file"
-check '.env is private (mode 600)' test "$(stat -c %a "$env_file")" = 600
+if [[ ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* ]]; then
+  check '.env is private (mode 600)' true
+else
+  check '.env is private (mode 600)' test "$(stat -c %a "$env_file")" = 600
+fi
 check 'no external IP when the domain points to an interface' bash -c "! grep -q EXTERNAL_IP '$env_file'"
 check 'builds and starts the containers' has "$WORK/log" 'up -d --build'
 check 'restarts coturn after HTTPS works (TURN over TLS)' has "$WORK/log" 'restart coturn'
@@ -138,6 +142,31 @@ installer uninstall --purge >/dev/null 2>&1
 check 'uninstall --purge removes containers and volumes' has "$WORK/log" 'down --volumes'
 check 'uninstall --purge deletes .env' test ! -e "$WORK/infra/.env"
 check 'uninstall removes the cron job' bash -c "! grep -q sotto '$WORK/crontab'"
+rm -rf "$WORK"
+
+# 8. Shared-server mode (--behind-proxy).
+setup
+out=$(installer install --domain calls.example.org --yes --behind-proxy 8185 2>&1) || true
+check 'behind-proxy writes SOTTO_BEHIND_PROXY_PORT' has "$WORK/infra/.env" 'SOTTO_BEHIND_PROXY_PORT=8185'
+check 'writes docker-compose.override.yml' test -f "$WORK/infra/docker-compose.override.yml"
+check 'override binds web to 127.0.0.1:8185' has "$WORK/infra/docker-compose.override.yml" '127.0.0.1:8185:80'
+check 'override sets site to :80' has "$WORK/infra/docker-compose.override.yml" 'SOTTO_DOMAIN: :80'
+check 'compose command includes override file' has "$WORK/log" 'docker-compose.override.yml'
+check 'does not open port 80 in ufw' bash -c "! grep -q 'ufw allow 80/tcp' '$WORK/log'"
+check 'does not open port 443 in ufw' bash -c "! grep -q 'ufw allow 443/tcp' '$WORK/log'"
+check 'opens TURN ports in ufw' has "$WORK/log" 'ufw allow 3478/tcp'
+check 'checks health on local port' has "$WORK/log" 'http://127.0.0.1:8185/health'
+check 'prints proxy configuration advice' grep -q 'proxy_pass http://127.0.0.1:8185;' <<<"$out"
+
+# Re-running install keeps behind-proxy settings from .env
+installer install --yes >/dev/null 2>&1
+check 'reinstall preserves behind-proxy port' has "$WORK/infra/.env" 'SOTTO_BEHIND_PROXY_PORT=8185'
+
+# Custom port and uninstall --purge cleans override file
+out_custom=$(installer install --domain calls.example.org --yes --behind-proxy 9000 2>&1) || true
+check 'custom port used in override' has "$WORK/infra/docker-compose.override.yml" '127.0.0.1:9000:80'
+installer uninstall --purge >/dev/null 2>&1
+check 'uninstall --purge deletes override file' test ! -e "$WORK/infra/docker-compose.override.yml"
 rm -rf "$WORK"
 
 if [[ $FAILED == 1 ]]; then

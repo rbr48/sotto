@@ -39,12 +39,49 @@ The installer asks for the domain, then:
 
 Non-interactive: `sudo ./infra/install.sh install --domain calls.yourpractice.org --yes`. See `--help` for all options, and `--dry-run` to see what it would do.
 
-**Hosting provider firewall:** if your provider has a firewall in its control panel, open these ports there too:
+### Shared server (alongside Nginx, Apache, or existing sites)
+
+If your server already hosts other websites or uses ports 80/443 (e.g. managed by Nginx), run the installer with `--behind-proxy`:
+
+```bash
+sudo ./infra/install.sh install --domain calls.yourpractice.org --behind-proxy 8185 --yes
+```
+
+In this mode, Sotto:
+- binds its web container to `127.0.0.1:8185` (or any local port you pass) instead of public ports 80 and 443;
+- leaves ports 80 and 443 alone in your firewall;
+- runs coturn on ports 3478, 5349, and 49152–65535 (TURN media requires direct UDP);
+- prints the Nginx configuration snippet ready to paste into your virtual host.
+
+In your Nginx site configuration (`/etc/nginx/sites-available/...`):
+
+```nginx
+server {
+    server_name calls.yourpractice.org;
+    listen 443 ssl http2;
+    # (configure your ssl_certificate and ssl_certificate_key here)
+
+    location / {
+        proxy_pass http://127.0.0.1:8185;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}
+```
+
+**Hosting provider firewall:** if your provider has a firewall in its control panel, open these ports there too (in `--behind-proxy` mode, ports 80/443 are handled by your existing web server):
 
 | Port(s) | Protocol | Used by |
 |---|---|---|
-| 80, 443 | TCP | HTTPS and certificates |
-| 443 | UDP | HTTP/3 |
+| 80, 443 | TCP | HTTPS and certificates (handled by existing web server in `--behind-proxy` mode) |
+| 443 | UDP | HTTP/3 (standalone mode only) |
 | 3478 | UDP and TCP | STUN/TURN |
 | 5349 | TCP | TURN over TLS (for networks that only allow HTTPS-like traffic) |
 | 49152–65535 | UDP | Relayed call media |
@@ -107,4 +144,5 @@ While running, the relay knows which Sotto IDs (public keys) are online and who 
 | The build runs out of memory | Let the installer add swap, or use a server with more memory |
 | Calls stay on *Connecting…* between different networks | UDP 3478 and 49152–65535 must be open (server and provider firewall). Test with *Hide my IP address* on |
 | The app says "not a Sotto relay" | The domain serves something else on `/relay`; check that you entered the Sotto server's domain |
+| Ports 80 or 443 are already in use by Nginx/Apache | Run the installer with `--behind-proxy [PORT]` to bind locally and proxy from your existing server |
 | Need coturn's logs to debug | Temporarily remove `logging: driver: none` from the coturn service in `infra/docker-compose.yml`, run `docker compose up -d coturn`, then put it back: coturn logs IP addresses |

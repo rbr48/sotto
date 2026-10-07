@@ -3,18 +3,22 @@
 #
 #   sudo ./infra/install.sh                      # interactive install
 #   sudo ./infra/install.sh install --domain calls.example.org --yes
+#   sudo ./infra/install.sh install --domain calls.example.org --behind-proxy [PORT] --yes
 #   sudo ./infra/install.sh update               # pull the latest code and rebuild
 #   sudo ./infra/install.sh status               # containers and health
 #   sudo ./infra/install.sh uninstall [--purge]  # stop (and delete certificates)
 #
 # Options:
-#   --domain NAME      the server's domain (its DNS A record must point here)
-#   --external-ip IP   public IP if this server is behind NAT (detected otherwise)
-#   --yes              don't ask; accept the defaults (install Docker, add swap,
-#                      open firewall ports)
-#   --no-firewall      don't touch ufw/firewalld
-#   --skip-dns-check   install even if the domain doesn't point here yet
-#   --dry-run          print what would be done, change nothing
+#   --domain NAME          the server's domain (its DNS A record must point here)
+#   --external-ip IP       public IP if this server is behind NAT (detected otherwise)
+#   --behind-proxy [PORT]  run behind an existing reverse proxy (e.g. Nginx); binds
+#                          web to 127.0.0.1:PORT (default: 8185), leaves 80/443 alone,
+#                          and prints the proxy config
+#   --yes                  don't ask; accept the defaults (install Docker, add swap,
+#                          open firewall ports)
+#   --no-firewall          don't touch ufw/firewalld
+#   --skip-dns-check       install even if the domain doesn't point here yet
+#   --dry-run              print what would be done, change nothing
 #
 # Nothing here sends data anywhere except to Docker's servers (images) and
 # Let's Encrypt (certificate), and `update` fetches code with git.
@@ -30,6 +34,8 @@ CRON_MARK='# sotto: restart coturn weekly to load renewed certificates'
 COMMAND=install
 DOMAIN=''
 EXTERNAL_IP=''
+BEHIND_PROXY=0
+PROXY_PORT=8185
 ASSUME_YES=0
 FIREWALL=1
 DNS_CHECK=1
@@ -64,7 +70,7 @@ confirm() {
 }
 
 usage() {
-  sed -n '2,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,/^set -euo pipefail/ { /^set /d; p }' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 parse_args() {
@@ -76,6 +82,21 @@ parse_args() {
     case $1 in
       --domain) DOMAIN=${2:-}; shift 2 ;;
       --external-ip) EXTERNAL_IP=${2:-}; shift 2 ;;
+      --behind-proxy)
+        BEHIND_PROXY=1
+        if [[ $# -ge 2 && ${2:-} =~ ^[0-9]+$ ]]; then
+          PROXY_PORT=$2
+          shift 2
+        else
+          shift
+        fi
+        ;;
+      --behind-proxy=*)
+        BEHIND_PROXY=1
+        PROXY_PORT="${1#*=}"
+        [[ $PROXY_PORT =~ ^[0-9]+$ ]] || die "invalid port for --behind-proxy: $PROXY_PORT"
+        shift
+        ;;
       --yes | -y) ASSUME_YES=1; shift ;;
       --no-firewall) FIREWALL=0; shift ;;
       --skip-dns-check) DNS_CHECK=0; shift ;;
@@ -85,6 +106,9 @@ parse_args() {
       *) die "unknown option: $1 (see --help)" ;;
     esac
   done
+  if (( PROXY_PORT < 1 || PROXY_PORT > 65535 )); then
+    die "port must be between 1 and 65535: $PROXY_PORT"
+  fi
   case $COMMAND in
     install | update | status | uninstall) ;;
     *) die "unknown command: $COMMAND (install, update, status or uninstall)" ;;
@@ -92,7 +116,11 @@ parse_args() {
 }
 
 compose() {
-  run docker compose --project-directory "$INFRA_DIR" -f "$INFRA_DIR/docker-compose.yml" "$@"
+  local files=(-f "$INFRA_DIR/docker-compose.yml")
+  if [[ -f "$INFRA_DIR/docker-compose.override.yml" || ($BEHIND_PROXY == 1 && $DRY_RUN == 1) ]]; then
+    files+=(-f "$INFRA_DIR/docker-compose.override.yml")
+  fi
+  run docker compose --project-directory "$INFRA_DIR" "${files[@]}" "$@"
 }
 
 # --- checks -----------------------------------------------------------------
@@ -109,6 +137,14 @@ valid_domain() {
 ask_domain() {
   if [[ -z $DOMAIN && -f $ENV_FILE ]]; then
     DOMAIN=$(sed -n 's/^SOTTO_DOMAIN=//p' "$ENV_FILE" | tail -n 1)
+  fi
+  if [[ $BEHIND_PROXY == 0 && -f $ENV_FILE ]]; then
+    local saved_proxy
+    saved_proxy=$(sed -n 's/^SOTTO_BEHIND_PROXY_PORT=//p' "$ENV_FILE" | tail -n 1)
+    if [[ -n $saved_proxy ]]; then
+      BEHIND_PROXY=1
+      PROXY_PORT=$saved_proxy
+    fi
   fi
   if [[ -z $DOMAIN && -t 0 && $ASSUME_YES == 0 ]]; then
     read -r -p 'Domain for this Sotto server (e.g. calls.example.org): ' DOMAIN
@@ -218,7 +254,11 @@ check_memory() {
 open_firewall() {
   [[ $FIREWALL == 1 ]] || return 0
   step 'Opening firewall ports'
-  local tcp=(80 443 3478 5349) udp=(443 3478)
+  local tcp=(3478 5349) udp=(3478)
+  if [[ $BEHIND_PROXY == 0 ]]; then
+    tcp=(80 443 "${tcp[@]}")
+    udp=(443 "${udp[@]}")
+  fi
   if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q 'Status: active'; then
     local port
     for port in "${tcp[@]}"; do run ufw allow "$port/tcp"; done
@@ -261,8 +301,12 @@ SOTTO_TURN_SECRET=$secret"
     content+="
 SOTTO_TURN_EXTERNAL_IP=$EXTERNAL_IP"
   fi
+  if [[ $BEHIND_PROXY == 1 ]]; then
+    content+="
+SOTTO_BEHIND_PROXY_PORT=$PROXY_PORT"
+  fi
   if [[ $DRY_RUN == 1 ]]; then
-    say "[dry-run] would write $ENV_FILE (SOTTO_DOMAIN=$DOMAIN${EXTERNAL_IP:+, SOTTO_TURN_EXTERNAL_IP=$EXTERNAL_IP})"
+    say "[dry-run] would write $ENV_FILE (SOTTO_DOMAIN=$DOMAIN${EXTERNAL_IP:+, SOTTO_TURN_EXTERNAL_IP=$EXTERNAL_IP}${PROXY_PORT:+, SOTTO_BEHIND_PROXY_PORT=$PROXY_PORT})"
     return
   fi
   (
@@ -270,6 +314,26 @@ SOTTO_TURN_EXTERNAL_IP=$EXTERNAL_IP"
     printf '%s\n' "$content" >"$ENV_FILE"
   )
   say "OK (kept private: mode 600)"
+}
+
+write_override() {
+  local override_file="$INFRA_DIR/docker-compose.override.yml"
+  if [[ $BEHIND_PROXY == 1 ]]; then
+    step "Writing $override_file (binding web to 127.0.0.1:$PROXY_PORT)"
+    local content="# Generated by install.sh --behind-proxy.
+services:
+  web:
+    environment:
+      SOTTO_DOMAIN: :80
+    ports: !override
+      - '127.0.0.1:$PROXY_PORT:80'"
+    if [[ $DRY_RUN == 1 ]]; then
+      say "[dry-run] would write $override_file"
+      return
+    fi
+    printf '%s\n' "$content" >"$override_file"
+    say "OK"
+  fi
 }
 
 # coturn reads the TLS certificate only at start; restart it weekly so it
@@ -294,21 +358,27 @@ remove_cron() {
 }
 
 wait_for_health() {
-  step "Waiting for https://$DOMAIN/health (getting the certificate can take a minute)"
+  local url="https://$DOMAIN/health"
+  local label="HTTPS"
+  if [[ $BEHIND_PROXY == 1 ]]; then
+    url="http://127.0.0.1:$PROXY_PORT/health"
+    label="local proxy port (127.0.0.1:$PROXY_PORT)"
+  fi
+  step "Waiting for $url"
   if [[ $DRY_RUN == 1 ]]; then
     say '[dry-run] would wait for the health check'
     return 0
   fi
   local waited=0
-  until curl -fsS --max-time 5 "https://$DOMAIN/health" >/dev/null 2>&1; do
+  until curl -fsS --max-time 5 "$url" >/dev/null 2>&1; do
     if ((waited >= HEALTH_TIMEOUT)); then
-      warn "https://$DOMAIN/health did not answer within ${HEALTH_TIMEOUT}s. Check: docker compose -f $INFRA_DIR/docker-compose.yml logs web"
+      warn "$url did not answer within ${HEALTH_TIMEOUT}s. Check: docker compose -f $INFRA_DIR/docker-compose.yml logs web"
       return 1
     fi
     sleep 5
     waited=$((waited + 5))
   done
-  say 'OK: the server answers over HTTPS'
+  say "OK: the server answers over $label"
 }
 
 # --- commands ---------------------------------------------------------------
@@ -321,14 +391,49 @@ cmd_install() {
   check_memory
   open_firewall
   write_env
+  write_override
   step 'Building and starting (the first build takes 5-15 minutes)'
   compose up -d --build
   if wait_for_health; then
-    # Now that Caddy has the certificate, coturn can also offer TURN over TLS.
+    # coturn can also offer TURN over TLS (port 5349).
     compose restart coturn
   fi
   install_cron
-  cat <<EOF
+  if [[ $BEHIND_PROXY == 1 ]]; then
+    cat <<EOF
+
+Sotto is running locally on 127.0.0.1:$PROXY_PORT.
+
+To complete setup, configure your reverse proxy (e.g. Nginx):
+
+server {
+    server_name $DOMAIN;
+    listen 443 ssl http2;
+    # (configure your ssl_certificate and ssl_certificate_key here)
+
+    location / {
+        proxy_pass http://127.0.0.1:$PROXY_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}
+
+Once your proxy is reloaded:
+  - Professionals: in the Sotto app, open Settings -> Server -> "Use another
+    server" and enter: $DOMAIN
+  - Guests open the guest links the app creates; they point to this server.
+  - Update later with:  sudo $0 update
+  - The server keeps no user data; see docs/SELF_HOSTING.md.
+EOF
+  else
+    cat <<EOF
 
 Sotto is running at https://$DOMAIN/
 
@@ -338,12 +443,19 @@ Sotto is running at https://$DOMAIN/
   - Update later with:  sudo $0 update
   - The server keeps no user data; see docs/SELF_HOSTING.md.
 EOF
+  fi
 }
 
 cmd_update() {
   require_root
   [[ -f $ENV_FILE ]] || die "not installed yet (no $ENV_FILE); run: sudo $0 install"
   DOMAIN=$(sed -n 's/^SOTTO_DOMAIN=//p' "$ENV_FILE" | tail -n 1)
+  local saved_proxy
+  saved_proxy=$(sed -n 's/^SOTTO_BEHIND_PROXY_PORT=//p' "$ENV_FILE" | tail -n 1)
+  if [[ -n $saved_proxy ]]; then
+    BEHIND_PROXY=1
+    PROXY_PORT=$saved_proxy
+  fi
   step 'Fetching the latest version'
   if git -C "$INFRA_DIR/.." rev-parse --git-dir >/dev/null 2>&1; then
     run git -C "$INFRA_DIR/.." pull --ff-only
@@ -361,6 +473,15 @@ cmd_status() {
   compose ps
   if [[ -f $ENV_FILE ]]; then
     DOMAIN=$(sed -n 's/^SOTTO_DOMAIN=//p' "$ENV_FILE" | tail -n 1)
+    local saved_proxy
+    saved_proxy=$(sed -n 's/^SOTTO_BEHIND_PROXY_PORT=//p' "$ENV_FILE" | tail -n 1)
+    if [[ -n $saved_proxy ]]; then
+      if curl -fsS --max-time 5 "http://127.0.0.1:$saved_proxy/health" >/dev/null 2>&1; then
+        say "http://127.0.0.1:$saved_proxy/health: OK"
+      else
+        say "http://127.0.0.1:$saved_proxy/health: not answering"
+      fi
+    fi
     if curl -fsS --max-time 5 "https://$DOMAIN/health" >/dev/null 2>&1; then
       say "https://$DOMAIN/health: OK"
     else
@@ -373,7 +494,11 @@ cmd_uninstall() {
   require_root
   if [[ $PURGE == 1 ]]; then
     compose down --volumes
-    if [[ $DRY_RUN == 1 ]]; then say "[dry-run] would delete $ENV_FILE"; else rm -f "$ENV_FILE"; fi
+    if [[ $DRY_RUN == 1 ]]; then
+      say "[dry-run] would delete $ENV_FILE and docker-compose.override.yml"
+    else
+      rm -f "$ENV_FILE" "$INFRA_DIR/docker-compose.override.yml"
+    fi
   else
     compose down
   fi
