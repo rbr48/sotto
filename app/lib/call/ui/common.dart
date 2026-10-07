@@ -380,6 +380,22 @@ class HangUpButton extends StatelessWidget {
   }
 }
 
+/// Sotto's logo: a speech bubble with a quiet sound wave (drawn by
+/// tools/icons/generate.py). Decorative: screen readers skip it.
+class SottoLogo extends StatelessWidget {
+  const SottoLogo({super.key, this.size = 72});
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => Image.asset(
+    'assets/brand/logo.png',
+    width: size,
+    height: size,
+    excludeFromSemantics: true,
+    filterQuality: FilterQuality.medium,
+  );
+}
+
 class Centered extends StatelessWidget {
   const Centered({super.key, required this.child});
   final Widget child;

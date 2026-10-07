@@ -274,6 +274,8 @@ class _GuestPageState extends State<GuestPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const Center(child: SottoLogo(size: 56)),
+          const SizedBox(height: 16),
           Text(
             _hostName.isEmpty
                 ? 'Join the call'
