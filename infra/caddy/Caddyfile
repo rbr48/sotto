@@ -4,6 +4,14 @@
 	# Pinned so coturn finds the certificate at a predictable path
 	# (see coturn/start.sh).
 	acme_ca https://acme-v02.api.letsencrypt.org/directory
+	# Behind another reverse proxy (install.sh --behind-proxy), trust its
+	# X-Forwarded-For so the relay sees each client's own address for its
+	# per-address connection limit. Otherwise nothing is trusted (Caddy itself
+	# is the only thing at 127.0.0.1 in its container).
+	servers {
+		trusted_proxies static {$SOTTO_TRUSTED_PROXIES:127.0.0.1/32}
+		trusted_proxies_strict
+	}
 }
 
 {$SOTTO_DOMAIN} {
@@ -17,13 +25,19 @@
 		-Server
 	}
 
+	# The relay takes the last X-Forwarded-For entry: send only the client's
+	# address, not the chain of proxies.
 	handle /health {
-		reverse_proxy relay:8080
+		reverse_proxy relay:8080 {
+			header_up X-Forwarded-For {client_ip}
+		}
 	}
 
 	# Signaling relay (WebSocket). Sees only encrypted envelopes.
 	handle /relay {
-		reverse_proxy relay:8080
+		reverse_proxy relay:8080 {
+			header_up X-Forwarded-For {client_ip}
+		}
 	}
 
 	handle {

@@ -13,7 +13,10 @@
 #   --external-ip IP       public IP if this server is behind NAT (detected otherwise)
 #   --behind-proxy [PORT]  run behind an existing reverse proxy (e.g. Nginx); binds
 #                          web to 127.0.0.1:PORT (default: 8185), leaves 80/443 alone,
-#                          and prints the proxy config
+#                          and prints the proxy config. Needs Docker Compose 2.24+
+#   --tls-cert FILE        with --behind-proxy: the domain's certificate (full chain)
+#   --tls-key FILE         and key, for TURN over TLS (port 5349). Found automatically
+#                          when Certbot made them (/etc/letsencrypt/live/DOMAIN/)
 #   --yes                  don't ask; accept the defaults (install Docker, add swap,
 #                          open firewall ports)
 #   --no-firewall          don't touch ufw/firewalld
@@ -29,6 +32,7 @@ ENV_FILE="$INFRA_DIR/.env"
 MEMINFO="${SOTTO_MEMINFO:-/proc/meminfo}"
 SWAPFILE="${SOTTO_SWAPFILE:-/swapfile}"
 HEALTH_TIMEOUT="${SOTTO_HEALTH_TIMEOUT:-300}"
+LETSENCRYPT_DIR="${SOTTO_LETSENCRYPT_DIR:-/etc/letsencrypt}"
 CRON_MARK='# sotto: restart coturn weekly to load renewed certificates'
 
 COMMAND=install
@@ -36,6 +40,8 @@ DOMAIN=''
 EXTERNAL_IP=''
 BEHIND_PROXY=0
 PROXY_PORT=8185
+TLS_CERT=''
+TLS_KEY=''
 ASSUME_YES=0
 FIREWALL=1
 DNS_CHECK=1
@@ -97,6 +103,8 @@ parse_args() {
         [[ $PROXY_PORT =~ ^[0-9]+$ ]] || die "invalid port for --behind-proxy: $PROXY_PORT"
         shift
         ;;
+      --tls-cert) TLS_CERT=${2:-}; shift 2 ;;
+      --tls-key) TLS_KEY=${2:-}; shift 2 ;;
       --yes | -y) ASSUME_YES=1; shift ;;
       --no-firewall) FIREWALL=0; shift ;;
       --skip-dns-check) DNS_CHECK=0; shift ;;
@@ -108,6 +116,9 @@ parse_args() {
   done
   if (( PROXY_PORT < 1 || PROXY_PORT > 65535 )); then
     die "port must be between 1 and 65535: $PROXY_PORT"
+  fi
+  if [[ ($TLS_CERT || $TLS_KEY) && $BEHIND_PROXY == 0 ]]; then
+    die '--tls-cert and --tls-key go with --behind-proxy (otherwise Caddy gets the certificate)'
   fi
   case $COMMAND in
     install | update | status | uninstall) ;;
@@ -140,10 +151,18 @@ ask_domain() {
   fi
   if [[ $BEHIND_PROXY == 0 && -f $ENV_FILE ]]; then
     local saved_proxy
-    saved_proxy=$(sed -n 's/^SOTTO_BEHIND_PROXY_PORT=//p' "$ENV_FILE" | tail -n 1)
+    saved_proxy=$(saved SOTTO_BEHIND_PROXY_PORT)
     if [[ -n $saved_proxy ]]; then
       BEHIND_PROXY=1
       PROXY_PORT=$saved_proxy
+    fi
+  fi
+  if [[ $BEHIND_PROXY == 1 && -z $TLS_CERT && -z $TLS_KEY && -f $ENV_FILE ]]; then
+    TLS_CERT=$(saved SOTTO_TLS_CERT)
+    TLS_KEY=$(saved SOTTO_TLS_KEY)
+    if [[ -n $TLS_CERT && ! -r $TLS_CERT ]] || [[ -n $TLS_KEY && ! -r $TLS_KEY ]]; then
+      warn "the TLS certificate saved in .env ($TLS_CERT) is gone; looking for another one"
+      TLS_CERT='' TLS_KEY=''
     fi
   fi
   if [[ -z $DOMAIN && -t 0 && $ASSUME_YES == 0 ]]; then
@@ -152,6 +171,53 @@ ask_domain() {
   [[ -n $DOMAIN ]] || die 'no domain given (use --domain)'
   DOMAIN=${DOMAIN,,}
   valid_domain "$DOMAIN" || die "not a valid domain name: $DOMAIN"
+}
+
+# A value saved in .env.
+saved() {
+  sed -n "s/^$1=//p" "$ENV_FILE" | tail -n 1
+}
+
+# Behind a proxy, Caddy has no certificate for coturn's TURN over TLS: use the
+# proxy's (Certbot's, if not given).
+find_tls_cert() {
+  [[ $BEHIND_PROXY == 1 ]] || return 0
+  step 'Looking for the TLS certificate for TURN over TLS'
+  if [[ -z $TLS_CERT && -z $TLS_KEY ]]; then
+    local live="$LETSENCRYPT_DIR/live/$DOMAIN"
+    if [[ -r $live/fullchain.pem && -r $live/privkey.pem ]]; then
+      TLS_CERT=$live/fullchain.pem
+      TLS_KEY=$live/privkey.pem
+    fi
+  fi
+  if [[ -z $TLS_CERT && -z $TLS_KEY ]]; then
+    warn "no certificate for $DOMAIN found (looked in $LETSENCRYPT_DIR/live/$DOMAIN/): TURN over TLS (port 5349) stays off. Calls still work; networks that only allow HTTPS can't connect. Once your proxy has a certificate, run this again (or pass --tls-cert and --tls-key)."
+    return 0
+  fi
+  [[ -n $TLS_CERT && -n $TLS_KEY ]] || die 'give both --tls-cert and --tls-key'
+  local file
+  for file in "$TLS_CERT" "$TLS_KEY"; do
+    [[ $file == /* ]] || die "use an absolute path: $file"
+    # Paths go into docker-compose.override.yml as volumes.
+    [[ $file != *[\'\":$'\n']* ]] || die "unsupported characters in path: $file"
+    [[ -r $file ]] || die "can't read $file"
+  done
+  say "OK: $TLS_CERT"
+}
+
+# Directories coturn needs to read the certificate and key, including where
+# symbolic links point (Certbot's live/ links into archive/).
+tls_dirs() {
+  local file
+  for file in "$TLS_CERT" "$TLS_KEY"; do
+    dirname -- "$file"
+    dirname -- "$(readlink -f -- "$file")"
+  done | sort -u
+}
+
+# Whether coturn can offer TURN over TLS: Caddy's certificate, or the proxy's.
+turn_tls() {
+  [[ $BEHIND_PROXY == 0 || -n $TLS_CERT ]]
 }
 
 # IPv4 addresses the domain resolves to.
@@ -213,11 +279,29 @@ check_docker() {
   step 'Checking Docker'
   if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
     say "OK: $(docker --version)"
+    if [[ $BEHIND_PROXY == 1 ]]; then check_compose_version; fi
     return
   fi
   confirm 'Docker (with the Compose plugin) is not installed. Install it now from get.docker.com?' ||
     die 'install Docker first: https://docs.docker.com/engine/install/'
   run sh -c 'curl -fsSL https://get.docker.com | sh'
+}
+
+# The override written for --behind-proxy replaces the web ports with
+# `!override`, which Docker Compose understands from version 2.24.0.
+check_compose_version() {
+  local version major minor
+  version=$(docker compose version --short 2>/dev/null || true)
+  version=${version#v}
+  if [[ ! $version =~ ^([0-9]+)\.([0-9]+) ]]; then
+    warn "couldn't tell the Docker Compose version (${version:-none}); --behind-proxy needs 2.24 or newer"
+    return
+  fi
+  major=${BASH_REMATCH[1]}
+  minor=${BASH_REMATCH[2]}
+  if ((major < 2 || (major == 2 && minor < 24))); then
+    die "--behind-proxy needs Docker Compose 2.24 or newer; this server has $version. Update Docker (https://docs.docker.com/engine/install/), then run this again."
+  fi
 }
 
 # The web app is compiled on the server; Flutter needs about 2.5 GB of memory.
@@ -254,7 +338,8 @@ check_memory() {
 open_firewall() {
   [[ $FIREWALL == 1 ]] || return 0
   step 'Opening firewall ports'
-  local tcp=(3478 5349) udp=(3478)
+  local tcp=(3478) udp=(3478)
+  if turn_tls; then tcp+=(5349); fi
   if [[ $BEHIND_PROXY == 0 ]]; then
     tcp=(80 443 "${tcp[@]}")
     udp=(443 "${udp[@]}")
@@ -301,12 +386,19 @@ SOTTO_TURN_SECRET=$secret"
     content+="
 SOTTO_TURN_EXTERNAL_IP=$EXTERNAL_IP"
   fi
+  local proxy=''
   if [[ $BEHIND_PROXY == 1 ]]; then
+    proxy="SOTTO_BEHIND_PROXY_PORT=$PROXY_PORT"
     content+="
-SOTTO_BEHIND_PROXY_PORT=$PROXY_PORT"
+$proxy"
+    if [[ -n $TLS_CERT ]]; then
+      content+="
+SOTTO_TLS_CERT=$TLS_CERT
+SOTTO_TLS_KEY=$TLS_KEY"
+    fi
   fi
   if [[ $DRY_RUN == 1 ]]; then
-    say "[dry-run] would write $ENV_FILE (SOTTO_DOMAIN=$DOMAIN${EXTERNAL_IP:+, SOTTO_TURN_EXTERNAL_IP=$EXTERNAL_IP}${PROXY_PORT:+, SOTTO_BEHIND_PROXY_PORT=$PROXY_PORT})"
+    say "[dry-run] would write $ENV_FILE (SOTTO_DOMAIN=$DOMAIN${EXTERNAL_IP:+, SOTTO_TURN_EXTERNAL_IP=$EXTERNAL_IP}${proxy:+, $proxy})"
     return
   fi
   (
@@ -320,13 +412,36 @@ write_override() {
   local override_file="$INFRA_DIR/docker-compose.override.yml"
   if [[ $BEHIND_PROXY == 1 ]]; then
     step "Writing $override_file (binding web to 127.0.0.1:$PROXY_PORT)"
-    local content="# Generated by install.sh --behind-proxy.
+    local content="# Generated by install.sh --behind-proxy; rewritten by each install.
 services:
   web:
     environment:
       SOTTO_DOMAIN: :80
+      # The proxy reaches Caddy from Docker's network: trust its
+      # X-Forwarded-For, so the relay sees each client's address.
+      SOTTO_TRUSTED_PROXIES: private_ranges
     ports: !override
       - '127.0.0.1:$PROXY_PORT:80'"
+    if [[ -n $TLS_CERT ]]; then
+      content+="
+  coturn:
+    environment:
+      # The proxy's certificate, for TURN over TLS (port 5349).
+      SOTTO_TLS_CERT: '$TLS_CERT'
+      SOTTO_TLS_KEY: '$TLS_KEY'
+    volumes:"
+      local dir
+      while IFS= read -r dir; do
+        content+="
+      - '$dir:$dir:ro'"
+      done < <(tls_dirs)
+    else
+      content+="
+  relay:
+    environment:
+      # No certificate for coturn, so no TURN over TLS (turns:, port 5349).
+      SOTTO_TURN_URLS: 'turn:$DOMAIN:3478?transport=udp,turn:$DOMAIN:3478?transport=tcp'"
+    fi
     if [[ $DRY_RUN == 1 ]]; then
       say "[dry-run] would write $override_file"
       return
@@ -386,6 +501,7 @@ wait_for_health() {
 cmd_install() {
   require_root
   ask_domain
+  find_tls_cert
   check_dns
   check_docker
   check_memory
@@ -400,6 +516,12 @@ cmd_install() {
   fi
   install_cron
   if [[ $BEHIND_PROXY == 1 ]]; then
+    local tls_note=''
+    if ! turn_tls; then
+      tls_note="  - TURN over TLS (port 5349) is off until this server has a certificate
+    for $DOMAIN: get one for the proxy, then run this installer again.
+"
+    fi
     cat <<EOF
 
 Sotto is running locally on 127.0.0.1:$PROXY_PORT.
@@ -409,7 +531,9 @@ To complete setup, configure your reverse proxy (e.g. Nginx):
 server {
     server_name $DOMAIN;
     listen 443 ssl http2;
-    # (configure your ssl_certificate and ssl_certificate_key here)
+    # Your certificate, for example from: certbot --nginx -d $DOMAIN
+    ssl_certificate     ${TLS_CERT:-/etc/letsencrypt/live/$DOMAIN/fullchain.pem};
+    ssl_certificate_key ${TLS_KEY:-/etc/letsencrypt/live/$DOMAIN/privkey.pem};
 
     location / {
         proxy_pass http://127.0.0.1:$PROXY_PORT;
@@ -418,7 +542,8 @@ server {
         proxy_set_header Connection "upgrade";
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        # Only the client's own address (Sotto limits connections per address).
+        proxy_set_header X-Forwarded-For \$remote_addr;
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
@@ -426,7 +551,7 @@ server {
 }
 
 Once your proxy is reloaded:
-  - Professionals: in the Sotto app, open Settings -> Server -> "Use another
+${tls_note}  - Professionals: in the Sotto app, open Settings -> Server -> "Use another
     server" and enter: $DOMAIN
   - Guests open the guest links the app creates; they point to this server.
   - Update later with:  sudo $0 update
@@ -451,7 +576,7 @@ cmd_update() {
   [[ -f $ENV_FILE ]] || die "not installed yet (no $ENV_FILE); run: sudo $0 install"
   DOMAIN=$(sed -n 's/^SOTTO_DOMAIN=//p' "$ENV_FILE" | tail -n 1)
   local saved_proxy
-  saved_proxy=$(sed -n 's/^SOTTO_BEHIND_PROXY_PORT=//p' "$ENV_FILE" | tail -n 1)
+  saved_proxy=$(saved SOTTO_BEHIND_PROXY_PORT)
   if [[ -n $saved_proxy ]]; then
     BEHIND_PROXY=1
     PROXY_PORT=$saved_proxy
@@ -474,7 +599,7 @@ cmd_status() {
   if [[ -f $ENV_FILE ]]; then
     DOMAIN=$(sed -n 's/^SOTTO_DOMAIN=//p' "$ENV_FILE" | tail -n 1)
     local saved_proxy
-    saved_proxy=$(sed -n 's/^SOTTO_BEHIND_PROXY_PORT=//p' "$ENV_FILE" | tail -n 1)
+    saved_proxy=$(saved SOTTO_BEHIND_PROXY_PORT)
     if [[ -n $saved_proxy ]]; then
       if curl -fsS --max-time 5 "http://127.0.0.1:$saved_proxy/health" >/dev/null 2>&1; then
         say "http://127.0.0.1:$saved_proxy/health: OK"
