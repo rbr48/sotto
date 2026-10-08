@@ -45,7 +45,7 @@ jobs:
         working-directory: server
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 26
           cache: npm
@@ -110,7 +110,7 @@ jobs:
       - name: Build web (pointed at the local relay)
         working-directory: app
         run: flutter build web --no-web-resources-cdn --dart-define=SOTTO_RELAY_URL=ws://localhost:8080/relay --dart-define=SOTTO_TEST_HOOKS=true
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 26
       - name: Start TURN, relay and web server
