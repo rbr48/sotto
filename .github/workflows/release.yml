@@ -92,7 +92,12 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: flutter build apk --release
+        run: |
+          flutter build apk --release
+          # For Google Play: an app bundle, without Sotto's own update notice
+          # (Play delivers the updates, and its rules forbid other update
+          # paths). Signed with the same key, as the Play upload key.
+          flutter build appbundle --release --dart-define=SOTTO_UPDATE_URL=
       - name: Check the signature
         # Prints the signing certificate's SHA-256 fingerprint (published in
         # the release notes); if the ANDROID_CERT_SHA256 variable is set, the
@@ -118,13 +123,23 @@ jobs:
           fi
           mkdir -p dist
           echo "$ACTUAL" > dist/android-cert-sha256.txt
-      - name: Package APK
-        run: cp app/build/app/outputs/flutter-apk/app-release.apk dist/sotto-android.apk
+      - name: Package APK and app bundle
+        run: |
+          cp app/build/app/outputs/flutter-apk/app-release.apk dist/sotto-android.apk
+          cp app/build/app/outputs/bundle/release/app-release.aab dist/sotto-android-play.aab
+          # The bundle must carry the same certificate as the APK.
+          keytool -printcert -jarfile dist/sotto-android-play.aab | tee bundle-cert.txt
+          BUNDLE=$(grep -E "SHA256:" bundle-cert.txt | head -n 1 | sed -E 's/.*SHA256:[[:space:]]*//' | tr -d ': ' | tr 'a-f' 'A-F')
+          if [ "$BUNDLE" != "$(cat dist/android-cert-sha256.txt)" ]; then
+            echo "::error::The app bundle's certificate ($BUNDLE) is not the APK's"
+            exit 1
+          fi
       - uses: actions/upload-artifact@v6
         with:
           name: release-android
           path: |
             dist/sotto-android.apk
+            dist/sotto-android-play.aab
             dist/android-cert-sha256.txt
 
   build-linux:
@@ -215,7 +230,7 @@ jobs:
       - name: Compute SHA-256 checksums
         working-directory: dist
         run: |
-          sha256sum sotto-android.apk sotto-windows-x64-setup.exe sotto-windows-x64.zip \
+          sha256sum sotto-android.apk sotto-android-play.aab sotto-windows-x64-setup.exe sotto-windows-x64.zip \
             sotto-linux-x86_64.AppImage sotto-linux-amd64.deb sotto-linux-x64.tar.gz > SHA256SUMS.txt
           cat SHA256SUMS.txt
       - name: Release notes header
@@ -239,6 +254,7 @@ jobs:
           generate_release_notes: true
           files: |
             dist/sotto-android.apk
+            dist/sotto-android-play.aab
             dist/sotto-windows-x64-setup.exe
             dist/sotto-windows-x64.zip
             dist/sotto-linux-x86_64.AppImage

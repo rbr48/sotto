@@ -1,0 +1,20 @@
+Sotto is a private calling app for professionals who talk to clients and colleagues: therapists, doctors, lawyers, consultants. Voice and video calls are end-to-end encrypted, and nothing about them is stored on a server.
+
+<b>Built to know as little as possible</b>
+<ul>
+<li><b>End-to-end encrypted.</b> Audio and video go straight between the two devices, encrypted. A safety number lets you check that nobody is in between.</li>
+<li><b>No account, no phone number.</b> Your Sotto ID is a key made on your device. Enter a name and start.</li>
+<li><b>Clients join with a link.</b> Send a guest link; your client opens it in any browser, checks camera and microphone, and waits until you let them in. They need no app and no account.</li>
+<li><b>Nothing stored on servers.</b> No database. The server only connects calls, in memory. Contacts, call history and private notes stay on your phone, encrypted, behind an optional PIN.</li>
+<li><b>Hide your IP address.</b> Turn it on and calls go through the relay, so the other person never sees where you are connecting from.</li>
+<li><b>Holds on weak networks.</b> Calls reconnect when the network changes, lower the video on a slow connection, and drop to voice rather than freeze.</li>
+<li><b>Your own server, if you like.</b> Organisations can run Sotto on their own server and point the app at it.</li>
+</ul>
+
+<b>Good to know</b>
+<ul>
+<li>No ads, no trackers, no analytics.</li>
+<li>Open source (AGPL-3.0): https://github.com/rbr48/sotto</li>
+<li>Sotto keeps a small notification while it waits for calls, so it can ring without Google's push service.</li>
+<li>Sotto cannot call emergency services.</li>
+</ul>

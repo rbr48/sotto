@@ -5,6 +5,7 @@ The `Release` workflow (`.github/workflows/release.yml`) builds Sotto for **Andr
 | Platform | File | What it is |
 |---|---|---|
 | Android | `sotto-android.apk` | Release APK, signed with the project's release key |
+| Android (Google Play) | `sotto-android-play.aab` | App bundle for the Play Console, same key, without Sotto's own update notice (see [APP_STORES.md](APP_STORES.md)) |
 | Windows | `sotto-windows-x64-setup.exe` | Installer (Inno Setup, `packaging/windows/sotto.iss`): per user, no administrator rights, into `%LOCALAPPDATA%\Programs\Sotto`, with a Start menu entry and an uninstaller. Installing a newer one over it updates Sotto and keeps contacts and history |
 | Windows | `sotto-windows-x64.zip` | Portable bundle (`sotto.exe` and its files) |
 | Linux | `sotto-linux-x86_64.AppImage` | One file that runs on most distributions (`chmod +x`, then run it) |
