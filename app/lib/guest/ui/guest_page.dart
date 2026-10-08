@@ -7,6 +7,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../../call/call_controller.dart';
 import '../../call/call_manager.dart';
 import '../../call/ui/common.dart';
+import '../../call/ui/visitor_app_bar.dart';
 import '../../relay/relay_client.dart';
 import '../guest_link.dart';
 import '../guest_visit.dart';
@@ -115,10 +116,13 @@ class _GuestPageState extends State<GuestPage> {
           title: 'Sotto · $title',
           color: Theme.of(context).colorScheme.primary,
           child: Scaffold(
-            appBar: AppBar(
-              title: Text(_hostName.isEmpty ? 'Sotto' : 'Call with $_hostName'),
-              actions: [RelayStatusChip(status: _controller.relayStatus)],
-            ),
+            // No header during the call: its logo would leave the page.
+            appBar: _inCall
+                ? null
+                : VisitorAppBar(
+                    status: _controller.relayStatus,
+                    title: _hostName.isEmpty ? null : 'Call with $_hostName',
+                  ),
             body: SafeArea(
               child: Column(
                 children: [
@@ -134,6 +138,10 @@ class _GuestPageState extends State<GuestPage> {
   }
 
   String get _hostName => _controller.guestVisit?.link.hostName ?? '';
+
+  bool get _inCall =>
+      _controller.call.phase == CallPhase.connecting ||
+      _controller.call.phase == CallPhase.connected;
 
   (String, Widget) _content(BuildContext context) {
     final theme = Theme.of(context);
@@ -275,8 +283,6 @@ class _GuestPageState extends State<GuestPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Center(child: SottoLogo(size: 56)),
-          const SizedBox(height: 16),
           Text(
             _hostName.isEmpty
                 ? 'Join the call'

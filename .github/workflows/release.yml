@@ -128,14 +128,19 @@ jobs:
             dist/android-cert-sha256.txt
 
   build-linux:
-    name: Linux Release (tar.gz)
+    name: Linux Release (AppImage, .deb, tar.gz)
     needs: version
-    runs-on: ubuntu-latest
+    # The oldest supported Ubuntu: the app then runs on Ubuntu 22.04+ and
+    # Debian 12+ (a build on 24.04 needs glibc 2.38).
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
+          # The 22.04 image ships libunwind-14-dev, which conflicts with the
+          # libunwind-dev that libgstreamer1.0-dev needs.
+          sudo apt-get remove -y libunwind-14-dev || true
           sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libpulse-dev libsecret-1-dev \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libayatana-appindicator3-dev libnotify-dev
       - uses: subosito/flutter-action@v2
@@ -150,13 +155,24 @@ jobs:
         run: |
           mkdir -p dist
           tar -czf dist/sotto-linux-x64.tar.gz -C app/build/linux/x64/release/bundle .
+      - name: Package .deb and AppImage
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          packaging/linux/fetch-appimage-tools.sh "$RUNNER_TEMP/appimage"
+          packaging/linux/build-deb.sh "${TAG#v}" app/build/linux/x64/release/bundle dist
+          packaging/linux/build-appimage.sh app/build/linux/x64/release/bundle dist \
+            "$RUNNER_TEMP/appimage/appimagetool" "$RUNNER_TEMP/appimage/runtime-x86_64"
       - uses: actions/upload-artifact@v6
         with:
           name: release-linux
-          path: dist/sotto-linux-x64.tar.gz
+          path: |
+            dist/sotto-linux-x64.tar.gz
+            dist/sotto-linux-amd64.deb
+            dist/sotto-linux-x86_64.AppImage
 
   build-windows:
-    name: Windows Release (ZIP)
+    name: Windows Release (installer, ZIP)
     needs: version
     runs-on: windows-latest
     steps:
@@ -174,10 +190,17 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist
           Compress-Archive -Path app/build/windows/x64/runner/Release/* -DestinationPath dist/sotto-windows-x64.zip
+      - name: Installer (Inno Setup)
+        shell: pwsh
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+        run: ./packaging/windows/build-installer.ps1 -Version $env:TAG.TrimStart('v')
       - uses: actions/upload-artifact@v6
         with:
           name: release-windows
-          path: dist/sotto-windows-x64.zip
+          path: |
+            dist/sotto-windows-x64.zip
+            dist/sotto-windows-x64-setup.exe
 
   publish:
     name: Publish GitHub Release
@@ -192,7 +215,8 @@ jobs:
       - name: Compute SHA-256 checksums
         working-directory: dist
         run: |
-          sha256sum sotto-android.apk sotto-linux-x64.tar.gz sotto-windows-x64.zip > SHA256SUMS.txt
+          sha256sum sotto-android.apk sotto-windows-x64-setup.exe sotto-windows-x64.zip \
+            sotto-linux-x86_64.AppImage sotto-linux-amd64.deb sotto-linux-x64.tar.gz > SHA256SUMS.txt
           cat SHA256SUMS.txt
       - name: Release notes header
         run: |
@@ -215,6 +239,9 @@ jobs:
           generate_release_notes: true
           files: |
             dist/sotto-android.apk
-            dist/sotto-linux-x64.tar.gz
+            dist/sotto-windows-x64-setup.exe
             dist/sotto-windows-x64.zip
+            dist/sotto-linux-x86_64.AppImage
+            dist/sotto-linux-amd64.deb
+            dist/sotto-linux-x64.tar.gz
             dist/SHA256SUMS.txt

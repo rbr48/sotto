@@ -51,10 +51,25 @@ class WebRtcMediaEngine implements MediaEngine {
   @override
   Future<void> prepare({required bool video}) async {
     final chosen = devices();
-    final stream = await navigator.mediaDevices.getUserMedia({
-      'audio': _audioConstraints(chosen.microphoneId),
-      'video': video ? _videoConstraints(chosen.cameraId) : false,
-    });
+    MediaStream stream;
+    var noCamera = false;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        'audio': _audioConstraints(chosen.microphoneId),
+        'video': video ? _videoConstraints(chosen.cameraId) : false,
+      });
+    } catch (e) {
+      if (!video) rethrow;
+      // No camera (or it is blocked or busy): join with the microphone
+      // alone rather than not at all. The other side's video still comes
+      // through.
+      debugPrint('camera unavailable, joining with voice: $e');
+      stream = await navigator.mediaDevices.getUserMedia({
+        'audio': _audioConstraints(chosen.microphoneId),
+        'video': false,
+      });
+      noCamera = true;
+    }
     if (_closed) {
       await _stop(stream);
       return;
@@ -99,6 +114,13 @@ class WebRtcMediaEngine implements MediaEngine {
     };
     for (final track in stream.getTracks()) {
       await pc.addTrack(track, stream);
+    }
+    if (noCamera) {
+      // Still ask for the other side's video.
+      await pc.addTransceiver(
+        kind: RTCRtpMediaType.RTCRtpMediaTypeVideo,
+        init: RTCRtpTransceiverInit(direction: TransceiverDirection.RecvOnly),
+      );
     }
   }
 
@@ -304,7 +326,53 @@ class WebRtcMediaEngine implements MediaEngine {
     return QualitySample(
       roundTrip: roundTripFromStats(reports),
       packetLoss: loss,
+      sendLoss: sendLossFromStats(reports),
+      sendBitrate: sendBitrateFromStats(reports),
     );
+  }
+
+  @override
+  Future<bool> setVideoLevel(VideoLevel level) {
+    // One change at a time: the browser rejects parameters read before
+    // another change finished.
+    final next = _videoLevelQueue.then((_) => _applyVideoLevel(level));
+    _videoLevelQueue = next.then((_) {}, onError: (_) {});
+    return next;
+  }
+
+  Future<void> _videoLevelQueue = Future.value();
+
+  Future<bool> _applyVideoLevel(VideoLevel level) async {
+    final pc = _pc;
+    if (pc == null || _closed) return false;
+    var applied = false;
+    for (final sender in await pc.getSenders()) {
+      if (sender.track?.kind != 'video') continue;
+      final parameters = sender.parameters;
+      final encodings = parameters.encodings;
+      if (encodings == null || encodings.isEmpty) continue;
+      for (final encoding in encodings) {
+        encoding.active = level != VideoLevel.paused;
+        encoding.maxBitrate = switch (level) {
+          VideoLevel.reduced => 500000,
+          VideoLevel.low => 150000,
+          _ => null,
+        };
+        encoding.scaleResolutionDownBy = switch (level) {
+          VideoLevel.reduced => 1.5,
+          VideoLevel.low => 3.0,
+          _ => 1.0,
+        };
+      }
+      try {
+        applied = await sender.setParameters(parameters);
+      } catch (e) {
+        // Not every platform lets the encoding change: the call goes on,
+        // and WebRTC's own congestion control still lowers the bitrate.
+        debugPrint('video level not changed: $e');
+      }
+    }
+    return applied;
   }
 
   @override
@@ -348,4 +416,43 @@ Duration? roundTripFromStats(Iterable<StatsReport> reports) {
     }
   }
   return worst == null ? null : Duration(microseconds: (worst * 1e6).round());
+}
+
+/// Loss of this device's outgoing video as the other side reports it
+/// (`fractionLost` of the video `remote-inbound-rtp`, 0–1), or `null` before
+/// the first report.
+@visibleForTesting
+double? sendLossFromStats(Iterable<StatsReport> reports) {
+  double? worst;
+  for (final report in reports) {
+    final v = report.values;
+    final lost = v['fractionLost'];
+    if (report.type == 'remote-inbound-rtp' &&
+        v['kind'] == 'video' &&
+        lost is num &&
+        lost >= 0) {
+      if (worst == null || lost > worst) worst = lost.toDouble();
+    }
+  }
+  return worst?.clamp(0, 1).toDouble();
+}
+
+/// WebRTC's estimate of the bandwidth this device can send
+/// (`availableOutgoingBitrate` of the selected candidate pair), in bits/s.
+@visibleForTesting
+int? sendBitrateFromStats(Iterable<StatsReport> reports) {
+  int? best;
+  for (final report in reports) {
+    final v = report.values;
+    final rate = v['availableOutgoingBitrate'];
+    final selected = v['nominated'] == true || v['selected'] == true;
+    if (report.type == 'candidate-pair' &&
+        v['state'] == 'succeeded' &&
+        selected &&
+        rate is num &&
+        rate > 0) {
+      if (best == null || rate > best) best = rate.toInt();
+    }
+  }
+  return best;
 }

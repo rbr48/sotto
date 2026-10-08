@@ -17,12 +17,45 @@ enum CallQuality { good, fair, poor }
 
 /// Round-trip time and packet loss over the last few seconds.
 class QualitySample {
-  const QualitySample({this.roundTrip, this.packetLoss});
+  const QualitySample({
+    this.roundTrip,
+    this.packetLoss,
+    this.sendLoss,
+    this.sendBitrate,
+  });
 
   final Duration? roundTrip;
 
   /// Fraction of incoming packets lost, 0–1.
   final double? packetLoss;
+
+  /// Fraction of this device's outgoing video lost on the way, as the other
+  /// side reports it, 0–1.
+  final double? sendLoss;
+
+  /// The bandwidth WebRTC estimates this device can send, in bits/s.
+  final int? sendBitrate;
+
+  /// How well this device's upload carries its video: what [VideoAdapter]
+  /// acts on. Each side adapts what it sends; the other side does the same
+  /// for its own upload.
+  ///
+  /// Loss and round trip judge it. The bandwidth estimate follows what is
+  /// sent (lowered video lowers it too), so it only counts when it falls
+  /// below what even low video needs, and not while video is paused.
+  CallQuality? uploadAt(VideoLevel level) {
+    final rtt = roundTrip?.inMilliseconds;
+    final loss = sendLoss;
+    final rate = level == VideoLevel.paused ? null : sendBitrate;
+    if (rtt == null && loss == null && rate == null) return null;
+    if ((loss ?? 0) > 0.10 ||
+        (rtt ?? 0) > 600 ||
+        (rate != null && rate < 100000)) {
+      return CallQuality.poor;
+    }
+    if ((loss ?? 0) > 0.03 || (rtt ?? 0) > 300) return CallQuality.fair;
+    return CallQuality.good;
+  }
 
   /// Thresholds roughly where voice gets choppy (fair) and hard to follow
   /// (poor).
@@ -34,6 +67,23 @@ class QualitySample {
     if ((loss ?? 0) > 0.03 || (rtt ?? 0) > 300) return CallQuality.fair;
     return CallQuality.good;
   }
+}
+
+/// How much video this device sends, stepped down when its upload
+/// struggles (see [VideoAdapter]).
+enum VideoLevel {
+  /// What the camera and the connection allow.
+  full,
+
+  /// At most about 500 kbit/s, at two thirds of the resolution.
+  reduced,
+
+  /// At most about 150 kbit/s, at a third of the resolution.
+  low,
+
+  /// No video is sent; the voice goes on. The camera stays open, so video
+  /// comes back as soon as the connection allows.
+  paused,
 }
 
 /// How the media of a connected call travels.
@@ -83,6 +133,10 @@ abstract interface class MediaEngine {
 
   /// Connection statistics since the previous sample.
   Future<QualitySample?> qualitySample();
+
+  /// Limits the video this device sends (nothing to do in a voice call).
+  /// Returns whether the video sender took the change.
+  Future<bool> setVideoLevel(VideoLevel level);
 
   /// Switches to another camera, microphone or audio output during the
   /// call (`null` = system default).

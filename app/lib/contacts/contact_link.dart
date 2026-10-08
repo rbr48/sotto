@@ -82,6 +82,45 @@ abstract final class ContactLink {
     return '$page#$fragmentKey=$payload';
   }
 
+  /// A short contact link, `https://<host>/#c=<signing key>`: the details
+  /// are looked up from the person's app (see ProfileExchange).
+  static String createShort(Uri base, PublicIdentity identity) =>
+      '${_page(base)}#$fragmentKey=${identity.id}';
+
+  /// A short call link, `https://<host>/?call=<signing key>`: opening it
+  /// calls the person right away.
+  static String createShortCall(Uri base, PublicIdentity identity) =>
+      '${_page(base)}?call=${identity.id}';
+
+  static Uri _page(Uri base) => Uri(
+    scheme: base.scheme,
+    host: base.host,
+    port: base.hasPort ? base.port : null,
+    path: base.path.isEmpty ? '/' : base.path,
+  );
+
+  /// The signing key in a short link (or a bare key), or null when [input]
+  /// is a full link or not a link at all.
+  static Uint8List? shortKeyOf(String input) {
+    final text = input.trim();
+    String? value;
+    final hash = text.indexOf('#');
+    if (hash >= 0) {
+      for (final part in text.substring(hash + 1).split('&')) {
+        if (part.startsWith('$fragmentKey=')) value = part.substring(2);
+      }
+    }
+    value ??= Uri.tryParse(text)?.queryParameters['call'];
+    value ??= text;
+    if (value.length != 43) return null;
+    try {
+      final key = b64Decode(value);
+      return key.length == 32 ? key : null;
+    } on FormatException {
+      return null;
+    }
+  }
+
   /// Whether [input] looks like a contact link (`#c=`).
   static bool isContactLink(String input) =>
       input.contains('#$fragmentKey=') || input.contains('&$fragmentKey=');

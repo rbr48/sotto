@@ -109,7 +109,7 @@ jobs:
           flutter test
       - name: Build web (pointed at the local relay)
         working-directory: app
-        run: flutter build web --no-web-resources-cdn --dart-define=SOTTO_RELAY_URL=ws://localhost:8080/relay
+        run: flutter build web --no-web-resources-cdn --dart-define=SOTTO_RELAY_URL=ws://localhost:8080/relay --dart-define=SOTTO_TEST_HOOKS=true
       - uses: actions/setup-node@v4
         with:
           node-version: 26
@@ -145,11 +145,16 @@ jobs:
 
   linux:
     name: Linux build
-    runs-on: ubuntu-latest
+    # The oldest supported Ubuntu: the app then runs on Ubuntu 22.04+ and
+    # Debian 12+ (a build on 24.04 needs glibc 2.38).
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
       - run: |
           sudo apt-get update
+          # The 22.04 image ships libunwind-14-dev, which conflicts with the
+          # libunwind-dev that libgstreamer1.0-dev needs.
+          sudo apt-get remove -y libunwind-14-dev || true
           sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libpulse-dev libsecret-1-dev \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libayatana-appindicator3-dev libnotify-dev
       - uses: subosito/flutter-action@v2
@@ -159,10 +164,22 @@ jobs:
           cache: true
       - working-directory: app
         run: flutter build linux --release
+      - name: Package (.deb and AppImage)
+        run: |
+          VERSION=$(sed -n 's/^version: \([0-9.]*\).*/\1/p' app/pubspec.yaml)
+          packaging/linux/fetch-appimage-tools.sh "$RUNNER_TEMP/appimage"
+          packaging/linux/build-deb.sh "$VERSION" app/build/linux/x64/release/bundle dist
+          packaging/linux/build-appimage.sh app/build/linux/x64/release/bundle dist \
+            "$RUNNER_TEMP/appimage/appimagetool" "$RUNNER_TEMP/appimage/runtime-x86_64"
+          dpkg-deb --info dist/sotto-linux-amd64.deb
+          sudo apt-get install -y ./dist/sotto-linux-amd64.deb
+          test -x /opt/sotto/sotto && test -f /usr/share/applications/com.izhaanintellect.sotto.desktop
       - uses: actions/upload-artifact@v6
         with:
           name: sotto-linux
-          path: app/build/linux/x64/release/bundle
+          path: |
+            dist/sotto-linux-amd64.deb
+            dist/sotto-linux-x86_64.AppImage
 
   android:
     name: Android build
@@ -197,7 +214,12 @@ jobs:
           cache: true
       - working-directory: app
         run: flutter build windows --release
+      - name: Installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path app/pubspec.yaml -Pattern '^version: ([0-9.]+)').Matches[0].Groups[1].Value
+          ./packaging/windows/build-installer.ps1 -Version $version
       - uses: actions/upload-artifact@v6
         with:
           name: sotto-windows
-          path: app/build/windows/x64/runner/Release
+          path: dist/sotto-windows-x64-setup.exe

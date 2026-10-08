@@ -126,6 +126,13 @@
   .btn-secondary:hover {
     background: var(--line);
   }
+  .alt {
+    display: block;
+    text-align: center;
+    font-size: 0.85rem;
+    color: var(--accent);
+    margin-top: 8px;
+  }
   .meta {
     font-size: 0.8rem;
     color: var(--muted);
@@ -192,7 +199,7 @@
         <p>Direct APK package for phones and tablets. Background calls and notifications supported.</p>
       </div>
       <div>
-        <a href="/downloads/sotto-android.apk" class="btn" download>
+        <a href="https://github.com/rbr48/sotto/releases/latest/download/sotto-android.apk" class="btn">
           <span>Download .APK</span>
         </a>
         <div class="meta">~94 MB · Android 7.0+</div>
@@ -204,12 +211,13 @@
       <div class="card-top">
         <div class="platform-icon">🪟</div>
         <h2>Windows</h2>
-        <p>Standalone desktop application with system tray, background notifications and autostart.</p>
+        <p>Installer with a Start menu entry and uninstaller. System tray, background notifications and autostart.</p>
       </div>
       <div>
-        <a href="/downloads/sotto-windows-x64.zip" class="btn" download>
-          <span>Download .ZIP</span>
+        <a href="https://github.com/rbr48/sotto/releases/latest/download/sotto-windows-x64-setup.exe" class="btn">
+          <span>Download installer</span>
         </a>
+        <a href="https://github.com/rbr48/sotto/releases/latest/download/sotto-windows-x64.zip" class="alt">Portable .zip, no install</a>
         <div class="meta">~23 MB · 64-bit Windows 10/11</div>
       </div>
     </div>
@@ -219,12 +227,14 @@
       <div class="card-top">
         <div class="platform-icon">🐧</div>
         <h2>Linux</h2>
-        <p>Portable tarball for x86_64 distributions. Tray icon and desktop notifications included.</p>
+        <p>AppImage that runs on most 64-bit distributions (Ubuntu 22.04+, Debian 12+). Tray icon and desktop notifications included.</p>
       </div>
       <div>
-        <a href="/downloads/sotto-linux-x64.tar.gz" class="btn" download>
-          <span>Download .tar.gz</span>
+        <a href="https://github.com/rbr48/sotto/releases/latest/download/sotto-linux-x86_64.AppImage" class="btn">
+          <span>Download AppImage</span>
         </a>
+        <a href="https://github.com/rbr48/sotto/releases/latest/download/sotto-linux-amd64.deb" class="alt">.deb for Ubuntu and Debian</a>
+        <a href="https://github.com/rbr48/sotto/releases/latest/download/sotto-linux-x64.tar.gz" class="alt">Portable .tar.gz</a>
         <div class="meta">~21 MB · 64-bit Linux</div>
       </div>
     </div>
@@ -248,7 +258,7 @@
   <div class="checksums">
     <h3>Verify your download</h3>
     <p>Compare the SHA-256 checksums to ensure file integrity:</p>
-    <code><a href="/downloads/SHA256SUMS.txt" style="color: inherit; text-decoration: underline;">View SHA256SUMS.txt</a> or check releases on <a href="https://github.com/rbr48/sotto/releases/latest" target="_blank" rel="noopener" style="color: inherit; text-decoration: underline;">GitHub Releases</a></code>
+    <code><a href="https://github.com/rbr48/sotto/releases/latest/download/SHA256SUMS.txt" style="color: inherit; text-decoration: underline;">View SHA256SUMS.txt</a> or check releases on <a href="https://github.com/rbr48/sotto/releases/latest" target="_blank" rel="noopener" style="color: inherit; text-decoration: underline;">GitHub Releases</a></code>
   </div>
 
   <div class="footer">

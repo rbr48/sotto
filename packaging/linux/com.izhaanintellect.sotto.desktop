@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Sotto
+GenericName=Private calls
+Comment=Private, end-to-end encrypted voice and video calls
+Exec=sotto %U
+Icon=com.izhaanintellect.sotto
+Terminal=false
+Categories=Network;Telephony;VideoConference;
+Keywords=call;video;voice;encrypted;
+StartupWMClass=com.izhaanintellect.sotto

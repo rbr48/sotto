@@ -51,4 +51,41 @@ void main() {
       );
     });
   });
+
+  group('upload statistics', () {
+    test('send loss: the worst video fractionLost the other side reports', () {
+      expect(
+        sendLossFromStats([
+          report('remote-inbound-rtp', {'kind': 'audio', 'fractionLost': 0.5}),
+          report('remote-inbound-rtp', {'kind': 'video', 'fractionLost': 0.04}),
+        ]),
+        0.04,
+      );
+      expect(
+        sendLossFromStats([
+          report('remote-inbound-rtp', {'kind': 'video'}),
+        ]),
+        isNull,
+      );
+    });
+
+    test('send bitrate: the selected pair\'s availableOutgoingBitrate', () {
+      expect(
+        sendBitrateFromStats([
+          report('candidate-pair', {
+            'state': 'succeeded',
+            'nominated': true,
+            'availableOutgoingBitrate': 812345.6,
+          }),
+          report('candidate-pair', {
+            'state': 'failed',
+            'nominated': false,
+            'availableOutgoingBitrate': 9000000,
+          }),
+        ]),
+        812345,
+      );
+      expect(sendBitrateFromStats([report('candidate-pair', {})]), isNull);
+    });
+  });
 }

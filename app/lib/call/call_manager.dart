@@ -82,6 +82,7 @@ class CallState {
     this.autoAnswered = false,
     this.reconnecting = false,
     this.peerClaimedName,
+    this.peerVideoPaused = false,
   });
 
   static const idle = CallState(phase: CallPhase.idle);
@@ -104,6 +105,10 @@ class CallState {
   /// (the call goes on; the media is silent meanwhile).
   final bool reconnecting;
 
+  /// The other side paused its video because its connection is too weak
+  /// (its voice goes on).
+  final bool peerVideoPaused;
+
   /// The name the other person's app gave for them (in the invite or the
   /// answer). Not verified: shown only when they aren't a contact, and
   /// marked as such.
@@ -118,6 +123,7 @@ class CallState {
     bool? autoAnswered,
     bool? reconnecting,
     String? peerClaimedName,
+    bool? peerVideoPaused,
   }) => CallState(
     phase: phase ?? this.phase,
     peer: peer,
@@ -129,6 +135,7 @@ class CallState {
     autoAnswered: autoAnswered ?? this.autoAnswered,
     reconnecting: reconnecting ?? this.reconnecting,
     peerClaimedName: peerClaimedName ?? this.peerClaimedName,
+    peerVideoPaused: peerVideoPaused ?? this.peerVideoPaused,
   );
 
   /// A name from the other side, if usable: trimmed, without control
@@ -270,10 +277,7 @@ class CallManager extends ChangeNotifier {
     try {
       await media.prepare(video: video);
     } catch (e) {
-      await _end(
-        CallEndReason.failed,
-        error: 'Camera or microphone unavailable: $e',
-      );
+      await _end(CallEndReason.failed, error: mediaErrorMessage(e));
       return;
     }
     if (!_isCurrent(callId)) return;
@@ -306,10 +310,7 @@ class CallManager extends ChangeNotifier {
       await media.prepare(video: _state.video && withVideo);
     } catch (e) {
       send(_state.peer!, 'call.reject', const {}, callId);
-      await _end(
-        CallEndReason.failed,
-        error: 'Camera or microphone unavailable: $e',
-      );
+      await _end(CallEndReason.failed, error: mediaErrorMessage(e));
       return;
     }
     if (!_isCurrent(callId)) return;
@@ -452,6 +453,11 @@ class CallManager extends ChangeNotifier {
       case ('sdp.answer', CallPhase.connected)
           when _state.outgoing && body['restart'] == _restart:
         await _media!.acceptAnswer(body['sdp'] as String);
+      case ('call.video', CallPhase.connected):
+        final paused = body['paused'] == true;
+        if (paused != _state.peerVideoPaused) {
+          _setState(_state.copyWith(peerVideoPaused: paused));
+        }
       default:
         break;
     }
@@ -534,6 +540,13 @@ class CallManager extends ChangeNotifier {
         if (_isCurrent(callId) && _state.reconnecting) await _tryAgain();
       });
     });
+  }
+
+  /// Tells the other side this device paused (or resumed) its video
+  /// because of a weak connection. Older apps ignore the message.
+  void sendVideoPaused(bool paused) {
+    if (_state.phase != CallPhase.connected) return;
+    send(_state.peer!, 'call.video', {'paused': paused}, _state.callId!);
   }
 
   /// One attempt to find a new path: the caller restarts ICE, the callee
@@ -649,4 +662,22 @@ class CallManager extends ChangeNotifier {
     _media?.close();
     super.dispose();
   }
+}
+
+/// What to tell someone whose microphone (or camera) could not be opened.
+String mediaErrorMessage(Object error) {
+  final text = '$error';
+  if (text.contains('NotFoundError') || text.contains('DevicesNotFound')) {
+    return 'No microphone was found on this device. Connect one, or try '
+        'from another device.';
+  }
+  if (text.contains('NotAllowedError') || text.contains('Permission')) {
+    return 'The microphone is blocked. Allow it for this site (the icon in '
+        'the address bar or the app settings), then try again.';
+  }
+  if (text.contains('NotReadableError') || text.contains('in use')) {
+    return 'The microphone is being used by another app. Close that app, '
+        'then try again.';
+  }
+  return 'The microphone or camera could not be opened ($text).';
 }

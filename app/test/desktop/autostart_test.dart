@@ -23,6 +23,19 @@ void main() {
     expect(entry, contains(r'Exec="/opt/my apps/sotto \$1/sotto" --hidden'));
   });
 
+  test('an AppImage starts itself, not its temporary mount', () {
+    expect(
+      Autostart.executableFor({
+        'APPIMAGE': '/home/meera/Apps/Sotto.AppImage',
+      }, '/tmp/.mount_SottoAbc/sotto'),
+      '/home/meera/Apps/Sotto.AppImage',
+    );
+    expect(
+      Autostart.executableFor(const {}, '/opt/sotto/sotto'),
+      '/opt/sotto/sotto',
+    );
+  });
+
   test('Windows: the Run value starts this executable hidden', () {
     expect(
       Autostart.windowsCommand(r'C:\Users\Meera\Sotto\sotto.exe'),

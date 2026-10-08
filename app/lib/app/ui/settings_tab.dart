@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../android/android_integration.dart';
 import '../../call/call_controller.dart';
 import '../../core/server_address.dart';
+import '../../core/ui_kit.dart';
 import '../../core/version.dart';
 import '../../desktop/autostart.dart';
 import '../../diagnostics/ui/diagnostic_report_dialog.dart';
@@ -685,9 +686,16 @@ class _Section extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(title, style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
-        ...children,
+        SectionLabel(title),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: children,
+            ),
+          ),
+        ),
       ],
     ),
   );

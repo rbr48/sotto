@@ -217,6 +217,27 @@ A contact link lets colleagues add each other: `https://<host>/#c=<payload>` (af
 
 The name and organisation are self-asserted, but nobody can change them without breaking the signature. *Add contact* also accepts a call link or bare call code (no name). A contact is stored only on the device that adds it; marking it **verified** means the user confirmed that the safety number (§4) matches. Opened in a browser, a contact link shows the person's name with *Video call* / *Voice call* buttons (temporary identity).
 
+### 5.9 Short links and profile lookup
+
+Since 0.1.7 the app shares **short** call and contact links that carry only the signing key (the relay ID, 43 characters of base64url):
+
+```
+https://<host>/?call=<signing key>     dials right away (call link)
+https://<host>/#c=<signing key>        shows the person first (contact link)
+```
+
+Whoever opens one looks the person up through the relay:
+
+```
+request = "p1." || base64url(requester's identity card JSON)     not encrypted
+reply   = envelope (§3) of type "profile", body {n, o?}           sealed, signed
+```
+
+- The request holds only the requester's public card. The answering app checks that the card belongs to the relay-authenticated sender, and seals the reply to it.
+- The reply is an ordinary signed envelope. It is accepted only when its verified signer is the key in the link, so the encryption key, name and organisation are as trustworthy as a full contact link (§5.8).
+- Only the professional's app answers. Guest pages and browser quick calls don't, and answers are rate limited: one per requester every 3 s, at most 30 a minute.
+- The person must be online for the lookup, as for a call. Full links (§5.7, §5.8) are still accepted everywhere.
+
 ## 6. Test vectors
 
 `tools/crypto-vectors/gen.js` implements §2–§4 independently and prints the vectors stored in `app/lib/crypto/test_vectors.dart`:
@@ -284,6 +305,7 @@ plaintext = JSON {"v":1, "values": {"<key>": "<string>", …}}
 | `sotto.settings.desktop` | Tray and notification choices. Device-only |
 
 Earlier versions kept settings directly in the keystore; on first start they are moved into the vault and deleted from the keystore.
+
 
 ### 9.1 Remember me on this browser
 

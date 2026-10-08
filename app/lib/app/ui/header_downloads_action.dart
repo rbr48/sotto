@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../app_controller.dart';
+import '../../core/downloads.dart';
 
 /// App download links placed at the top-right of the header / AppBar.
 ///
@@ -10,9 +10,10 @@ import '../app_controller.dart';
 /// Windows, and Linux. On narrow screens, collapses into a compact dropdown
 /// menu button.
 class HeaderDownloadsAction extends StatelessWidget {
-  const HeaderDownloadsAction({super.key, required this.app});
+  const HeaderDownloadsAction({super.key, required this.allDownloads});
 
-  final AppController app;
+  /// The server's downloads page, with every file and its checksum.
+  final Uri allDownloads;
 
   @override
   Widget build(BuildContext context) {
@@ -22,12 +23,10 @@ class HeaderDownloadsAction extends StatelessWidget {
     final width = MediaQuery.sizeOf(context).width;
     final isWide = width >= 860;
 
-    final androidUrl = app.server.web.resolve('downloads/sotto-android.apk');
-    final windowsUrl = app.server.web.resolve(
-      'downloads/sotto-windows-x64.zip',
-    );
-    final linuxUrl = app.server.web.resolve('downloads/sotto-linux-x64.tar.gz');
-    final allDownloadsUrl = app.server.web.resolve('downloads.html');
+    final androidUrl = Downloads.android;
+    final windowsUrl = Downloads.windows;
+    final linuxUrl = Downloads.linux;
+    final allDownloadsUrl = allDownloads;
 
     if (!isWide) {
       return PopupMenuButton<Uri>(
@@ -43,8 +42,8 @@ class HeaderDownloadsAction extends StatelessWidget {
               dense: true,
               contentPadding: EdgeInsets.zero,
               leading: Icon(Icons.android),
-              title: Text('Android (.apk)'),
-              subtitle: Text('Direct APK package'),
+              title: Text('Android'),
+              subtitle: Text('APK for phones and tablets'),
             ),
           ),
           PopupMenuItem(
@@ -53,8 +52,8 @@ class HeaderDownloadsAction extends StatelessWidget {
               dense: true,
               contentPadding: EdgeInsets.zero,
               leading: Icon(Icons.desktop_windows),
-              title: Text('Windows (.zip)'),
-              subtitle: Text('64-bit portable archive'),
+              title: Text('Windows'),
+              subtitle: Text('Installer, 64-bit'),
             ),
           ),
           PopupMenuItem(
@@ -63,8 +62,8 @@ class HeaderDownloadsAction extends StatelessWidget {
               dense: true,
               contentPadding: EdgeInsets.zero,
               leading: Icon(Icons.terminal),
-              title: Text('Linux (.tar.gz)'),
-              subtitle: Text('64-bit portable archive'),
+              title: Text('Linux'),
+              subtitle: Text('AppImage, 64-bit'),
             ),
           ),
           const PopupMenuDivider(),
@@ -78,43 +77,60 @@ class HeaderDownloadsAction extends StatelessWidget {
             ),
           ),
         ],
-        child: Container(
-          height: 36,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerHighest.withValues(
-              alpha: 0.5,
-            ),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.file_download_outlined,
-                size: 16,
-                color: theme.colorScheme.primary,
-              ),
-              const SizedBox(width: 5),
-              Text(
-                'Get app',
-                style: theme.textTheme.labelMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: theme.colorScheme.onSurface,
+        child: width < 600
+            ? Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerLowest,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: theme.colorScheme.outlineVariant),
+                ),
+                child: Icon(
+                  Icons.file_download_outlined,
+                  size: 20,
+                  color: theme.colorScheme.primary,
+                ),
+              )
+            : Container(
+                height: 36,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.5,
+                  ),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: theme.colorScheme.outlineVariant.withValues(
+                      alpha: 0.6,
+                    ),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.file_download_outlined,
+                      size: 16,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      'Get app',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: theme.colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    Icon(
+                      Icons.arrow_drop_down,
+                      size: 18,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 2),
-              Icon(
-                Icons.arrow_drop_down,
-                size: 18,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ],
-          ),
-        ),
       );
     }
 
@@ -169,7 +185,7 @@ class HeaderDownloadsAction extends StatelessWidget {
           _QuickDownloadButton(
             icon: Icons.android,
             label: 'Android',
-            tooltip: 'Download Android APK (sotto-android.apk)',
+            tooltip: 'Download for Android (APK)',
             onTap: () =>
                 launchUrl(androidUrl, mode: LaunchMode.externalApplication),
           ),
@@ -177,7 +193,7 @@ class HeaderDownloadsAction extends StatelessWidget {
           _QuickDownloadButton(
             icon: Icons.desktop_windows,
             label: 'Windows',
-            tooltip: 'Download Windows 64-bit portable (sotto-windows-x64.zip)',
+            tooltip: 'Download the Windows installer (64-bit)',
             onTap: () =>
                 launchUrl(windowsUrl, mode: LaunchMode.externalApplication),
           ),
@@ -185,7 +201,7 @@ class HeaderDownloadsAction extends StatelessWidget {
           _QuickDownloadButton(
             icon: Icons.terminal,
             label: 'Linux',
-            tooltip: 'Download Linux 64-bit portable (sotto-linux-x64.tar.gz)',
+            tooltip: 'Download for Linux (AppImage, 64-bit)',
             onTap: () =>
                 launchUrl(linuxUrl, mode: LaunchMode.externalApplication),
           ),

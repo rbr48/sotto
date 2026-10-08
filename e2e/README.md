@@ -13,7 +13,9 @@ microphone) through the real relay and a real TURN server. They check:
 - Phase 7: ringtone and ringback tone, a dialog left open closes for an incoming call, the knock chime, no server setting in the browser
 - every frame sent to the relay is a login, an ICE request or an opaque encrypted envelope, with no names, notes or PINs; pages contact no third-party hosts
 - Remember me on this browser (`remember.mjs`): the warning and the "links work only while this tab is open" card without it; with it, the same links after reloading; what IndexedDB holds is encrypted and its key isn't extractable; *Forget this browser* deletes it; an empty database left behind doesn't break it
+- no camera (`nocamera.mjs`): a visitor whose camera cannot be opened still gets a video call with their microphone alone, and sees the other side's video
 - reconnecting (`reconnect.mjs`): a call through the TURN server survives the TURN server freezing for 15 s (`SIGSTOP`, via its pidfile `SOTTO_TURN_PIDFILE`, default `/tmp/turn.pid`): both sides show *Reconnecting*, then reconnect by themselves (ICE restart) and the video plays again
+- bandwidth adaptation (`adapt.mjs`): a weak upload (simulated through a test hook, `SOTTO_TEST_HOOKS=true`) steps the video down and then pauses it, the browser accepts each new encoding, the other side is told the video is paused; once the upload recovers the video comes back
 - Safari's engine (`safari.mjs`, WebKit with the professional in Chromium): the crypto self-test, a signed guest link (verified name, device check), clear advice when the camera can't be used, a signed contact link, a tampered link rejected. Not a live call: Playwright's Linux WebKit always refuses camera and microphone access, so calls from Safari are checked by hand (below)
 
 ```bash
@@ -29,7 +31,8 @@ HOST=127.0.0.1 SOTTO_STUN_URLS='stun:127.0.0.1:3478' \
   SOTTO_TURN_URLS='turn:127.0.0.1:3478?transport=udp' SOTTO_TURN_SECRET=e2e-secret npm start &
 
 # 2. Web build pointed at the local relay, served on port 8099
-cd app && flutter build web --no-web-resources-cdn --dart-define=SOTTO_RELAY_URL=ws://localhost:8080/relay
+cd app && flutter build web --no-web-resources-cdn --dart-define=SOTTO_RELAY_URL=ws://localhost:8080/relay \
+  --dart-define=SOTTO_TEST_HOOKS=true
 python3 -m http.server 8099 --directory build/web &
 
 # 3. Run the test

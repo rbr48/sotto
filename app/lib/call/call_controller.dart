@@ -6,6 +6,7 @@ import 'package:sodium/sodium.dart';
 
 import '../contacts/contact_book.dart';
 import '../contacts/contact_link.dart';
+import '../contacts/profile_exchange.dart';
 import '../core/network_events.dart';
 import '../core/test_hooks.dart';
 import '../crypto/encoding.dart';
@@ -17,11 +18,11 @@ import '../guest/guest_visit.dart';
 import '../history/call_history.dart';
 import '../relay/relay_client.dart';
 import '../sound/call_sounds.dart';
-import 'call_code.dart';
 import 'call_manager.dart';
 import 'devices.dart';
 import 'media_engine.dart';
 import 'screen_awake.dart';
+import 'video_adapter.dart';
 import 'webrtc_media_engine.dart';
 
 /// Everything the call screens need: the relay connection, the current
@@ -47,12 +48,14 @@ class CallController extends ChangeNotifier {
     this.history,
     this.devices,
     String Function()? hostName,
+    PublicProfile? Function()? publicProfile,
     SoundOutput? sounds,
     ScreenAwake? screenAwake,
   }) : _sounds = sounds, // ignore: prefer_initializing_formals
        _givenIdentity = identity,
        _settings = settings ?? MemorySecretStore(),
        _hostName = hostName ?? (() => ''),
+       _publicProfile = publicProfile, // ignore: prefer_initializing_formals
        _screen = VideoCallScreen(screenAwake ?? WakelockScreenAwake()) {
     addListener(_updateScreen);
   }
@@ -76,6 +79,11 @@ class CallController extends ChangeNotifier {
   final Identity? _givenIdentity;
   final SecretStore _settings;
   final String Function() _hostName;
+
+  /// What people who open this person's short link see (null: answer no
+  /// lookups, e.g. a guest or a browser quick call).
+  final PublicProfile? Function()? _publicProfile;
+  ProfileExchange? _profiles;
   final VideoCallScreen _screen;
   void _updateScreen() => _screen.update(call);
 
@@ -208,6 +216,13 @@ class CallController extends ChangeNotifier {
 
   /// Connection quality of the current call, from local statistics.
   CallQuality? get quality => _quality;
+
+  /// Steps this device's video down (and back up) with its upload.
+  final VideoAdapter _videoAdapter = VideoAdapter();
+
+  /// How much video this device sends right now; [VideoLevel.paused] when
+  /// its connection is too weak for video (the voice goes on).
+  VideoLevel get videoLevel => _videoAdapter.level;
   Timer? _qualityTimer;
 
   DateTime? _connectedAt;
@@ -261,6 +276,10 @@ class CallController extends ChangeNotifier {
   }
 
   Future<void> start() async {
+    registerTestAction('sottoTestUpload', (quality) {
+      final upload = CallQuality.values.asNameMap()[quality];
+      if (upload != null) unawaited(debugUploadSample(upload));
+    });
     try {
       final sodium = _sodium = await SottoCrypto.init();
       final identity = _identity = _givenIdentity ?? Identity.generate(sodium);
@@ -340,6 +359,13 @@ class CallController extends ChangeNotifier {
         sodium: sodium,
         identity: identity,
       );
+      _profiles = ProfileExchange(
+        sodium: sodium,
+        identity: identity,
+        codec: _codec!,
+        send: relay.send,
+        profile: _publicProfile,
+      );
       _subscriptions
         ..add(
           relay.statusChanges.listen((status) {
@@ -363,7 +389,10 @@ class CallController extends ChangeNotifier {
         );
       relay.start();
 
-      _callLink = CallCode.link(linkBase, identity.card(sodium));
+      _callLink = ContactLink.createShortCall(
+        linkBase,
+        identity.publicIdentity,
+      );
       publishForTests('call-link', _callLink!);
       _ready = true;
     } catch (e) {
@@ -479,16 +508,24 @@ class CallController extends ChangeNotifier {
   /// History entry of the call that just ended (to add a note).
   String? get lastHistoryId => _recorder?.lastRecordId;
 
-  /// This person's contact link (`#c=`), with the name and organisation
-  /// they chose.
-  String contactLink({required String name, String organisation = ''}) =>
-      ContactLink.create(
-        _sodium!,
-        _identity!,
-        base: linkBase,
-        name: name.isEmpty ? 'Sotto user' : name,
-        organisation: organisation,
-      );
+  /// This person's short contact link (`#c=<key>`): whoever opens it gets
+  /// the current name and organisation from this app.
+  String get contactLink =>
+      ContactLink.createShort(linkBase, _identity!.publicIdentity);
+
+  /// The person behind a link: a full link is read as it is; a short link
+  /// is looked up from that person's app, which must be online.
+  /// Throws [InvalidIdentityException] or [ProfileUnavailableException].
+  Future<ContactInvite> resolveLink(String link) async {
+    final key = ContactLink.shortKeyOf(link);
+    if (key == null) return ContactLink.parse(_sodium!, link);
+    if (b64Encode(key) == _identity!.id) {
+      throw const InvalidIdentityException('that is your own call link');
+    }
+    final profiles = _profiles;
+    if (profiles == null) throw const ProfileUnavailableException();
+    return profiles.fetch(key);
+  }
 
   void _sendGuestMessage(
     PublicIdentity to,
@@ -553,6 +590,10 @@ class CallController extends ChangeNotifier {
     final codec = _codec;
     final manager = _manager;
     if (codec == null || manager == null) return;
+    if (ProfileExchange.isRequest(message.body)) {
+      _profiles?.answer(message.from, message.body);
+      return;
+    }
     final OpenedMessage opened;
     try {
       opened = codec.open(message.body, expectedSender: message.from);
@@ -560,6 +601,7 @@ class CallController extends ChangeNotifier {
       debugPrint('Dropped envelope: ${e.error.name}');
       return;
     }
+    if (_profiles?.handleReply(opened) ?? false) return;
     if (opened.type.startsWith('guest.')) {
       _host?.handle(opened);
       _visit?.handle(opened);
@@ -606,6 +648,8 @@ class CallController extends ChangeNotifier {
       _route = null;
       _quality = null;
       _connectedAt = null;
+      _videoAdapter.reset();
+      _sentLevel = VideoLevel.full;
     }
     if (call.reconnecting != _reconnecting) {
       _reconnecting = call.reconnecting;
@@ -617,8 +661,10 @@ class CallController extends ChangeNotifier {
         // The new path may differ (e.g. relayed instead of direct).
         _route = null;
         _quality = null;
+        unawaited(_setVideoLevel(null));
       }
     }
+    publishForTests('peer-video-paused', '${call.peerVideoPaused}');
     if (call.phase == CallPhase.connected) {
       _connectedAt ??= DateTime.now();
       publishForTests('sending-video', '$sendingVideo');
@@ -647,6 +693,46 @@ class CallController extends ChangeNotifier {
       publishForTests('quality', quality.name);
       notifyListeners();
     }
+    if (sendingVideo) {
+      final level = _videoAdapter.onSample(
+        sample?.uploadAt(_videoAdapter.level),
+      );
+      if (level != null) await _applyVideoLevel(level);
+    }
+  }
+
+  /// Back to full video (`null`), e.g. on a new network path.
+  Future<void> _setVideoLevel(VideoLevel? level) async {
+    if (level == null) {
+      if (_videoAdapter.level == VideoLevel.full) return;
+      _videoAdapter.reset();
+      level = VideoLevel.full;
+    }
+    await _applyVideoLevel(level);
+  }
+
+  VideoLevel _sentLevel = VideoLevel.full;
+
+  Future<void> _applyVideoLevel(VideoLevel level) async {
+    final media = _manager?.media;
+    if (media == null) return;
+    final wasPaused = _sentLevel == VideoLevel.paused;
+    _sentLevel = level;
+    EventLog.instance.add('video level: ${level.name}');
+    publishForTests('video-level', level.name);
+    final applied = await media.setVideoLevel(level);
+    publishForTests('video-level-applied', applied ? level.name : 'failed');
+    final paused = level == VideoLevel.paused;
+    if (paused != wasPaused) _manager?.sendVideoPaused(paused);
+    notifyListeners();
+  }
+
+  /// For tests: as if the upload had this quality for one sample (also
+  /// `window.sottoTestUpload('poor')` in test builds of the web app).
+  @visibleForTesting
+  Future<void> debugUploadSample(CallQuality upload) async {
+    final level = _videoAdapter.onSample(upload);
+    if (level != null) await _applyVideoLevel(level);
   }
 
   /// Reads the selected ICE candidate pair after connecting, retrying for
@@ -681,7 +767,7 @@ class CallController extends ChangeNotifier {
   /// Calls the person behind a call link, contact link or code.
   /// Throws [InvalidIdentityException] for an invalid link.
   Future<void> callSomeone(String linkOrCode, {bool video = true}) async {
-    final peer = ContactLink.parse(_sodium!, linkOrCode).identity;
+    final peer = (await resolveLink(linkOrCode)).identity;
     await callPeer(peer, video: video);
   }
 
