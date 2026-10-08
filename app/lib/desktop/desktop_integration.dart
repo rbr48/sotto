@@ -8,7 +8,9 @@ import 'package:window_manager/window_manager.dart';
 
 import '../app/app_controller.dart';
 import '../call/call_controller.dart';
+import 'autostart.dart';
 import 'notices.dart';
+import 'single_instance.dart';
 
 /// Whether this is the Windows, Linux or macOS app.
 bool get isDesktop =>
@@ -27,9 +29,13 @@ bool get isDesktop =>
 /// Everything here is optional: without a tray host (some Linux desktops)
 /// or a notification service, Sotto works as a normal window.
 class DesktopIntegration with TrayListener, WindowListener {
-  DesktopIntegration(this.app);
+  DesktopIntegration(this.app, {this.startHidden = false});
 
   final AppController app;
+
+  /// Started at login (`--hidden`): go straight to the tray.
+  final bool startHidden;
+  bool? _appliedLogin;
 
   bool _trayReady = false;
   bool _notifierReady = false;
@@ -41,6 +47,7 @@ class DesktopIntegration with TrayListener, WindowListener {
   bool inFront = true;
 
   Future<void> start() async {
+    SingleInstance.onActivate = () => unawaited(_showWindow());
     try {
       await windowManager.ensureInitialized();
       windowManager.addListener(this);
@@ -83,11 +90,24 @@ class DesktopIntegration with TrayListener, WindowListener {
     }
     app.addListener(_onAppChanged);
     _onAppChanged();
+    if (startHidden && _trayReady) {
+      try {
+        await windowManager.hide();
+      } catch (_) {
+        // The window stays open.
+      }
+    }
   }
 
   /// Applies the tray choice and follows the current call controller.
   void _onAppChanged() {
     unawaited(_applyPreventClose());
+    if (app.stage == AppStage.ready &&
+        app.desktopPrefs.startAtLogin != _appliedLogin) {
+      // Written again at every start, in case the app was moved.
+      _appliedLogin = app.desktopPrefs.startAtLogin;
+      unawaited(Autostart.set(_appliedLogin!));
+    }
     final calls = app.calls;
     if (calls == _watched) return;
     for (final subscription in _subscriptions) {

@@ -62,11 +62,19 @@ class AudioplayersOutput implements SoundOutput {
 /// call is answered automatically. Sounds never stop a call from working:
 /// playback errors (no audio device, autoplay blocked) are ignored.
 class CallSounds {
-  CallSounds(this._output, {bool Function()? enabled})
-    : _enabled = enabled ?? (() => true);
+  CallSounds(
+    this._output, {
+    bool Function()? enabled,
+    bool Function()? systemAlerts,
+  }) : _enabled = enabled ?? (() => true),
+       _systemAlerts = systemAlerts ?? (() => false);
 
   final SoundOutput _output;
   final bool Function() _enabled;
+
+  /// The system's notifications ring and chime instead (Android, app in
+  /// the background): no ringtone or knock chime here.
+  final bool Function() _systemAlerts;
   Sound? _looping;
 
   /// The looping sound, if any (for tests and the UI).
@@ -75,7 +83,7 @@ class CallSounds {
   /// Call with every call state change.
   void onCallState(CallState state, {required bool autoAnswered}) {
     final wanted = switch (state.phase) {
-      CallPhase.incoming => Sound.ringtone,
+      CallPhase.incoming when !_systemAlerts() => Sound.ringtone,
       CallPhase.ringing => Sound.ringback,
       _ => null,
     };
@@ -94,7 +102,9 @@ class CallSounds {
   }
 
   /// A new guest is waiting.
-  void onKnock() => _cue(Sound.knock);
+  void onKnock() {
+    if (!_systemAlerts()) _cue(Sound.knock);
+  }
 
   void _cue(Sound sound) {
     publishForTests('cue', sound.name);

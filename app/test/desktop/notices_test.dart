@@ -100,4 +100,51 @@ void main() {
       isNull,
     );
   });
+
+  test('Android ringing: always rings, a name only if chosen and unlocked', () {
+    final call = NoticeRules.androidCall(
+      callerName: 'Dr Rao',
+      video: true,
+      prefs: const DesktopPrefs(notifications: false),
+      locked: false,
+    );
+    expect(call, const Notice('Incoming video call', 'Sotto'));
+    expect(
+      NoticeRules.androidCall(
+        callerName: 'Dr Rao',
+        video: false,
+        prefs: const DesktopPrefs(showNames: true),
+        locked: false,
+      ),
+      const Notice('Incoming voice call', 'Dr Rao'),
+    );
+    expect(
+      NoticeRules.androidCall(
+        callerName: 'Dr Rao',
+        video: false,
+        prefs: const DesktopPrefs(showNames: true),
+        locked: true,
+      ).body,
+      'Sotto',
+    );
+  });
+
+  test('start at login and ring when closed are kept', () {
+    const defaults = DesktopPrefs();
+    expect(defaults.startAtLogin, isFalse);
+    expect(defaults.ringWhenClosed, isTrue);
+    final changed = defaults.copyWith(
+      startAtLogin: true,
+      ringWhenClosed: false,
+    );
+    final round = DesktopPrefs.decode(changed.encode());
+    expect(round.startAtLogin, isTrue);
+    expect(round.ringWhenClosed, isFalse);
+    // Stored before these existed.
+    final old = DesktopPrefs.decode(
+      '{"tray":true,"notify":true,"names":false}',
+    );
+    expect(old.startAtLogin, isFalse);
+    expect(old.ringWhenClosed, isTrue);
+  });
 }

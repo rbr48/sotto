@@ -22,16 +22,22 @@ class FakeMediaEngine implements MediaEngine {
     if (failPrepare) throw StateError('no camera');
   }
 
+  int _restarts = 0;
+
   @override
-  Future<String> createOffer() async {
-    log.add('createOffer');
-    return 'offer-sdp';
+  Future<String> createOffer({bool iceRestart = false}) async {
+    if (!iceRestart) {
+      log.add('createOffer');
+      return 'offer-sdp';
+    }
+    log.add('createOffer(iceRestart)');
+    return 'restart-offer-${++_restarts}';
   }
 
   @override
   Future<String> acceptOffer(String sdp) async {
     log.add('acceptOffer($sdp)');
-    return 'answer-sdp';
+    return sdp.startsWith('restart-') ? 'answer-to-$sdp' : 'answer-sdp';
   }
 
   @override

@@ -27,6 +27,19 @@ describe('relay', () => {
     server = undefined;
   });
 
+  it('answers pings, before and after login', async () => {
+    const url = await start();
+    const anonymous = await TestClient.connect(url);
+    clients.push(anonymous);
+    expect((await anonymous.next()).type).toBe('challenge');
+    anonymous.send({ type: 'ping' });
+    expect(await anonymous.next()).toEqual({ type: 'pong' });
+
+    const { client } = await login(url);
+    client.send({ type: 'ping' });
+    expect(await client.next()).toEqual({ type: 'pong' });
+  });
+
   describe('login', () => {
     it('accepts a valid signature over the challenge', async () => {
       const url = await start();

@@ -159,6 +159,13 @@ export class Relay {
       return;
     }
 
+    // Clients check that a quiet connection still works (browsers can't see
+    // WebSocket-level pings).
+    if (message.type === 'ping') {
+      send(conn.ws, { type: 'pong' });
+      return;
+    }
+
     if (conn.id === null) {
       if (message.type !== 'auth') {
         send(conn.ws, { type: 'error', code: 'not-authenticated' });

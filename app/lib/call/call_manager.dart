@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
 
 import '../crypto/envelope.dart';
@@ -79,6 +80,7 @@ class CallState {
     this.endReason,
     this.error,
     this.autoAnswered = false,
+    this.reconnecting = false,
   });
 
   static const idle = CallState(phase: CallPhase.idle);
@@ -97,6 +99,10 @@ class CallState {
   /// because a guest was admitted from the waiting room).
   final bool autoAnswered;
 
+  /// The connected call lost its network path and is looking for a new one
+  /// (the call goes on; the media is silent meanwhile).
+  final bool reconnecting;
+
   bool get active => phase != CallPhase.idle && phase != CallPhase.ended;
 
   CallState copyWith({
@@ -104,6 +110,7 @@ class CallState {
     CallEndReason? endReason,
     String? error,
     bool? autoAnswered,
+    bool? reconnecting,
   }) => CallState(
     phase: phase ?? this.phase,
     peer: peer,
@@ -113,6 +120,7 @@ class CallState {
     endReason: endReason ?? this.endReason,
     error: error ?? this.error,
     autoAnswered: autoAnswered ?? this.autoAnswered,
+    reconnecting: reconnecting ?? this.reconnecting,
   );
 }
 
@@ -138,6 +146,22 @@ typedef CallMessageSender = void Function(
 ///   ice.candidate ◀─────────────▶   ice.candidate
 ///   call.end / call.cancel ◀────▶   call.end
 /// ```
+///
+/// If a connected call loses its network path (Wi-Fi to mobile data, a
+/// blip), both sides show "Reconnecting" and the caller restarts ICE: a new
+/// offer looks for a new path while the call goes on. Only the caller makes
+/// offers, so the two sides never offer at once; the callee asks for one
+/// with `call.restart`. Offers are numbered, and an answer to an older one
+/// is ignored. Without a new path within [CallManager.reconnectTimeout],
+/// the call ends as failed.
+///
+/// ```
+///   (connection lost)              (connection lost)
+///                ◀───────────────   call.restart
+///   sdp.offer {restart: n} ──────▶
+///                ◀───────────────   sdp.answer {restart: n}
+///   ice.candidate ◀─────────────▶   ice.candidate
+/// ```
 class CallManager extends ChangeNotifier {
   CallManager({
     required this.send,
@@ -147,6 +171,10 @@ class CallManager extends ChangeNotifier {
     this.ringTimeout = const Duration(seconds: 45),
     this.incomingTimeout = const Duration(seconds: 60),
     this.connectTimeout = const Duration(seconds: 30),
+    this.reconnectTimeout = const Duration(seconds: 45),
+    this.restartDelay = const Duration(seconds: 2),
+    this.restartInterval = const Duration(seconds: 8),
+    this.onConnectionTrouble,
   });
 
   final CallMessageSender send;
@@ -167,6 +195,21 @@ class CallManager extends ChangeNotifier {
   /// How long media setup may take after the call is accepted.
   final Duration connectTimeout;
 
+  /// How long a connected call may look for a new network path.
+  final Duration reconnectTimeout;
+
+  /// A briefly interrupted connection often recovers by itself: wait this
+  /// long before restarting ICE (a failed connection restarts at once).
+  final Duration restartDelay;
+
+  /// While reconnecting, ICE is restarted again this often (an offer may
+  /// have been sent on the network that just went away).
+  final Duration restartInterval;
+
+  /// Called when a connected call loses its path: the network probably
+  /// changed, so the relay connection should be checked too.
+  final void Function()? onConnectionTrouble;
+
   CallState _state = CallState.idle;
   CallState get state => _state;
 
@@ -175,6 +218,11 @@ class CallManager extends ChangeNotifier {
 
   Timer? _timer;
   Timer? _autoAnswerTimer;
+  Timer? _restartTimer;
+
+  /// Number of the latest ICE restart offer (caller side).
+  int _restart = 0;
+  DateTime? _lastRestart;
   final _subscriptions = <StreamSubscription<Object?>>[];
   Future<void> _queue = Future.value();
 
@@ -365,6 +413,19 @@ class CallManager extends ChangeNotifier {
         await _media!.acceptAnswer(body['sdp'] as String);
       case ('ice.candidate', CallPhase.connecting || CallPhase.connected):
         await _media!.addRemoteCandidate(body);
+      case ('call.restart', CallPhase.connected) when _state.outgoing:
+        await _restartIce();
+      case ('sdp.offer', CallPhase.connected) when !_state.outgoing:
+        final answer = await _media!.acceptOffer(body['sdp'] as String);
+        if (_isCurrent(callId)) {
+          send(_state.peer!, 'sdp.answer', {
+            'sdp': answer,
+            'restart': body['restart'],
+          }, callId);
+        }
+      case ('sdp.answer', CallPhase.connected)
+          when _state.outgoing && body['restart'] == _restart:
+        await _media!.acceptAnswer(body['sdp'] as String);
       default:
         break;
     }
@@ -385,14 +446,27 @@ class CallManager extends ChangeNotifier {
         switch (state) {
           case MediaConnectionState.connected when _isCurrent(callId):
             _serial(() async {
-              if (!_isCurrent(callId) || _state.phase != CallPhase.connecting) {
-                return;
+              if (!_isCurrent(callId)) return;
+              if (_state.phase == CallPhase.connecting) {
+                _timer?.cancel();
+                _setState(_state.copyWith(phase: CallPhase.connected));
+              } else if (_state.reconnecting) {
+                _recovered();
               }
-              _timer?.cancel();
-              _setState(_state.copyWith(phase: CallPhase.connected));
+            });
+          case MediaConnectionState.disconnected when _isCurrent(callId):
+            _serial(() async {
+              if (_isCurrent(callId)) _lost(failed: false);
             });
           case MediaConnectionState.failed when _isCurrent(callId):
-            _serial(() => _fail('Media connection failed'));
+            _serial(() async {
+              if (!_isCurrent(callId)) return;
+              if (_state.phase == CallPhase.connected) {
+                _lost(failed: true);
+              } else {
+                await _fail('Media connection failed');
+              }
+            });
           default:
             break;
         }
@@ -400,6 +474,79 @@ class CallManager extends ChangeNotifier {
     );
     notifyListeners();
     return media;
+  }
+
+  /// The network may have changed (e.g. the relay connection came back):
+  /// a call that is reconnecting tries again now.
+  Future<void> networkChanged() => _serial(() async {
+    if (_state.phase == CallPhase.connected && _state.reconnecting) {
+      await _tryAgain();
+    }
+  });
+
+  /// The connected call lost its path: show it, and look for a new one
+  /// (at once if the connection [failed], after [restartDelay] if it may
+  /// still recover by itself).
+  void _lost({required bool failed}) {
+    if (_state.phase != CallPhase.connected) return;
+    final callId = _state.callId!;
+    if (!_state.reconnecting) {
+      _setState(_state.copyWith(reconnecting: true));
+      _startTimer(reconnectTimeout, callId, () => _fail('Connection lost'));
+      onConnectionTrouble?.call();
+    } else if (!failed) {
+      return; // already on it
+    }
+    _scheduleRestart(failed ? Duration.zero : restartDelay);
+  }
+
+  void _scheduleRestart(Duration delay) {
+    final callId = _state.callId!;
+    _restartTimer?.cancel();
+    _restartTimer = Timer(delay, () {
+      _serial(() async {
+        if (_isCurrent(callId) && _state.reconnecting) await _tryAgain();
+      });
+    });
+  }
+
+  /// One attempt to find a new path: the caller restarts ICE, the callee
+  /// asks the caller to. Repeats every [restartInterval] until reconnected.
+  Future<void> _tryAgain() async {
+    if (_state.outgoing) {
+      await _restartIce();
+    } else {
+      send(_state.peer!, 'call.restart', const {}, _state.callId!);
+    }
+    if (_state.reconnecting) _scheduleRestart(restartInterval);
+  }
+
+  /// Caller side: sends a numbered ICE restart offer (at most one a second,
+  /// as both sides may ask at once).
+  Future<void> _restartIce() async {
+    final now = clock.now();
+    if (_lastRestart case final last?
+        when now.difference(last) < const Duration(seconds: 1)) {
+      return;
+    }
+    _lastRestart = now;
+    final callId = _state.callId!;
+    final number = ++_restart;
+    final offer = await _media!.createOffer(iceRestart: true);
+    if (_isCurrent(callId) && number == _restart) {
+      send(_state.peer!, 'sdp.offer', {
+        'sdp': offer,
+        'restart': number,
+      }, callId);
+    }
+  }
+
+  void _recovered() {
+    _timer?.cancel();
+    _timer = null;
+    _restartTimer?.cancel();
+    _restartTimer = null;
+    _setState(_state.copyWith(reconnecting: false));
   }
 
   Future<void> _fail(String error) async {
@@ -416,6 +563,10 @@ class CallManager extends ChangeNotifier {
     _timer = null;
     _autoAnswerTimer?.cancel();
     _autoAnswerTimer = null;
+    _restartTimer?.cancel();
+    _restartTimer = null;
+    _restart = 0;
+    _lastRestart = null;
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
     }
@@ -423,7 +574,12 @@ class CallManager extends ChangeNotifier {
     final media = _media;
     _media = null;
     _setState(
-      _state.copyWith(phase: CallPhase.ended, endReason: reason, error: error),
+      _state.copyWith(
+        phase: CallPhase.ended,
+        endReason: reason,
+        error: error,
+        reconnecting: false,
+      ),
     );
     await media?.close();
   }
@@ -460,6 +616,7 @@ class CallManager extends ChangeNotifier {
   void dispose() {
     _timer?.cancel();
     _autoAnswerTimer?.cancel();
+    _restartTimer?.cancel();
     for (final subscription in _subscriptions) {
       subscription.cancel();
     }

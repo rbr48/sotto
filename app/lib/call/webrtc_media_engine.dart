@@ -89,6 +89,8 @@ class WebRtcMediaEngine implements MediaEngine {
       switch (state) {
         case RTCPeerConnectionState.RTCPeerConnectionStateConnected:
           _states.add(MediaConnectionState.connected);
+        case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
+          _states.add(MediaConnectionState.disconnected);
         case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
           _states.add(MediaConnectionState.failed);
         default:
@@ -101,8 +103,11 @@ class WebRtcMediaEngine implements MediaEngine {
   }
 
   @override
-  Future<String> createOffer() async {
+  Future<String> createOffer({bool iceRestart = false}) async {
     final pc = _pc!;
+    // restartIce() makes the next offer an ICE restart on every platform
+    // (the `iceRestart` offer option is ignored by the native stacks).
+    if (iceRestart) await pc.restartIce();
     final offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     return offer.sdp!;
@@ -132,7 +137,7 @@ class WebRtcMediaEngine implements MediaEngine {
       candidate['sdpMLineIndex'] as int?,
     );
     if (_remoteDescriptionSet) {
-      await _pc?.addCandidate(iceCandidate);
+      await _addCandidate(iceCandidate);
     } else {
       _pendingCandidates.add(iceCandidate);
     }
@@ -142,9 +147,19 @@ class WebRtcMediaEngine implements MediaEngine {
   Future<void> _applyPendingCandidates() async {
     _remoteDescriptionSet = true;
     for (final candidate in _pendingCandidates) {
-      await _pc?.addCandidate(candidate);
+      await _addCandidate(candidate);
     }
     _pendingCandidates.clear();
+  }
+
+  /// A late candidate of the network path an ICE restart replaced is
+  /// refused; that's harmless.
+  Future<void> _addCandidate(RTCIceCandidate candidate) async {
+    try {
+      await _pc?.addCandidate(candidate);
+    } catch (e) {
+      debugPrint('Ignored ICE candidate: $e');
+    }
   }
 
   @override
