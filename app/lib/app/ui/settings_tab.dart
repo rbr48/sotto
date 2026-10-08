@@ -190,7 +190,7 @@ class SettingsTab extends StatelessWidget {
           ),
         ]),
         _Section('Camera, microphone and speaker', [
-          DevicePicker(controller: calls),
+          DevicePicker(controller: calls, embedded: true),
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton.icon(

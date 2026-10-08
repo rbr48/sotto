@@ -331,9 +331,18 @@ class _DraggablePreviewState extends State<DraggablePreview> {
 
 /// Camera, microphone and speaker choices (also during a call).
 class DevicePicker extends StatelessWidget {
-  const DevicePicker({super.key, required this.controller});
+  const DevicePicker({
+    super.key,
+    required this.controller,
+    this.embedded = false,
+  });
 
   final CallController controller;
+
+  /// Part of a page that scrolls (Settings): a plain column, so scrolling
+  /// over the choices scrolls the page. Otherwise (the in-call sheet) it
+  /// scrolls by itself.
+  final bool embedded;
 
   @override
   Widget build(BuildContext context) {
@@ -341,38 +350,47 @@ class DevicePicker extends StatelessWidget {
     if (devices == null) return const SizedBox.shrink();
     return ListenableBuilder(
       listenable: devices,
-      builder: (context, _) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          children: [
-            for (final kind in DeviceKind.values) ...[
-              Text(switch (kind) {
-                DeviceKind.camera => 'Camera',
-                DeviceKind.microphone => 'Microphone',
-                DeviceKind.speaker => 'Speaker',
-              }, style: Theme.of(context).textTheme.titleSmall),
-              RadioGroup<String?>(
-                groupValue: devices.effective.idFor(kind),
-                onChanged: (id) => controller.useDevice(kind, id),
-                child: Column(
-                  children: [
-                    const RadioListTile<String?>(
-                      value: null,
-                      title: Text('System default'),
+      builder: (context, _) {
+        final choices = [
+          for (final kind in DeviceKind.values) ...[
+            Text(switch (kind) {
+              DeviceKind.camera => 'Camera',
+              DeviceKind.microphone => 'Microphone',
+              DeviceKind.speaker => 'Speaker',
+            }, style: Theme.of(context).textTheme.titleSmall),
+            RadioGroup<String?>(
+              groupValue: devices.effective.idFor(kind),
+              onChanged: (id) => controller.useDevice(kind, id),
+              child: Column(
+                children: [
+                  const RadioListTile<String?>(
+                    value: null,
+                    title: Text('System default'),
+                  ),
+                  for (final device in devices.available(kind))
+                    RadioListTile<String?>(
+                      value: device.id,
+                      title: Text(device.label),
                     ),
-                    for (final device in devices.available(kind))
-                      RadioListTile<String?>(
-                        value: device.id,
-                        title: Text(device.label),
-                      ),
-                  ],
-                ),
+                ],
               ),
-            ],
+            ),
           ],
-        ),
-      ),
+        ];
+        if (embedded) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: choices,
+          );
+        }
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            children: choices,
+          ),
+        );
+      },
     );
   }
 }
