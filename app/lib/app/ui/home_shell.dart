@@ -413,6 +413,7 @@ class _LastCallCard extends StatelessWidget {
                       context: context,
                       builder: (_) => AddContactDialog(
                         safetyNumber: calls.safetyNumber,
+                        name: calls.call.peerClaimedName ?? '',
                         onSave: (name, organisation, verified) =>
                             calls.addPeerToContacts(
                               name: name,

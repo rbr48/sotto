@@ -67,7 +67,8 @@ try {
   // 3. Call from contacts; names, timer, quality.
   await clickButton(arun, 'Video call Dr Meera Rao');
   await titleIncludes(meera, 'Incoming call');
-  await meera.getByText('Unknown caller').first().waitFor();
+  // Arun isn't one of Meera's contacts: his app gives his name, marked as such.
+  await meera.getByText('Arun Mehta (not in your contacts)').first().waitFor();
   await clickButton(meera, 'Accept');
   await Promise.all([titleIncludes(arun, 'Connected'), titleIncludes(meera, 'Connected')]);
   await arun.getByText('Dr Meera Rao (Lotus Clinic)').first().waitFor();
@@ -107,7 +108,9 @@ try {
   await arun.waitForFunction((n) => document.activeElement?.value === n, note);
   await clickButton(arun, 'Save');
   await openTab(meera, 'History');
-  await meera.getByRole('button', { name: /^Unknown caller[\s\S]*Today[\s\S]*0:0\d · video/ }).waitFor();
+  await meera
+    .getByRole('button', { name: /^Arun Mehta \(not in your contacts\)[\s\S]*Today[\s\S]*0:0\d · video/ })
+    .waitFor();
   console.log('✓ both devices list the call with its talk time; the note is kept with it');
 
   // 5. App lock.

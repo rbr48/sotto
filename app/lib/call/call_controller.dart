@@ -243,6 +243,13 @@ class CallController extends ChangeNotifier {
     if (_visit case final visit? when visit.link.host == peer) {
       return (name: visit.link.hostName, guest: false);
     }
+    // Their own word, not verified: marked as such.
+    if (call.peer == peer && call.peerClaimedName != null) {
+      return (
+        name: '${call.peerClaimedName} (not in your contacts)',
+        guest: false,
+      );
+    }
     return (name: 'Unknown caller', guest: false);
   }
 
@@ -273,6 +280,11 @@ class CallController extends ChangeNotifier {
         // The network probably changed: the relay connection may be dead
         // too, and the restart offers travel through it.
         onConnectionTrouble: () => _relay?.checkConnection(),
+        // The professional's name (as in their profile), so someone who
+        // hasn't saved them as a contact still sees who is calling.
+        introduce: () => {
+          if (_hostName().trim().isNotEmpty) 'name': _hostName().trim(),
+        },
       );
       manager.addListener(_onCallChanged);
       if (history case final history?) {

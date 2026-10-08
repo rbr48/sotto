@@ -81,6 +81,7 @@ class CallState {
     this.error,
     this.autoAnswered = false,
     this.reconnecting = false,
+    this.peerClaimedName,
   });
 
   static const idle = CallState(phase: CallPhase.idle);
@@ -103,6 +104,11 @@ class CallState {
   /// (the call goes on; the media is silent meanwhile).
   final bool reconnecting;
 
+  /// The name the other person's app gave for them (in the invite or the
+  /// answer). Not verified: shown only when they aren't a contact, and
+  /// marked as such.
+  final String? peerClaimedName;
+
   bool get active => phase != CallPhase.idle && phase != CallPhase.ended;
 
   CallState copyWith({
@@ -111,6 +117,7 @@ class CallState {
     String? error,
     bool? autoAnswered,
     bool? reconnecting,
+    String? peerClaimedName,
   }) => CallState(
     phase: phase ?? this.phase,
     peer: peer,
@@ -121,7 +128,17 @@ class CallState {
     error: error ?? this.error,
     autoAnswered: autoAnswered ?? this.autoAnswered,
     reconnecting: reconnecting ?? this.reconnecting,
+    peerClaimedName: peerClaimedName ?? this.peerClaimedName,
   );
+
+  /// A name from the other side, if usable: trimmed, without control
+  /// characters, at most 80 characters.
+  static String? cleanName(Object? name) {
+    if (name is! String) return null;
+    final clean = name.replaceAll(RegExp(r'[\x00-\x1f\x7f]'), '').trim();
+    if (clean.isEmpty) return null;
+    return clean.length > 80 ? clean.substring(0, 80) : clean;
+  }
 }
 
 /// Sends an end-to-end encrypted call message to [to].
@@ -175,6 +192,7 @@ class CallManager extends ChangeNotifier {
     this.restartDelay = const Duration(seconds: 2),
     this.restartInterval = const Duration(seconds: 8),
     this.onConnectionTrouble,
+    this.introduce,
   });
 
   final CallMessageSender send;
@@ -209,6 +227,10 @@ class CallManager extends ChangeNotifier {
   /// Called when a connected call loses its path: the network probably
   /// changed, so the relay connection should be checked too.
   final void Function()? onConnectionTrouble;
+
+  /// This person's own details for the other side (e.g. `{'name': …}`),
+  /// sent end-to-end encrypted in the invite and in the answer.
+  final Map<String, Object?> Function()? introduce;
 
   CallState _state = CallState.idle;
   CallState get state => _state;
@@ -255,7 +277,11 @@ class CallManager extends ChangeNotifier {
       return;
     }
     if (!_isCurrent(callId)) return;
-    send(peer, 'call.invite', {...inviteExtras, 'video': video}, callId);
+    send(peer, 'call.invite', {
+      ...?introduce?.call(),
+      ...inviteExtras,
+      'video': video,
+    }, callId);
     _startTimer(ringTimeout, callId, () async {
       send(peer, 'call.cancel', const {}, callId);
       await _end(CallEndReason.noAnswer);
@@ -287,12 +313,10 @@ class CallManager extends ChangeNotifier {
       return;
     }
     if (!_isCurrent(callId)) return;
-    send(
-      _state.peer!,
-      'call.accept',
-      auto ? const {'auto': true} : const {},
-      callId,
-    );
+    send(_state.peer!, 'call.accept', {
+      ...?introduce?.call(),
+      if (auto) 'auto': true,
+    }, callId);
     _startTimer(connectTimeout, callId, () => _fail('Connection timed out'));
   }
 
@@ -348,6 +372,7 @@ class CallManager extends ChangeNotifier {
           peer: message.sender,
           callId: callId,
           video: message.body['video'] != false,
+          peerClaimedName: CallState.cleanName(message.body['name']),
         ),
       );
       send(message.sender, 'call.ringing', const {}, callId);
@@ -382,6 +407,7 @@ class CallManager extends ChangeNotifier {
           _state.copyWith(
             phase: CallPhase.connecting,
             autoAnswered: body['auto'] == true,
+            peerClaimedName: CallState.cleanName(body['name']),
           ),
         );
         _startTimer(

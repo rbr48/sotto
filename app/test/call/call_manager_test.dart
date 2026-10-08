@@ -10,7 +10,13 @@ import 'fakes.dart';
 /// A person with a call manager whose messages are delivered straight to
 /// the other people's managers (as the relay + envelopes would).
 class Person {
-  Person(this.name, this.identity, this.network, {this.autoAnswer}) {
+  Person(
+    this.name,
+    this.identity,
+    this.network, {
+    this.autoAnswer,
+    this.profileName,
+  }) {
     manager = CallManager(
       autoAnswer: (invite) => autoAnswer?.call(invite),
       send: (to, type, body, callId) {
@@ -26,6 +32,7 @@ class Person {
       createMedia: () => media = FakeMediaEngine(),
       newCallId: () => '$name-call-${++_calls}',
       onConnectionTrouble: () => troubles++,
+      introduce: () => {if (profileName != null) 'name': profileName},
     );
   }
 
@@ -33,6 +40,7 @@ class Person {
   final Identity identity;
   final Network network;
   AutoAnswer? Function(OpenedMessage invite)? autoAnswer;
+  String? profileName;
   late final CallManager manager;
   FakeMediaEngine? media;
   final sent = <String>[];
@@ -621,6 +629,33 @@ void main() {
         expect(alice.endReason, CallEndReason.failed);
         expect(bob.endReason, CallEndReason.remoteHungUp);
       });
+    });
+  });
+
+  test('each side learns the name the other gives (not verified)', () {
+    fakeAsync((async) {
+      final (:network, :alice, :bob, carol: _) = setup();
+      alice.profileName = 'Dr Alice Rao';
+      bob.profileName = '  Bob\u0007 Mehta ';
+      alice.manager.call(bob.public);
+      async.flushMicrotasks();
+      expect(bob.manager.state.peerClaimedName, 'Dr Alice Rao');
+      bob.manager.accept();
+      async.flushMicrotasks();
+      expect(alice.manager.state.peerClaimedName, 'Bob Mehta');
+    });
+  });
+
+  test('no profile, no name; long names are cut', () {
+    expect(CallState.cleanName(null), isNull);
+    expect(CallState.cleanName('   '), isNull);
+    expect(CallState.cleanName(42), isNull);
+    expect(CallState.cleanName('x' * 200), hasLength(80));
+    fakeAsync((async) {
+      final (:network, :alice, :bob, carol: _) = setup();
+      alice.manager.call(bob.public);
+      async.flushMicrotasks();
+      expect(bob.manager.state.peerClaimedName, isNull);
     });
   });
 }
