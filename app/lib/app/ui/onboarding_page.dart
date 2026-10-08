@@ -67,9 +67,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
                 elevation: 0,
                 scrolledUnderElevation: 0,
                 actions: [
-                  HeaderDownloadsAction(
-                    allDownloads: app.server.web.resolve('downloads.html'),
-                  ),
+                  HeaderDownloadsAction(),
                   const SizedBox(width: 8),
                 ],
               )
@@ -134,6 +132,15 @@ class _OnboardingPageState extends State<OnboardingPage> {
                     ),
                   ],
                 },
+                if (kIsWeb) ...[
+                  const SizedBox(height: 32),
+                  _WebFooter(
+                    app: app,
+                    onWebTap: _step == _Step.welcome
+                        ? null
+                        : () => setState(() => _step = _Step.welcome),
+                  ),
+                ],
               ],
             ),
           ),
@@ -212,17 +219,6 @@ class _OnboardingPageState extends State<OnboardingPage> {
             label: const Text('Linux'),
           ),
         ],
-      ),
-      const SizedBox(height: 8),
-      Center(
-        child: TextButton.icon(
-          onPressed: () => launchUrl(
-            app.server.web.resolve('downloads.html'),
-            mode: LaunchMode.externalApplication,
-          ),
-          icon: const Icon(Icons.open_in_new, size: 16),
-          label: const Text('All downloads & checksums'),
-        ),
       ),
     ],
   ];
@@ -325,6 +321,56 @@ class _Feature extends StatelessWidget {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WebFooter extends StatelessWidget {
+  const _WebFooter({required this.app, this.onWebTap});
+
+  final AppController app;
+  final VoidCallback? onWebTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final linkStyle = theme.textTheme.bodyMedium?.copyWith(
+      color: theme.colorScheme.primary,
+      fontWeight: FontWeight.w500,
+    );
+    final dotStyle = theme.textTheme.bodyMedium?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+    );
+
+    Widget link(String label, Uri uri, {VoidCallback? onTap}) => InkWell(
+      onTap: onTap ??
+          () => launchUrl(uri, mode: LaunchMode.externalApplication),
+      borderRadius: BorderRadius.circular(4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Text(label, style: linkStyle),
+      ),
+    );
+
+    Widget dot() => Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Text('·', style: dotStyle),
+    );
+
+    return Center(
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          link('Web App', app.server.web, onTap: onWebTap),
+          dot(),
+          link('Privacy Policy', app.server.web.resolve('privacy.html')),
+          dot(),
+          link('Terms of Use', app.server.web.resolve('terms.html')),
+          dot(),
+          link('GitHub', Uri.parse('https://github.com/rbr48/sotto')),
         ],
       ),
     );

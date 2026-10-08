@@ -11,4 +11,7 @@ abstract final class Downloads {
 
   /// Runs on most distributions; a .deb and a tar.gz are on the release page.
   static final linux = Uri.parse('${_latest}sotto-linux-x86_64.AppImage');
+
+  /// All platform downloads and checksums on the website.
+  static final all = Uri.parse('https://sottocall.com/#download');
 }

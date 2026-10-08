@@ -20,8 +20,10 @@
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
 		Referrer-Policy "no-referrer"
 		Permissions-Policy "camera=(self), microphone=(self), display-capture=(self)"
+		Content-Security-Policy "default-src 'none'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' wss: https:; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
 		-Server
 	}
 
@@ -40,8 +42,8 @@
 		}
 	}
 
-	@download_page path /download /download/ /downloads /downloads/
-	redir @download_page /downloads.html
+	@download_page path /download /download/ /downloads /downloads/ /downloads.html
+	redir @download_page https://sottocall.com/#download 308
 
 	handle {
 		# The app's files keep their names from one version to the next:
@@ -53,7 +55,7 @@
 		try_files {path} {path}.html /index.html
 		# The privacy policy and terms name the operator (SOTTO_OPERATOR,
 		# SOTTO_CONTACT from .env).
-		@legal path /privacy.html /terms.html /downloads.html
+		@legal path /privacy.html /terms.html
 		templates @legal
 		file_server
 	}

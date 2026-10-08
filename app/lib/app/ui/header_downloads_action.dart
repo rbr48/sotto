@@ -10,9 +10,10 @@ import '../../core/downloads.dart';
 /// Windows, and Linux. On narrow screens, collapses into a compact dropdown
 /// menu button.
 class HeaderDownloadsAction extends StatelessWidget {
-  const HeaderDownloadsAction({super.key, required this.allDownloads});
+  HeaderDownloadsAction({super.key, Uri? allDownloads})
+      : allDownloads = allDownloads ?? Downloads.all;
 
-  /// The server's downloads page, with every file and its checksum.
+  /// The downloads page or website, with every file and its checksum.
   final Uri allDownloads;
 
   @override

@@ -98,10 +98,11 @@
   .dl { display: grid; gap: 18px; grid-template-columns: repeat(4, 1fr); }
   @media (max-width: 960px) { .dl { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 560px) { .dl { grid-template-columns: 1fr; } }
-  .dl .card { display: flex; flex-direction: column; }
-  .dl .card .btn { margin-top: auto; width: 100%; padding: 12px 14px; white-space: nowrap; }
-  .dl .card p { margin-bottom: 18px; }
-  .dl .more { display: block; text-align: center; margin-top: 10px; font-size: .88rem; }
+  .dl .card { display: flex; flex-direction: column; justify-content: space-between; }
+  .dl .card p { margin-bottom: 20px; flex: 1 0 auto; }
+  .dl .actions { margin-top: auto; display: flex; flex-direction: column; }
+  .dl .card .btn { width: 100%; padding: 12px 14px; white-space: nowrap; }
+  .dl .more { display: block; text-align: center; margin-top: 10px; font-size: .88rem; line-height: 1.4; min-height: 1.4em; }
 
   .facts { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
   @media (max-width: 720px) { .facts { grid-template-columns: 1fr; } }
@@ -215,27 +216,37 @@
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/></svg></div>
         <h3>Android</h3>
         <p>Android 7 or newer. Rings even when the app is closed.</p>
-        <a class="btn primary" href="https://github.com/rbr48/sotto/releases/latest/download/sotto-android.apk">Get the APK</a>
+        <div class="actions">
+          <a class="btn primary" href="https://github.com/rbr48/sotto/releases/latest/download/sotto-android.apk">Get the APK</a>
+          <a class="more" href="https://github.com/rbr48/sotto/releases/latest/download/SHA256SUMS.txt">SHA-256 checksums</a>
+        </div>
       </div>
       <div class="card">
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5 10 4.5v7H3zM12 4.2 21 3v8.5h-9zM3 13h7v7l-7-1zM12 13h9v8l-9-1.2z"/></svg></div>
         <h3>Windows</h3>
         <p>Windows 10 and 11, 64-bit. Waits in the tray for calls.</p>
-        <a class="btn primary" href="https://github.com/rbr48/sotto/releases/latest/download/sotto-windows-x64-setup.exe">Get installer</a>
-        <a class="more" href="https://github.com/rbr48/sotto/releases/latest/download/sotto-windows-x64.zip">Portable .zip</a>
+        <div class="actions">
+          <a class="btn primary" href="https://github.com/rbr48/sotto/releases/latest/download/sotto-windows-x64-setup.exe">Get installer</a>
+          <a class="more" href="https://github.com/rbr48/sotto/releases/latest/download/sotto-windows-x64.zip">Portable .zip</a>
+        </div>
       </div>
       <div class="card">
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6M12 19h8"/></svg></div>
         <h3>Linux</h3>
         <p>64-bit, Ubuntu 22.04 / Debian 12 or newer.</p>
-        <a class="btn primary" href="https://github.com/rbr48/sotto/releases/latest/download/sotto-linux-x86_64.AppImage">Get AppImage</a>
-        <a class="more" href="https://github.com/rbr48/sotto/releases/latest/download/sotto-linux-amd64.deb">.deb for Ubuntu and Debian</a>
+        <div class="actions">
+          <a class="btn primary" href="https://github.com/rbr48/sotto/releases/latest/download/sotto-linux-x86_64.AppImage">Get AppImage</a>
+          <a class="more" href="https://github.com/rbr48/sotto/releases/latest/download/sotto-linux-amd64.deb">.deb for Ubuntu and Debian</a>
+        </div>
       </div>
       <div class="card">
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></div>
         <h3>Browser</h3>
         <p>Chrome, Edge, Firefox or Safari. Nothing to install.</p>
-        <a class="btn ghost" href="https://call.sottocall.com/">Open Sotto</a>
+        <div class="actions">
+          <a class="btn primary" href="https://call.sottocall.com/">Open Sotto</a>
+          <a class="more" href="https://call.sottocall.com/">call.sottocall.com</a>
+        </div>
       </div>
     </div>
     <p class="fine">Windows may warn about an unknown publisher until the app is code-signed: choose “More info”, then “Run anyway”.

@@ -161,9 +161,7 @@ class _HomeShellState extends State<HomeShell> {
               icon: const Icon(Icons.lock_outline),
             ),
           if (kIsWeb) ...[
-            HeaderDownloadsAction(
-              allDownloads: app.server.web.resolve('downloads.html'),
-            ),
+            HeaderDownloadsAction(),
             const SizedBox(width: 8),
           ],
           if (narrow)

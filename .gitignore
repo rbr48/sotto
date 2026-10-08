@@ -1,0 +1,32 @@
+# Sotto root .gitignore
+# Environment & credentials
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.crt
+*.jks
+*.keystore
+*.p12
+*.pfx
+
+# Logs & temp files
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+/build/
+/.dart_tool/
+/downloads/
+/dist/
+node_modules/
+
+# IDE & Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

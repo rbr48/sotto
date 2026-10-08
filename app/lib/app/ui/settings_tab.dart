@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../android/android_integration.dart';
 import '../../call/call_controller.dart';
+import '../../core/downloads.dart';
 import '../../core/server_address.dart';
 import '../../core/ui_kit.dart';
 import '../../core/version.dart';
@@ -311,7 +312,7 @@ class SettingsTab extends StatelessWidget {
             title: const Text('Download apps'),
             subtitle: const Text('Get Sotto for Android, Windows, and Linux.'),
             onTap: () => launchUrl(
-              app.server.web.resolve('downloads.html'),
+              Downloads.all,
               mode: LaunchMode.externalApplication,
             ),
           ),
