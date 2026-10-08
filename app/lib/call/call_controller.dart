@@ -10,6 +10,7 @@ import '../core/network_events.dart';
 import '../core/test_hooks.dart';
 import '../crypto/encoding.dart';
 import '../crypto/sotto_crypto.dart';
+import '../diagnostics/event_log.dart';
 import '../guest/guest_host.dart';
 import '../guest/guest_link.dart';
 import '../guest/guest_visit.dart';
@@ -323,6 +324,10 @@ class CallController extends ChangeNotifier {
       _subscriptions
         ..add(
           relay.statusChanges.listen((status) {
+            EventLog.instance.add(
+              'relay ${status.name}'
+              '${status == RelayStatus.offline && relay.lastError != null ? ' (last error: ${relay.lastError})' : ''}',
+            );
             // Back online: a call that is reconnecting tries again now.
             if (status == RelayStatus.online) {
               unawaited(manager.networkChanged());
@@ -544,8 +549,26 @@ class CallController extends ChangeNotifier {
     unawaited(manager.handle(opened));
   }
 
+  CallPhase _loggedPhase = CallPhase.idle;
+
+  /// The call's states for the diagnostic report (never who).
+  void _logCall(CallState call) {
+    if (call.phase != _loggedPhase) {
+      _loggedPhase = call.phase;
+      final kind = call.video ? 'video' : 'voice';
+      final direction = call.outgoing ? 'outgoing' : 'incoming';
+      EventLog.instance.add(switch (call.phase) {
+        CallPhase.ended =>
+          'call ended: ${call.endReason?.name}'
+              '${call.error != null ? ' (${call.error})' : ''}',
+        _ => 'call ${call.phase.name} ($direction $kind)',
+      });
+    }
+  }
+
   void _onCallChanged() {
     final call = this.call;
+    _logCall(call);
     if (call.phase == CallPhase.connecting && autoAnswered) {
       publishForTests('auto-answered', 'true');
     }
@@ -565,6 +588,9 @@ class CallController extends ChangeNotifier {
     }
     if (call.reconnecting != _reconnecting) {
       _reconnecting = call.reconnecting;
+      EventLog.instance.add(
+        _reconnecting ? 'call lost its path: reconnecting' : 'call reconnected',
+      );
       publishForTests('reconnecting', '$_reconnecting');
       if (!_reconnecting && call.phase == CallPhase.connected) {
         // The new path may differ (e.g. relayed instead of direct).
@@ -596,6 +622,7 @@ class CallController extends ChangeNotifier {
     final quality = sample?.quality;
     if (quality != null && quality != _quality) {
       _quality = quality;
+      EventLog.instance.add('call quality: ${quality.name}');
       publishForTests('quality', quality.name);
       notifyListeners();
     }
@@ -611,6 +638,7 @@ class CallController extends ChangeNotifier {
       final route = await _manager?.media?.currentRoute();
       if (route != null) {
         _route = route;
+        EventLog.instance.add('call route: ${route.name}');
         publishForTests('route', route.name);
         notifyListeners();
         return;

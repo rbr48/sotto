@@ -50,6 +50,16 @@ class FakeAndroid implements AndroidPlatform {
 
   @override
   Future<void> callFinished() async => log.add('call finished');
+
+  @override
+  Future<void> startCallService({
+    required String title,
+    required String name,
+    DateTime? since,
+  }) async => log.add('call service: $title / $name / ${since != null}');
+
+  @override
+  Future<void> stopCallService() async => log.add('call service stopped');
 }
 
 void main() {

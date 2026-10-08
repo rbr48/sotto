@@ -19,6 +19,9 @@ import 'android_platform.dart';
 ///   ringtone, so silent mode and Do Not Disturb apply), and a knocking
 ///   guest shows a notification. Names only if the user chose so, never
 ///   while the app is locked.
+/// - During a call, a microphone service (`CallService.kt`) with an
+///   "Ongoing call" notification keeps the call going when the user leaves
+///   the app (Android mutes the microphone of background apps otherwise).
 class AndroidIntegration extends ChangeNotifier {
   AndroidIntegration(this.app, {AndroidPlatform? platform})
     : _platform = platform ?? MethodChannelAndroid();
@@ -37,6 +40,9 @@ class AndroidIntegration extends ChangeNotifier {
   CallController? _watched;
   bool _ringing = false;
   bool _wasActive = false;
+
+  /// What the ongoing-call service last showed (to update it only on change).
+  (String, String, DateTime?)? _callService;
   StreamSubscription<String>? _actions;
   final _callSubscriptions = <StreamSubscription<Object?>>[];
 
@@ -137,10 +143,43 @@ class AndroidIntegration extends ChangeNotifier {
   }
 
   void _onCallChanged() {
-    final call = _watched?.call ?? CallState.idle;
+    final calls = _watched;
+    final call = calls?.call ?? CallState.idle;
     if (_ringing && call.phase != CallPhase.incoming) _stopRinging();
     if (_wasActive && !call.active) unawaited(_platform.callFinished());
     _wasActive = call.active;
+    _updateCallService(calls, call);
+  }
+
+  /// The microphone is in use from the start of an outgoing call, and from
+  /// answering an incoming one, until the call ends.
+  void _updateCallService(CallController? calls, CallState call) {
+    final usesMicrophone = switch (call.phase) {
+      CallPhase.calling || CallPhase.ringing => true,
+      CallPhase.connecting || CallPhase.connected => true,
+      _ => false,
+    };
+    if (calls == null || !usesMicrophone) {
+      if (_callService != null) {
+        _callService = null;
+        unawaited(_platform.stopCallService());
+      }
+      return;
+    }
+    final shown = (
+      call.video ? 'Video call' : 'Voice call',
+      app.desktopPrefs.showNames && !app.lock.locked ? calls.peerName : 'Sotto',
+      calls.connectedAt,
+    );
+    if (shown == _callService) return;
+    _callService = shown;
+    unawaited(
+      _platform.startCallService(
+        title: shown.$1,
+        name: shown.$2,
+        since: shown.$3,
+      ),
+    );
   }
 
   void _stopRinging() {
@@ -158,6 +197,8 @@ class AndroidIntegration extends ChangeNotifier {
       case 'decline':
         _ringing = false;
         unawaited(calls.decline());
+      case 'hangUp':
+        unawaited(calls.hangUp());
     }
   }
 

@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../call/call_controller.dart';
 import '../../call/call_manager.dart';
 import '../../call/ui/common.dart';
 import '../../contacts/ui/contact_dialogs.dart';
 import '../../contacts/ui/contacts_tab.dart';
+import '../../core/update_check.dart';
+import '../../core/version.dart';
 import '../../crypto/identity.dart';
 import '../../guest/ui/host_widgets.dart';
 import '../../history/ui/history_tab.dart';
@@ -36,12 +39,19 @@ class _HomeShellState extends State<HomeShell> {
   Widget build(BuildContext context) {
     final app = widget.app;
     final calls = widget.calls;
-    final body = switch (_tab) {
+    final tab = switch (_tab) {
       0 => HomeTab(app: app, calls: calls),
       1 => ContactsTab(app: app, calls: calls),
       2 => HistoryTab(app: app, calls: calls),
       _ => SettingsTab(app: app, calls: calls),
     };
+    final body = Column(
+      children: [
+        if (app.availableUpdate case final update?)
+          UpdateBanner(update: update, onLater: app.dismissUpdate),
+        Expanded(child: tab),
+      ],
+    );
     final theme = Theme.of(context);
     final wide = MediaQuery.sizeOf(context).width >= 760;
     final waiting = calls.guestHost?.waiting.length ?? 0;
@@ -422,4 +432,29 @@ class _LastCallCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// "Sotto 0.1.3 is available": opens the release page (the app never
+/// downloads or installs anything by itself).
+class UpdateBanner extends StatelessWidget {
+  const UpdateBanner({super.key, required this.update, required this.onLater});
+
+  final UpdateInfo update;
+  final VoidCallback onLater;
+
+  @override
+  Widget build(BuildContext context) => MaterialBanner(
+    leading: const Icon(Icons.system_update_alt),
+    content: Text(
+      'Sotto ${update.version} is available. You have $sottoVersion.',
+    ),
+    actions: [
+      TextButton(onPressed: onLater, child: const Text('Not now')),
+      FilledButton.tonal(
+        onPressed: () =>
+            launchUrl(update.url, mode: LaunchMode.externalApplication),
+        child: const Text('Download'),
+      ),
+    ],
+  );
 }

@@ -31,6 +31,7 @@ class DesktopPrefs {
     this.showNames = false,
     this.startAtLogin = false,
     this.ringWhenClosed = true,
+    this.checkUpdates = true,
   });
 
   /// Closing the window keeps Sotto running in the system tray, so calls
@@ -52,18 +53,24 @@ class DesktopPrefs {
   /// guests still ring.
   final bool ringWhenClosed;
 
+  /// Native apps: ask the release page once a day whether a newer version
+  /// exists (see [UpdateChecker]).
+  final bool checkUpdates;
+
   DesktopPrefs copyWith({
     bool? keepInTray,
     bool? notifications,
     bool? showNames,
     bool? startAtLogin,
     bool? ringWhenClosed,
+    bool? checkUpdates,
   }) => DesktopPrefs(
     keepInTray: keepInTray ?? this.keepInTray,
     notifications: notifications ?? this.notifications,
     showNames: showNames ?? this.showNames,
     startAtLogin: startAtLogin ?? this.startAtLogin,
     ringWhenClosed: ringWhenClosed ?? this.ringWhenClosed,
+    checkUpdates: checkUpdates ?? this.checkUpdates,
   );
 
   String encode() => jsonEncode({
@@ -72,6 +79,7 @@ class DesktopPrefs {
     'names': showNames,
     'login': startAtLogin,
     'ring': ringWhenClosed,
+    'updates': checkUpdates,
   });
 
   static DesktopPrefs decode(String? stored) {
@@ -84,6 +92,7 @@ class DesktopPrefs {
         showNames: json['names'] as bool? ?? false,
         startAtLogin: json['login'] as bool? ?? false,
         ringWhenClosed: json['ring'] as bool? ?? true,
+        checkUpdates: json['updates'] as bool? ?? true,
       );
     } catch (_) {
       return const DesktopPrefs();

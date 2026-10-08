@@ -6,6 +6,7 @@ import 'package:sodium/sodium.dart';
 
 import '../android/android_integration.dart';
 import '../call/call_controller.dart';
+import '../core/update_check.dart';
 import '../call/devices.dart';
 import '../contacts/contact_book.dart';
 import '../core/leave_warning.dart';
@@ -82,7 +83,10 @@ class AppController extends ChangeNotifier {
     DeviceLister Function()? deviceLister,
     BrowserStorageBackend? browserStorage,
     this.startCalls = true,
-  }) : _deviceLister = deviceLister ?? WebRtcDeviceLister.new,
+    UpdateChecker? updateChecker,
+  }) : _updates =
+           updateChecker ?? (kIsWeb || !startCalls ? null : UpdateChecker()),
+       _deviceLister = deviceLister ?? WebRtcDeviceLister.new,
        _browser = browserStorage ?? defaultBrowserStorage(),
        _persistent = persistent ?? !kIsWeb,
        _keystore =
@@ -101,6 +105,9 @@ class AppController extends ChangeNotifier {
   static const String pinKeyName = 'sotto.lock.key.v1';
 
   static const String desktopKey = 'sotto.settings.desktop';
+
+  /// The release the user chose not to be reminded of.
+  static const String updateDismissedKey = 'sotto.update.dismissed';
 
   /// A server chosen by the user instead of the built-in one.
   static const String serverKey = 'sotto.server.v1';
@@ -122,7 +129,7 @@ class AppController extends ChangeNotifier {
   bool get persistent => _persistent;
   bool _persistent;
 
-  /// Tests can skip connecting to a relay.
+  /// Tests can skip connecting to a relay (and checking for updates).
   final bool startCalls;
 
   SecretStore _keystore;
@@ -193,9 +200,56 @@ class AppController extends ChangeNotifier {
   DesktopPrefs get desktopPrefs => _desktopPrefs;
 
   Future<void> setDesktopPrefs(DesktopPrefs prefs) async {
+    final updatesChanged = prefs.checkUpdates != _desktopPrefs.checkUpdates;
     _desktopPrefs = prefs;
+    if (updatesChanged) _scheduleUpdateChecks();
     notifyListeners();
     await _vault?.write(desktopKey, prefs.encode());
+  }
+
+  /// `null` in the browser (its server always serves the current version).
+  final UpdateChecker? _updates;
+  Timer? _updateTimer;
+  UpdateInfo? _update;
+  String? _dismissedUpdate;
+
+  /// A newer release, unless the user dismissed it.
+  UpdateInfo? get availableUpdate =>
+      _update?.version == _dismissedUpdate ? null : _update;
+
+  /// Whether this app can check for updates (native apps).
+  bool get canCheckUpdates => _updates?.endpoint != null;
+
+  /// Now, then once a day, while "Check for updates" is on.
+  void _scheduleUpdateChecks() {
+    _updateTimer?.cancel();
+    _updateTimer = null;
+    if (!canCheckUpdates || !_desktopPrefs.checkUpdates) {
+      _update = null;
+      return;
+    }
+    unawaited(checkForUpdates());
+    _updateTimer = Timer.periodic(
+      const Duration(days: 1),
+      (_) => unawaited(checkForUpdates()),
+    );
+  }
+
+  Future<void> checkForUpdates() async {
+    final update = await _updates?.check();
+    if (update?.version != _update?.version) {
+      _update = update;
+      notifyListeners();
+    }
+  }
+
+  /// "Not now": no reminder for this version (the next one shows again).
+  Future<void> dismissUpdate() async {
+    final version = _update?.version;
+    if (version == null) return;
+    _dismissedUpdate = version;
+    notifyListeners();
+    await _vault?.write(updateDismissedKey, version);
   }
 
   /// The built-in server (from the build configuration).
@@ -284,6 +338,7 @@ class AppController extends ChangeNotifier {
     await history.load();
     _profile = Profile.decode(await vault.read(profileKey));
     _desktopPrefs = DesktopPrefs.decode(await vault.read(desktopKey));
+    _dismissedUpdate = await vault.read(updateDismissedKey);
     _customServer = canChangeServer
         ? ServerAddress.decode(await vault.read(serverKey))
         : null;
@@ -406,6 +461,7 @@ class AppController extends ChangeNotifier {
     }
     publishForTests('stage', 'ready');
     _setStage(AppStage.ready);
+    _scheduleUpdateChecks();
   }
 
   /// Switches to another server (`null` = the built-in one) and reconnects.
@@ -528,6 +584,7 @@ class AppController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _updateTimer?.cancel();
     _purgeTimer?.cancel();
     _calls?.dispose();
     _identity?.dispose();
