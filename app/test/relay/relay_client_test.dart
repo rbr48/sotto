@@ -17,7 +17,13 @@ class FakeRelay {
   final sockets = <WebSocket>[];
   final received = <Map<String, dynamic>>[];
   final loggedIn = <String>[];
+  final _muted = <WebSocket>{};
   int iceIssued = 0;
+  int pings = 0;
+
+  /// The current connections stop answering anything, as after a network
+  /// change (new connections work).
+  void muteExisting() => _muted.addAll(sockets);
 
   List<Map<String, Object>> nextIce() => [
     {
@@ -41,7 +47,13 @@ class FakeRelay {
       final nonce = sodium.randombytes.buf(32);
       socket.add(jsonEncode({'type': 'challenge', 'nonce': b64Encode(nonce)}));
       socket.listen((raw) {
+        if (_muted.contains(socket)) return;
         final message = jsonDecode(raw as String) as Map<String, dynamic>;
+        if (message['type'] == 'ping') {
+          pings++;
+          socket.add(jsonEncode({'type': 'pong'}));
+          return;
+        }
         if (message['type'] == 'ice') {
           socket.add(jsonEncode({'type': 'ice', 'ice': nextIce()}));
           return;
@@ -110,12 +122,18 @@ void main() {
     await relay.stop();
   });
 
-  RelayClient newClient({DateTime Function()? clock}) => client = RelayClient(
+  RelayClient newClient({
+    DateTime Function()? clock,
+    Duration backoff = const Duration(milliseconds: 20),
+    Duration pingInterval = const Duration(seconds: 25),
+  }) => client = RelayClient(
     url: relay.url,
     sodium: sodium,
     identity: identity,
-    backoff: (_) => const Duration(milliseconds: 20),
+    backoff: (_) => backoff,
     clock: clock,
+    pingInterval: pingInterval,
+    pingTimeout: const Duration(milliseconds: 100),
   );
 
   test(
@@ -180,6 +198,50 @@ void main() {
         RelayStatus.offline,
         RelayStatus.online,
       ]),
+    );
+  });
+
+  test('pings a quiet connection and keeps it while it answers', () async {
+    final c = newClient(pingInterval: const Duration(milliseconds: 50));
+    c.start();
+    await eventually(() => relay.pings >= 3);
+    expect(c.status, RelayStatus.online);
+    expect(relay.loggedIn, hasLength(1));
+  });
+
+  test(
+    'a connection that stops answering is replaced (network change)',
+    () async {
+      final c = newClient(pingInterval: const Duration(milliseconds: 50));
+      c.start();
+      await eventually(() => c.status == RelayStatus.online);
+      relay.muteExisting();
+      await eventually(
+        () => relay.loggedIn.length == 2 && c.status == RelayStatus.online,
+      );
+    },
+  );
+
+  test('checkConnection notices a dead connection right away', () async {
+    final c = newClient();
+    c.start();
+    await eventually(() => c.status == RelayStatus.online);
+    relay.muteExisting();
+    c.checkConnection(timeout: const Duration(milliseconds: 100));
+    await eventually(
+      () => relay.loggedIn.length == 2 && c.status == RelayStatus.online,
+    );
+  });
+
+  test('checkConnection reconnects at once while offline', () async {
+    final c = newClient(backoff: const Duration(minutes: 5));
+    c.start();
+    await eventually(() => c.status == RelayStatus.online);
+    await relay.dropConnections();
+    await eventually(() => c.status == RelayStatus.offline);
+    c.checkConnection();
+    await eventually(
+      () => relay.loggedIn.length == 2 && c.status == RelayStatus.online,
     );
   });
 

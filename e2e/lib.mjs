@@ -198,7 +198,7 @@ export function assertRelaySawOnlyCiphertext(assert, extraLeaks = []) {
   for (const frame of framesToRelay) {
     const message = JSON.parse(frame);
     assert.ok(
-      ['auth', 'send', 'ice'].includes(message.type),
+      ['auth', 'send', 'ice', 'ping'].includes(message.type),
       `unexpected frame type ${message.type}`,
     );
     for (const leak of ['v=0', 'a=fingerprint', 'candidate:', 'sdp.', 'call.', 'guest.', 'video', ...extraLeaks]) {

@@ -25,6 +25,7 @@ class Person {
       },
       createMedia: () => media = FakeMediaEngine(),
       newCallId: () => '$name-call-${++_calls}',
+      onConnectionTrouble: () => troubles++,
     );
   }
 
@@ -35,10 +36,12 @@ class Person {
   late final CallManager manager;
   FakeMediaEngine? media;
   final sent = <String>[];
+  int troubles = 0;
   int _calls = 0;
 
   PublicIdentity get public => identity.publicIdentity;
   CallPhase get phase => manager.state.phase;
+  bool get reconnecting => manager.state.reconnecting;
   CallEndReason? get endReason => manager.state.endReason;
 }
 
@@ -458,5 +461,166 @@ void main() {
         });
       },
     );
+  });
+
+  group('reconnecting a connected call', () {
+    /// Alice calls Bob and both connect.
+    ({Network network, Person alice, Person bob}) connected(FakeAsync async) {
+      final (:network, :alice, :bob, carol: _) = setup();
+      alice.manager.call(bob.public);
+      async.flushMicrotasks();
+      bob.manager.accept();
+      async.flushMicrotasks();
+      alice.media!.emitState(MediaConnectionState.connected);
+      bob.media!.emitState(MediaConnectionState.connected);
+      async.flushMicrotasks();
+      expect(alice.phase, CallPhase.connected);
+      expect(bob.phase, CallPhase.connected);
+      alice.media!.log.clear();
+      bob.media!.log.clear();
+      return (network: network, alice: alice, bob: bob);
+    }
+
+    test(
+      'both lose the path: the caller restarts ICE and the call goes on',
+      () {
+        fakeAsync((async) {
+          final (network: _, :alice, :bob) = connected(async);
+          alice.media!.emitState(MediaConnectionState.disconnected);
+          bob.media!.emitState(MediaConnectionState.disconnected);
+          async.flushMicrotasks();
+          expect(alice.reconnecting && bob.reconnecting, isTrue);
+          expect(alice.phase, CallPhase.connected);
+          expect(alice.troubles, 1, reason: 'the relay connection is checked');
+          expect(alice.media!.log, isEmpty, reason: 'it may recover by itself');
+
+          async.elapse(const Duration(seconds: 2));
+          expect(alice.media!.log, [
+            'createOffer(iceRestart)',
+            'acceptAnswer(answer-to-restart-offer-1)',
+          ]);
+          expect(bob.media!.log, ['acceptOffer(restart-offer-1)']);
+          expect(
+            alice.media!.log.where((e) => e.startsWith('createOffer')),
+            hasLength(1),
+            reason: "Bob's request arrived within a second of Alice's offer",
+          );
+
+          alice.media!.emitState(MediaConnectionState.connected);
+          bob.media!.emitState(MediaConnectionState.connected);
+          async.flushMicrotasks();
+          expect(alice.reconnecting || bob.reconnecting, isFalse);
+
+          // No retries or timeouts after recovering.
+          async.elapse(const Duration(minutes: 2));
+          expect(alice.phase, CallPhase.connected);
+          expect(bob.phase, CallPhase.connected);
+          expect(alice.media!.log, hasLength(2));
+        });
+      },
+    );
+
+    test('a connection that recovers by itself needs no restart', () {
+      fakeAsync((async) {
+        final (network: _, :alice, :bob) = connected(async);
+        alice.media!.emitState(MediaConnectionState.disconnected);
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 1));
+        alice.media!.emitState(MediaConnectionState.connected);
+        async.flushMicrotasks();
+        async.elapse(const Duration(minutes: 1));
+        expect(alice.reconnecting, isFalse);
+        expect(alice.media!.log, isEmpty);
+        expect(alice.phase, CallPhase.connected);
+      });
+    });
+
+    test('only the callee lost it: it asks the caller to restart', () {
+      fakeAsync((async) {
+        final (network: _, :alice, :bob) = connected(async);
+        bob.media!.emitState(MediaConnectionState.failed);
+        async.flushMicrotasks();
+        expect(bob.reconnecting, isTrue);
+        expect(bob.sent.last, 'sdp.answer');
+        async.elapse(Duration.zero);
+        expect(bob.sent, contains('call.restart'));
+        expect(alice.media!.log, [
+          'createOffer(iceRestart)',
+          'acceptAnswer(answer-to-restart-offer-1)',
+        ]);
+        expect(alice.reconnecting, isFalse);
+        bob.media!.emitState(MediaConnectionState.connected);
+        async.flushMicrotasks();
+        expect(bob.reconnecting, isFalse);
+      });
+    });
+
+    test('keeps trying while the other side is unreachable, then gives up', () {
+      fakeAsync((async) {
+        final (:network, :alice, :bob) = connected(async);
+        network.people.remove(bob.identity.id);
+        alice.media!.emitState(MediaConnectionState.failed);
+        async.flushMicrotasks();
+        async.elapse(Duration.zero);
+        expect(alice.media!.log, ['createOffer(iceRestart)']);
+        async.elapse(const Duration(seconds: 8));
+        async.elapse(const Duration(seconds: 8));
+        expect(
+          alice.media!.log.where((e) => e == 'createOffer(iceRestart)'),
+          hasLength(3),
+        );
+        expect(alice.phase, CallPhase.connected);
+
+        async.elapse(const Duration(seconds: 30));
+        expect(alice.phase, CallPhase.ended);
+        expect(alice.endReason, CallEndReason.failed);
+        expect(alice.manager.state.error, 'Connection lost');
+        expect(alice.reconnecting, isFalse);
+        expect(alice.sent.last, 'call.end');
+      });
+    });
+
+    test('networkChanged retries at once; old answers are ignored', () {
+      fakeAsync((async) {
+        final (:network, :alice, :bob) = connected(async);
+        network.people.remove(bob.identity.id);
+        alice.media!.emitState(MediaConnectionState.failed);
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 3));
+        alice.manager.networkChanged();
+        async.flushMicrotasks();
+        expect(
+          alice.media!.log.where((e) => e == 'createOffer(iceRestart)'),
+          hasLength(2),
+        );
+
+        // Bob's answer to the first offer arrives late.
+        alice.manager.handle(
+          OpenedMessage(
+            sender: bob.public,
+            type: 'sdp.answer',
+            body: {'sdp': 'stale-answer', 'restart': 1},
+            sentAt: DateTime.now(),
+            callId: alice.manager.state.callId,
+          ),
+        );
+        async.flushMicrotasks();
+        expect(alice.media!.log, isNot(contains('acceptAnswer(stale-answer)')));
+      });
+    });
+
+    test('a call that is still connecting fails as before', () {
+      fakeAsync((async) {
+        final (:network, :alice, :bob, carol: _) = setup();
+        alice.manager.call(bob.public);
+        async.flushMicrotasks();
+        bob.manager.accept();
+        async.flushMicrotasks();
+        alice.media!.emitState(MediaConnectionState.failed);
+        async.flushMicrotasks();
+        expect(alice.endReason, CallEndReason.failed);
+        expect(bob.endReason, CallEndReason.remoteHungUp);
+      });
+    });
   });
 }

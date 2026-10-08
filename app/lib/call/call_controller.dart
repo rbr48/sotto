@@ -6,6 +6,7 @@ import 'package:sodium/sodium.dart';
 
 import '../contacts/contact_book.dart';
 import '../contacts/contact_link.dart';
+import '../core/network_events.dart';
 import '../core/test_hooks.dart';
 import '../crypto/encoding.dart';
 import '../crypto/sotto_crypto.dart';
@@ -174,6 +175,7 @@ class CallController extends ChangeNotifier {
   MediaRoute? get route => _route;
 
   CallQuality? _quality;
+  bool _reconnecting = false;
 
   /// Connection quality of the current call, from local statistics.
   CallQuality? get quality => _quality;
@@ -249,6 +251,9 @@ class CallController extends ChangeNotifier {
         ),
         newCallId: () => b64Encode(sodium.randombytes.buf(16)),
         autoAnswer: _decideAutoAnswer,
+        // The network probably changed: the relay connection may be dead
+        // too, and the restart offers travel through it.
+        onConnectionTrouble: () => _relay?.checkConnection(),
       );
       manager.addListener(_onCallChanged);
       if (history case final history?) {
@@ -298,8 +303,22 @@ class CallController extends ChangeNotifier {
         identity: identity,
       );
       _subscriptions
-        ..add(relay.statusChanges.listen((_) => notifyListeners()))
-        ..add(relay.messages.listen(_onRelayMessage));
+        ..add(
+          relay.statusChanges.listen((status) {
+            // Back online: a call that is reconnecting tries again now.
+            if (status == RelayStatus.online) {
+              unawaited(manager.networkChanged());
+            }
+            notifyListeners();
+          }),
+        )
+        ..add(relay.messages.listen(_onRelayMessage))
+        ..add(
+          networkChanges().listen((_) {
+            relay.checkConnection();
+            unawaited(manager.networkChanged());
+          }),
+        );
       relay.start();
 
       _callLink = CallCode.link(linkBase, identity.card(sodium));
@@ -525,6 +544,15 @@ class CallController extends ChangeNotifier {
       _quality = null;
       _connectedAt = null;
     }
+    if (call.reconnecting != _reconnecting) {
+      _reconnecting = call.reconnecting;
+      publishForTests('reconnecting', '$_reconnecting');
+      if (!_reconnecting && call.phase == CallPhase.connected) {
+        // The new path may differ (e.g. relayed instead of direct).
+        _route = null;
+        _quality = null;
+      }
+    }
     if (call.phase == CallPhase.connected) {
       _connectedAt ??= DateTime.now();
       publishForTests('sending-video', '$sendingVideo');
@@ -532,7 +560,7 @@ class CallController extends ChangeNotifier {
         const Duration(seconds: 2),
         (_) => _sampleQuality(),
       );
-      if (_route == null) unawaited(_detectRoute());
+      if (_route == null && !call.reconnecting) unawaited(_detectRoute());
     }
     if (!call.active) {
       _qualityTimer?.cancel();
@@ -544,7 +572,7 @@ class CallController extends ChangeNotifier {
   }
 
   Future<void> _sampleQuality() async {
-    if (call.phase != CallPhase.connected) return;
+    if (call.phase != CallPhase.connected || call.reconnecting) return;
     final sample = await _manager?.media?.qualitySample();
     final quality = sample?.quality;
     if (quality != null && quality != _quality) {

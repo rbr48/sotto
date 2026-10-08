@@ -590,7 +590,8 @@ An **optional** setting on the *receiving* device: calls from people the user ha
 #### Phase 8 — Pilot Programme & Reliability (Weeks 20–23)
 - [ ] Onboard **3–5 pilot organisations** from the waitlist (free in exchange for weekly feedback and a testimonial)
 - [ ] Weekly 20-minute feedback calls; a prioritised list of requests
-- [ ] ICE restart on network change; reconnect mid-call; "Reconnecting…" UI
+- [x] ICE restart on network change; reconnect mid-call; "Reconnecting…" UI (PROTOCOL §5.5): both sides show it, the caller restarts ICE (numbered offers, `call.restart` from the callee), repeats every 8 s, gives up after 45 s; the relay connection is checked with `ping` so a socket left dead by a network change is replaced within seconds (§5.2). Tested with a fake clock and end to end (the TURN server frozen mid-call, then resumed)
+- [ ] Verify Wi-Fi ↔ mobile data switching on real Android phones (the end-to-end test simulates the network loss on one machine)
 - [ ] Bandwidth adaptation; audio-only fallback
 - [ ] Local diagnostics with *Export diagnostic report*; opt-in crash reports only
 - [ ] Security hardening: log audit, read-only servers verified, dependency and secret scanning in CI

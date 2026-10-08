@@ -1,6 +1,15 @@
 import 'devices.dart';
 
-enum MediaConnectionState { connecting, connected, failed, closed }
+enum MediaConnectionState {
+  connecting,
+  connected,
+
+  /// The connection stopped carrying packets (e.g. the network changed). It
+  /// may come back by itself, or after an ICE restart.
+  disconnected,
+  failed,
+  closed,
+}
 
 /// How well the connection is doing, from the device's own statistics
 /// (never sent anywhere).
@@ -44,10 +53,13 @@ abstract interface class MediaEngine {
   /// Opens camera/microphone and creates the peer connection.
   Future<void> prepare({required bool video});
 
-  /// Caller side: returns the SDP offer.
-  Future<String> createOffer();
+  /// Caller side: returns the SDP offer. With [iceRestart], during a call,
+  /// the offer asks both sides to look for a new network path (after a
+  /// network change), keeping the call and its media.
+  Future<String> createOffer({bool iceRestart = false});
 
-  /// Callee side: applies the offer and returns the SDP answer.
+  /// Callee side: applies the offer (the first one, or an ICE restart
+  /// during the call) and returns the SDP answer.
   Future<String> acceptOffer(String sdp);
 
   /// Caller side: applies the answer.

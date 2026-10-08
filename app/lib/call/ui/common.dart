@@ -80,7 +80,9 @@ class InCallView extends StatelessWidget {
                               icon: Icons.phone_callback,
                               text: 'Auto-answered',
                             ),
-                          if (controller.route case final route?)
+                          if (call.reconnecting) const ReconnectingPill(),
+                          if (controller.route case final route?
+                              when !call.reconnecting)
                             _SmallPill(
                               icon: route == MediaRoute.relayed
                                   ? Icons.shield_outlined
@@ -91,7 +93,8 @@ class InCallView extends StatelessWidget {
                                   'Relayed through Sotto · IP addresses hidden',
                               },
                             ),
-                          if (controller.quality case final quality?)
+                          if (controller.quality case final quality?
+                              when !call.reconnecting)
                             QualityPill(quality: quality),
                         ],
                       ),
@@ -203,6 +206,22 @@ String formatDuration(Duration duration) {
   return d.inHours > 0
       ? '${d.inHours}:${two(minutes)}:$seconds'
       : '$minutes:$seconds';
+}
+
+/// The network changed or dropped: the call is looking for a new path and
+/// goes on by itself once it finds one.
+class ReconnectingPill extends StatelessWidget {
+  const ReconnectingPill({super.key});
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    liveRegion: true,
+    child: const _SmallPill(
+      icon: Icons.sync_problem,
+      iconColor: Colors.orange,
+      text: 'Reconnecting… the call continues when the network is back',
+    ),
+  );
 }
 
 class QualityPill extends StatelessWidget {
@@ -612,6 +631,7 @@ String callTitleLabel(CallController controller) {
     CallPhase.ringing => 'Ringing…',
     CallPhase.incoming => 'Incoming call',
     CallPhase.connecting => 'Connecting…',
+    CallPhase.connected when call.reconnecting => 'Reconnecting',
     CallPhase.connected => 'Connected',
     CallPhase.ended => 'Call ended (${shortEndReason(call.endReason)})',
   };

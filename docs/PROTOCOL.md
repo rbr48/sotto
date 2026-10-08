@@ -130,7 +130,10 @@ client → {"type":"send","to":"<Sotto ID>","body":"<envelope>","ref":"<optional
 server → {"type":"message","from":"<authenticated sender ID>","body":"<envelope>"}     (to every device of the recipient)
 server → {"type":"ack","ref":"…","status":"delivered" | "queued" | "dropped"}           (only if ref was given)
 server → {"type":"error","code":"bad-message" | "bad-recipient" | "too-large" | "rate-limited" | "not-authenticated" | …}
+client → {"type":"ping"}   server → {"type":"pong"}                                      (also before login)
 ```
+
+Clients send `ping` every 25 s, and right away when a call loses its connection or the browser comes back online. If nothing at all arrives within 10 s (5 s for the immediate check), the connection is considered dead (after a network change a WebSocket can stay "open" for minutes without delivering anything): the client drops it and reconnects. An older relay answers `ping` with `bad-message`, which proves the connection works just as well.
 
 - The relay never reads `body`. It attaches `from` itself; anything the client puts there is ignored.
 - Recipients receive `from` and must open the envelope with `expectedSender = from` (§3.3 check 6).
@@ -164,10 +167,13 @@ With **Hide my IP address**, the app sets `iceTransportPolicy: "relay"`, so it o
 | `call.busy` | callee → caller | `{}` (callee is in another call) |
 | `call.cancel` | caller → callee | `{}` (hung up before answer, or 45 s without answer) |
 | `call.end` | either | `{}` |
-| `sdp.offer` / `sdp.answer` | caller → callee / callee → caller | `{"sdp": "…"}` |
+| `sdp.offer` / `sdp.answer` | caller → callee / callee → caller | `{"sdp": "…"}`; during the call `{"sdp": "…", "restart": n}` |
 | `ice.candidate` | either | `{"candidate", "sdpMid", "sdpMLineIndex"}` |
+| `call.restart` | callee → caller | `{}` (the callee lost the connection and asks for an ICE restart) |
 
 `call.accept` may carry `{"auto": true}` when the callee's device answered automatically (an admitted guest, or a trusted caller with auto-answer on); both sides then show *Auto-answered* (not shown for guest admissions). Every call message carries the same random `callId` (16 bytes). Messages for another call, or from anyone but the call's peer, are ignored. An incoming call stops ringing after 60 s if no `call.cancel` arrives; media setup must finish within 30 s of acceptance.
+
+**Reconnecting.** When a connected call's WebRTC connection becomes `disconnected` or `failed` (e.g. Wi-Fi to mobile data), both apps show *Reconnecting…*, check their relay connection (§5.2), and look for a new path with an ICE restart; the call and its media tracks stay as they are. Only the caller sends offers, so the two sides never offer at once: a numbered `sdp.offer` with `"restart": n` (made after `restartIce()`), answered by an `sdp.answer` carrying the same `n`; answers to an older number are ignored. The callee asks for a restart with `call.restart`. A `disconnected` connection gets 2 s to recover by itself first; a `failed` one restarts at once. Attempts repeat every 8 s and right after the relay connection comes back; without a new path within 45 s, the call ends as failed (`call.end`).
 
 ### 5.6 Call links (Phase 3)
 
