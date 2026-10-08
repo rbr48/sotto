@@ -1,14 +1,9 @@
-// tray_manager 0.7 keeps the 0.5 API (trayManager, TrayListener, Menu) in
-// legacy.dart, marked deprecated. Moving to its new native API is a separate
-// change, to be tested on Windows and Linux.
-// ignore_for_file: deprecated_member_use
-
 import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:local_notifier/local_notifier.dart';
-import 'package:tray_manager/legacy.dart';
+import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../app/app_controller.dart';
