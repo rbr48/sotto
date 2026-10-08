@@ -205,7 +205,7 @@ jobs:
             echo
           } > notes.md
       - name: Create or update GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           name: Sotto ${{ needs.version.outputs.tag }}
