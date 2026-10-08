@@ -84,6 +84,7 @@ See [`e2e/README.md`](e2e/README.md) for the end-to-end call test.
 - [Protocol: identities and encrypted envelopes](docs/PROTOCOL.md)
 - [Threat model](docs/THREAT_MODEL.md)
 - [Network test matrix](docs/NETWORK_TESTING.md)
+- [Releases and signed builds](docs/RELEASES.md)
 
 ## Before using the name publicly
 
