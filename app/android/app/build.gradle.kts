@@ -45,7 +45,11 @@ android {
                 keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
                     ?: (project.findProperty("KEY_PASSWORD") as? String)
                     ?: ""
+            } else if (keystorePath != null) {
+                // A release asked for its keystore: never sign it with another key.
+                throw GradleException("Release keystore not found: $keystorePath")
             } else {
+                // Local builds without a keystore: the debug key (not for release).
                 initWith(signingConfigs.getByName("debug"))
             }
         }
