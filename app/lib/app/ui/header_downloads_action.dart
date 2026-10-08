@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/downloads.dart';
 import '../app_controller.dart';
 
 /// App download links placed at the top-right of the header / AppBar.
@@ -22,11 +23,9 @@ class HeaderDownloadsAction extends StatelessWidget {
     final width = MediaQuery.sizeOf(context).width;
     final isWide = width >= 860;
 
-    final androidUrl = app.server.web.resolve('downloads/sotto-android.apk');
-    final windowsUrl = app.server.web.resolve(
-      'downloads/sotto-windows-x64.zip',
-    );
-    final linuxUrl = app.server.web.resolve('downloads/sotto-linux-x64.tar.gz');
+    final androidUrl = Downloads.android;
+    final windowsUrl = Downloads.windows;
+    final linuxUrl = Downloads.linux;
     final allDownloadsUrl = app.server.web.resolve('downloads.html');
 
     if (!isWide) {
@@ -169,7 +168,7 @@ class HeaderDownloadsAction extends StatelessWidget {
           _QuickDownloadButton(
             icon: Icons.android,
             label: 'Android',
-            tooltip: 'Download Android APK (sotto-android.apk)',
+            tooltip: 'Download for Android (APK)',
             onTap: () =>
                 launchUrl(androidUrl, mode: LaunchMode.externalApplication),
           ),
@@ -177,7 +176,7 @@ class HeaderDownloadsAction extends StatelessWidget {
           _QuickDownloadButton(
             icon: Icons.desktop_windows,
             label: 'Windows',
-            tooltip: 'Download Windows 64-bit portable (sotto-windows-x64.zip)',
+            tooltip: 'Download the Windows installer (64-bit)',
             onTap: () =>
                 launchUrl(windowsUrl, mode: LaunchMode.externalApplication),
           ),
@@ -185,7 +184,7 @@ class HeaderDownloadsAction extends StatelessWidget {
           _QuickDownloadButton(
             icon: Icons.terminal,
             label: 'Linux',
-            tooltip: 'Download Linux 64-bit portable (sotto-linux-x64.tar.gz)',
+            tooltip: 'Download for Linux (AppImage, 64-bit)',
             onTap: () =>
                 launchUrl(linuxUrl, mode: LaunchMode.externalApplication),
           ),

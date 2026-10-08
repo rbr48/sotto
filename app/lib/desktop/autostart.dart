@@ -23,7 +23,9 @@ abstract final class Autostart {
   /// Turns it on or off. Returns whether it worked.
   static Future<bool> set(bool on, {String? executable}) async {
     if (!supported) return false;
-    final exe = executable ?? Platform.resolvedExecutable;
+    final exe =
+        executable ??
+        executableFor(Platform.environment, Platform.resolvedExecutable);
     try {
       if (Platform.isLinux) {
         final file = File(linuxEntryPath(Platform.environment));
@@ -50,6 +52,19 @@ abstract final class Autostart {
       debugPrint('Start at login not changed: $e');
       return false;
     }
+  }
+
+  /// The file to start at login: inside an AppImage, the running executable
+  /// is in a temporary mount, so the AppImage file itself (`$APPIMAGE`).
+  @visibleForTesting
+  static String executableFor(
+    Map<String, String> environment,
+    String resolvedExecutable,
+  ) {
+    final appImage = environment['APPIMAGE'];
+    return appImage != null && appImage.isNotEmpty
+        ? appImage
+        : resolvedExecutable;
   }
 
   @visibleForTesting

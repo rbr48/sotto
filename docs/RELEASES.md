@@ -5,9 +5,16 @@ The `Release` workflow (`.github/workflows/release.yml`) builds Sotto for **Andr
 | Platform | File | What it is |
 |---|---|---|
 | Android | `sotto-android.apk` | Release APK, signed with the project's release key |
-| Windows | `sotto-windows-x64.zip` | Portable bundle (`sotto.exe` and its files). Not code-signed yet: SmartScreen may warn about an unknown publisher |
+| Windows | `sotto-windows-x64-setup.exe` | Installer (Inno Setup, `packaging/windows/sotto.iss`): per user, no administrator rights, into `%LOCALAPPDATA%\Programs\Sotto`, with a Start menu entry and an uninstaller. Installing a newer one over it updates Sotto and keeps contacts and history |
+| Windows | `sotto-windows-x64.zip` | Portable bundle (`sotto.exe` and its files) |
+| Linux | `sotto-linux-x86_64.AppImage` | One file that runs on most distributions (`chmod +x`, then run it) |
+| Linux | `sotto-linux-amd64.deb` | Package for Ubuntu and Debian: `/opt/sotto`, a menu entry, `sotto` on the path (`sudo apt install ./sotto-linux-amd64.deb`) |
 | Linux | `sotto-linux-x64.tar.gz` | Portable bundle (`sotto` and its libraries) |
 | Checksums | `SHA256SUMS.txt` | SHA-256 of each file |
+
+The Windows files are not code-signed yet: SmartScreen may warn about an unknown publisher ("More info", then "Run anyway"). The Linux builds are made on Ubuntu 22.04, so they run on Ubuntu 22.04 or newer, Debian 12 or newer, and other distributions of the same age. The AppImage tools are downloaded at pinned versions and checked by SHA-256 (`packaging/linux/fetch-appimage-tools.sh`). CI builds the installer, the .deb and the AppImage for every pull request, and installs the .deb.
+
+Download links to `https://github.com/rbr48/sotto/releases/latest/download/<file>` always give the newest release (the app, the downloads page and the website use them).
 
 The release notes start with the Android signing certificate's SHA-256 fingerprint, so anyone can check an APK (`apksigner verify --print-certs sotto-android.apk`).
 

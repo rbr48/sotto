@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../call/ui/common.dart';
 import '../../lock/ui/lock_ui.dart';
 import '../../storage/ui/backup_ui.dart';
+import '../../core/downloads.dart';
 import '../app_controller.dart';
 import 'header_downloads_action.dart';
 
@@ -159,7 +160,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
         children: [
           OutlinedButton.icon(
             onPressed: () => launchUrl(
-              app.server.web.resolve('downloads/sotto-android.apk'),
+              Downloads.android,
               mode: LaunchMode.externalApplication,
             ),
             icon: const Icon(Icons.android, size: 18),
@@ -167,7 +168,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
           ),
           OutlinedButton.icon(
             onPressed: () => launchUrl(
-              app.server.web.resolve('downloads/sotto-windows-x64.zip'),
+              Downloads.windows,
               mode: LaunchMode.externalApplication,
             ),
             icon: const Icon(Icons.desktop_windows, size: 18),
@@ -175,7 +176,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
           ),
           OutlinedButton.icon(
             onPressed: () => launchUrl(
-              app.server.web.resolve('downloads/sotto-linux-x64.tar.gz'),
+              Downloads.linux,
               mode: LaunchMode.externalApplication,
             ),
             icon: const Icon(Icons.terminal, size: 18),
