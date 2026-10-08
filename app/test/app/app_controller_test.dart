@@ -33,6 +33,7 @@ void main() {
     openVaultFile: () async => DiskVaultFile('${directory.path}/$file'),
     deviceLister: FakeLister.new,
     startCalls: false,
+    formerDefaultHosts: const {'old.sotto.example'},
   );
 
   test('first start: onboarding, then everything survives a restart', () async {
@@ -98,6 +99,26 @@ void main() {
     await third.start();
     expect(third.server.label, 'localhost:1');
   });
+
+  test(
+    'an earlier built-in server chosen by hand becomes the built-in one',
+    () async {
+      final keystore = MemorySecretStore();
+      final first = app(keystore);
+      await first.start();
+      await first.completeOnboarding(name: 'Dr Rao');
+      await first.setServer(ServerAddress.parse('old.sotto.example'));
+      expect(first.usesCustomServer, isTrue);
+
+      final second = app(keystore);
+      await second.start();
+      expect(second.usesCustomServer, isFalse);
+      expect(second.server.label, 'localhost:1');
+      final third = app(keystore);
+      await third.start();
+      expect(third.usesCustomServer, isFalse, reason: 'the choice was removed');
+    },
+  );
 
   test(
     'upgrading from Phase 5: keystore settings move into the vault',

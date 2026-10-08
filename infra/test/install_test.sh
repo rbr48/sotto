@@ -202,6 +202,16 @@ check 'keeps offering TURN over TLS' bash -c "! grep -q SOTTO_TURN_URLS '$overri
 check 'opens port 5349' has "$WORK/log" 'ufw allow 5349/tcp'
 check 'saves the certificate path in .env' has "$WORK/infra/.env" "SOTTO_TLS_CERT=$le/live/calls.example.org/fullchain.pem"
 check 'nginx example uses the same certificate' grep -qF "ssl_certificate     $le/live/calls.example.org/fullchain.pem;" <<<"$out"
+# Moving to another domain: its own certificate, not the one saved for the old one.
+mkdir -p "$le/live/call.example.net"
+: >"$le/live/call.example.net/fullchain.pem"
+: >"$le/live/call.example.net/privkey.pem"
+installer install --domain call.example.net --yes >/dev/null 2>&1 || true
+check 'new domain: uses its own certificate' has "$WORK/infra/.env" "SOTTO_TLS_CERT=$le/live/call.example.net/fullchain.pem"
+check 'new domain: keeps the proxy port' has "$WORK/infra/.env" 'SOTTO_BEHIND_PROXY_PORT='
+check 'new domain: TURN uses the new name' has "$WORK/infra/.env" 'SOTTO_DOMAIN=call.example.net'
+installer install --yes >/dev/null 2>&1 || true
+check 'reinstall keeps the new certificate' has "$WORK/infra/.env" "SOTTO_TLS_CERT=$le/live/call.example.net/fullchain.pem"
 rm -rf "$WORK"
 
 # 10. Behind a proxy: certificate options, and an old Docker Compose.

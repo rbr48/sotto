@@ -1,25 +1,23 @@
 # Deploying the Sotto Test Server
 
-This runs the current Sotto test build on **`sotto.izhaanintellect.fun`** (server `148.135.137.245`):
+This runs the current Sotto test build on **`call.sottocall.com`** (server `148.135.137.245`, behind Nginx). The earlier address, `sotto.izhaanintellect.fun`, points to the same server and keeps working, for links shared before the move and for app versions up to 0.1.4 (see [Moving to call.sottocall.com](#moving-to-callsottocallcom)).
 
 - the **relay** (signaling) — routes end-to-end encrypted envelopes; no database, read-only filesystem
 - the **web app**, served by **Caddy** with automatic HTTPS
 - **coturn**, the STUN/TURN server that lets calls connect across difficult networks and powers "Hide my IP address"
 
-After deployment, open `https://sotto.izhaanintellect.fun/` to get your own **call link**; anyone who opens that link calls you. The desktop and Android apps connect to `wss://sotto.izhaanintellect.fun/relay` by default.
+After deployment, open `https://call.sottocall.com/` to get your own **call link**; anyone who opens that link calls you. The desktop and Android apps (0.1.5 and later) connect to `wss://call.sottocall.com/relay` by default.
 
 > **This is a test build.** Call setup is end-to-end encrypted, the relay stores nothing, and calls fall back to the TURN server when a direct connection isn't possible.
 
 ---
 
-## 1. Turn off the Cloudflare proxy for this record (important)
+## 1. Point the name at the server, without a proxy (important)
 
-`izhaanintellect.fun` uses Cloudflare DNS, and `sotto.izhaanintellect.fun` currently resolves to **Cloudflare's IPs** (the orange cloud is on), not directly to `148.135.137.245`.
+Create an `A` record `call` → `148.135.137.245` in the DNS of `sottocall.com`. If the DNS is on Cloudflare, set it to **DNS only (grey cloud)**, not proxied:
 
-Set the record to **DNS only (grey cloud)**:
-
-1. Cloudflare dashboard → `izhaanintellect.fun` → **DNS** → **Records**
-2. Edit the `sotto` `A` record (`148.135.137.245`) → switch **Proxy status** to **DNS only** → Save
+1. Cloudflare dashboard → `sottocall.com` → **DNS** → **Records**
+2. Add (or edit) the `call` `A` record (`148.135.137.245`) → **Proxy status**: **DNS only** → Save
 
 Why:
 - **Privacy.** With the proxy on, Cloudflare terminates HTTPS and can see all traffic between users and the relay. That contradicts Sotto's promise that no third party sees signaling metadata.
@@ -29,7 +27,7 @@ Why:
 Check it after a few minutes (should print `148.135.137.245`):
 
 ```bash
-dig +short sotto.izhaanintellect.fun
+dig +short call.sottocall.com
 ```
 
 ## 2. Prepare the server
@@ -79,7 +77,7 @@ git checkout main
 The installer does the rest (checks DNS, writes `infra/.env` with a random TURN secret, builds, starts, enables TURN over TLS once the certificate exists, and schedules coturn's weekly certificate reload). Details: [`SELF_HOSTING.md`](SELF_HOSTING.md).
 
 ```bash
-sudo ./infra/install.sh install --domain sotto.izhaanintellect.fun
+sudo ./infra/install.sh install --domain call.sottocall.com
 ```
 
 If you already started it by hand earlier, that's fine: the installer keeps the existing `infra/.env` secret.
@@ -88,18 +86,18 @@ If you already started it by hand earlier, that's fine: the installer keeps the 
 
 ```bash
 docker compose ps
-curl https://sotto.izhaanintellect.fun/health
+curl https://call.sottocall.com/health
 # {"status":"ok"}
 ```
 
 Then test a call with two devices (or two browser windows):
 
-1. On device **B**, open `https://sotto.izhaanintellect.fun/` and copy **Your call link**.
+1. On device **B**, open `https://call.sottocall.com/` and copy **Your call link**.
 2. On device **A**, open that link. It calls B automatically.
 3. On B, tap **Accept**. Allow camera and microphone on both.
 4. Compare the **safety number** shown on both screens: it must be identical.
 
-The tab title shows the call status: *Ready* → *Ringing…* / *Incoming call* → *Connected*. During a call, a small **Relayed** chip at the top means the call goes through the TURN server; no chip means a direct connection (*Settings → Help → Diagnostic report* shows the route either way). `https://sotto.izhaanintellect.fun/?selftest=1` runs the crypto self-test in the browser.
+The tab title shows the call status: *Ready* → *Ringing…* / *Incoming call* → *Connected*. During a call, a small **Relayed** chip at the top means the call goes through the TURN server; no chip means a direct connection (*Settings → Help → Diagnostic report* shows the route either way). `https://call.sottocall.com/?selftest=1` runs the crypto self-test in the browser.
 
 **Guest links:** on the professional's device, copy the **personal guest link** (or create a one-time link) and open it on another device or browser. The guest checks their camera, presses **Join with video** and waits; the professional presses **Admit** in the waiting room.
 
@@ -111,6 +109,46 @@ To test TURN, turn on **Hide my IP address** before calling: the call must show 
 cd ~/sotto
 sudo ./infra/install.sh update
 ```
+
+## Moving to call.sottocall.com
+
+The server first ran as `sotto.izhaanintellect.fun`. Both names now point to the same server, so nothing breaks during the move: a link with either name reaches the same relay, and apps up to 0.1.4 keep using the old name. Keep the old name working for a few months (until people have updated and shared new links).
+
+1. **DNS:** add the `call` `A` record for `sottocall.com` (step 1 above). Check: `dig +short call.sottocall.com` prints `148.135.137.245`.
+2. **Nginx:** copy the existing `server { … }` block of `sotto.izhaanintellect.fun` into a new site, change only `server_name` and the certificate paths, and get the certificate:
+
+   ```bash
+   sudo cp /etc/nginx/sites-available/sotto.izhaanintellect.fun /etc/nginx/sites-available/call.sottocall.com
+   sudo nano /etc/nginx/sites-available/call.sottocall.com
+   #   server_name call.sottocall.com;
+   #   remove the two ssl_certificate lines (Certbot adds the new ones)
+   #   keep proxy_pass (the same port), the headers and access_log off;
+   sudo ln -s /etc/nginx/sites-available/call.sottocall.com /etc/nginx/sites-enabled/
+   sudo certbot --nginx -d call.sottocall.com
+   sudo nginx -t && sudo systemctl reload nginx
+   curl https://call.sottocall.com/health      # {"status":"ok"}
+   ```
+
+   (Use the file names your server already has; the installer prints a complete block if you need one.)
+3. **TURN under the new name:** run the installer with the new domain. It keeps the TURN secret, the proxy port and the operator details, and uses `call.sottocall.com`'s certificate for TURN over TLS:
+
+   ```bash
+   cd ~/sotto && git pull
+   sudo ./infra/install.sh install --domain call.sottocall.com --yes
+   ```
+
+   Calls then use `turn:call.sottocall.com` and `turns:call.sottocall.com:5349`, whichever name the app or page was opened with.
+4. **Optional:** send `sottocall.com` and `www.sottocall.com` to the app until there is a website (`A` records for `@` and `www` → `148.135.137.245`, then):
+
+   ```nginx
+   server {
+       server_name sottocall.com www.sottocall.com;
+       listen 80;
+       return 302 https://call.sottocall.com/;
+   }
+   ```
+
+   followed by `sudo certbot --nginx -d sottocall.com -d www.sottocall.com`.
 
 ## 7. Troubleshooting
 

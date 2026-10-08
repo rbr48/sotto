@@ -7,9 +7,9 @@ void main() {
     () {
       expect(
         SottoConfig.relayUrlFor(
-          Uri.parse('https://sotto.izhaanintellect.fun/some/page?x=1#y'),
+          Uri.parse('https://sotto.example.org/some/page?x=1#y'),
         ).toString(),
-        'wss://sotto.izhaanintellect.fun/relay',
+        'wss://sotto.example.org/relay',
       );
       expect(
         SottoConfig.relayUrlFor(Uri.parse('http://localhost:8080/')).toString(),
@@ -17,19 +17,13 @@ void main() {
       );
       expect(
         SottoConfig.relayUrlFor(Uri.parse('file:///index.html')).toString(),
-        'wss://sotto.izhaanintellect.fun/relay',
+        'wss://call.sottocall.com/relay',
       );
     },
   );
 
-  test('defaults to the Sotto test server outside the browser', () {
-    expect(
-      SottoConfig.relayUrl.toString(),
-      'wss://sotto.izhaanintellect.fun/relay',
-    );
-    expect(
-      SottoConfig.linkBase.toString(),
-      'https://sotto.izhaanintellect.fun/',
-    );
+  test('defaults to the Sotto server outside the browser', () {
+    expect(SottoConfig.relayUrl.toString(), 'wss://call.sottocall.com/relay');
+    expect(SottoConfig.linkBase.toString(), 'https://call.sottocall.com/');
   });
 }
