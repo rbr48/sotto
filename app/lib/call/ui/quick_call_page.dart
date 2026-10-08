@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../contacts/contact_link.dart';
+import '../../contacts/profile_exchange.dart';
 import '../../core/ui_kit.dart';
 import '../../crypto/identity.dart';
 import '../../relay/relay_client.dart';
@@ -49,19 +50,49 @@ class _QuickCallPageState extends State<QuickCallPage> {
     super.dispose();
   }
 
+  bool _resolving = false;
+
   void _onChange() {
-    if (_invite == null && _controller.ready) {
-      try {
-        _invite = ContactLink.parse(_controller.sodium!, widget.link);
-      } on InvalidIdentityException {
-        _error = 'This link is not valid. Ask for a new one.';
-        _dialPending = false;
+    if (_invite == null && !_resolving && _error == null) {
+      if (!_controller.ready) return;
+      final short = ContactLink.shortKeyOf(widget.link) != null;
+      // A short link is looked up through the relay: wait until online.
+      if (!short || _controller.relayStatus == RelayStatus.online) {
+        unawaited(_resolve());
       }
+      return;
     }
-    if (_dialPending && _controller.relayStatus == RelayStatus.online) {
+    if (_invite != null &&
+        _dialPending &&
+        _controller.relayStatus == RelayStatus.online) {
       _dialPending = false;
       unawaited(_call(video: true));
     }
+  }
+
+  Future<void> _resolve() async {
+    _resolving = true;
+    try {
+      _invite = await _controller.resolveLink(widget.link);
+    } on InvalidIdentityException {
+      _error = 'This link is not valid. Ask for a new one.';
+      _dialPending = false;
+    } on ProfileUnavailableException {
+      _error =
+          'The person is not online right now, so the call can\'t start. '
+          'Try again in a while.';
+      _dialPending = false;
+    } finally {
+      _resolving = false;
+    }
+    if (!mounted) return;
+    setState(() {});
+    _onChange();
+  }
+
+  void _retry() {
+    setState(() => _error = null);
+    _onChange();
   }
 
   Future<void> _call({required bool video}) async {
@@ -130,8 +161,19 @@ class _QuickCallPageState extends State<QuickCallPage> {
             NoticeCard(
               tone: NoticeTone.warning,
               icon: Icons.link_off,
-              title: 'This link can\'t be used',
+              title: 'This link can\'t be used right now',
               body: Text(error),
+              action: ContactLink.shortKeyOf(widget.link) == null
+                  ? null
+                  : OutlinedButton(
+                      onPressed: _retry,
+                      child: const Text('Try again'),
+                    ),
+            )
+          else if (invite == null)
+            const Padding(
+              padding: EdgeInsets.all(32),
+              child: Center(child: CircularProgressIndicator()),
             )
           else ...[
             Card(

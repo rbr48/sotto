@@ -122,11 +122,7 @@ class ShareContactDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final profile = app.profile;
-    final link = calls.contactLink(
-      name: profile?.name ?? '',
-      organisation: profile?.practice ?? '',
-    );
+    final link = calls.contactLink;
     publishForTests('contact-link', link);
     final mono = Theme.of(context).textTheme.bodySmall
         ?.copyWith(fontFamily: 'monospace');
@@ -147,9 +143,10 @@ class ShareContactDialog extends StatelessWidget {
             children: [
               const Text(
                 'Colleagues add you by scanning this code or opening the '
-                'link. It holds only your public keys and your name. Anyone '
-                'with it can call you directly, so share it with colleagues, '
-                'not clients (clients use guest links).',
+                'link. It holds only your public key; your name is sent from '
+                'this app while it is online. Anyone with it can call you '
+                'directly, so share it with colleagues, not clients (clients '
+                'use guest links).',
               ),
               const SizedBox(height: 16),
               Center(

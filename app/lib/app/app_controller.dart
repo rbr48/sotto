@@ -466,6 +466,10 @@ class AppController extends ChangeNotifier {
         history: history,
         devices: devices,
         hostName: () => _profile?.label ?? '',
+        publicProfile: () => switch (_profile) {
+          final p? => (name: p.name, organisation: p.practice),
+          null => null,
+        },
         sounds: AudioplayersOutput(),
       );
       await calls.start();

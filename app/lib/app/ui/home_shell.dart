@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../call/call_controller.dart';
 import '../../call/call_manager.dart';
 import '../../call/ui/common.dart';
+import '../../contacts/profile_exchange.dart';
 import '../../contacts/ui/contact_dialogs.dart';
 import '../../contacts/ui/contacts_tab.dart';
 import '../../core/ui_kit.dart';
@@ -256,6 +257,11 @@ class _HomeTabState extends State<HomeTab> {
         () => _linkError = e.message == 'that is your own call link'
             ? 'That is your own link.'
             : 'That is not a valid Sotto call link or contact link.',
+      );
+    } on ProfileUnavailableException {
+      setState(
+        () =>
+            _linkError = 'They are not online right now. Try again in a while.',
       );
     }
   }

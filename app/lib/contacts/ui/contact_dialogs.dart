@@ -7,6 +7,7 @@ import '../../crypto/identity.dart';
 import '../../lock/ui/lock_ui.dart';
 import '../contact_book.dart';
 import '../contact_link.dart';
+import '../profile_exchange.dart';
 
 /// Adds someone as a contact: name, organisation, and whether the user
 /// compared the safety number with them.
@@ -119,6 +120,7 @@ class _AddContactFromLinkDialogState extends State<AddContactFromLinkDialog> {
   final _link = TextEditingController();
   String? _error;
   ContactInvite? _invite;
+  bool _busy = false;
 
   @override
   void dispose() {
@@ -126,22 +128,35 @@ class _AddContactFromLinkDialogState extends State<AddContactFromLinkDialog> {
     super.dispose();
   }
 
-  void _read() {
+  Future<void> _read() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    String? error;
+    ContactInvite? invite;
     try {
-      final invite = ContactLink.parse(widget.app.sodium, _link.text);
+      invite = await widget.calls.resolveLink(_link.text);
       if (invite.identity.id == widget.calls.ownId) {
-        setState(() => _error = 'That is your own link.');
-        return;
+        invite = null;
+        error = 'That is your own link.';
       }
-      setState(() {
-        _invite = invite;
-        _error = null;
-      });
-    } on InvalidIdentityException {
-      setState(
-        () => _error = 'That is not a valid Sotto contact link or call link.',
-      );
+    } on InvalidIdentityException catch (e) {
+      error = e.message == 'that is your own call link'
+          ? 'That is your own link.'
+          : 'That is not a valid Sotto contact link or call link.';
+    } on ProfileUnavailableException {
+      error =
+          'Their Sotto did not answer. It needs to be open and online to '
+          'share their details; try again later, or ask for a new link.';
     }
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _invite = invite;
+      _error = error;
+    });
   }
 
   @override
@@ -190,7 +205,10 @@ class _AddContactFromLinkDialogState extends State<AddContactFromLinkDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
-        FilledButton(onPressed: _read, child: const Text('Next')),
+        FilledButton(
+          onPressed: _busy ? null : _read,
+          child: Text(_busy ? 'Looking up…' : 'Next'),
+        ),
       ],
     );
   }
