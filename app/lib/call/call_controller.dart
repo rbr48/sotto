@@ -6,6 +6,7 @@ import 'package:sodium/sodium.dart';
 
 import '../contacts/contact_book.dart';
 import '../contacts/contact_link.dart';
+import '../contacts/profile_cache.dart';
 import '../contacts/profile_exchange.dart';
 import '../core/network_events.dart';
 import '../core/test_hooks.dart';
@@ -84,6 +85,7 @@ class CallController extends ChangeNotifier {
   /// lookups, e.g. a guest or a browser quick call).
   final PublicProfile? Function()? _publicProfile;
   ProfileExchange? _profiles;
+  late final ProfileCache _profileCache = ProfileCache(_settings);
   final VideoCallScreen _screen;
   void _updateScreen() => _screen.update(call);
 
@@ -514,17 +516,47 @@ class CallController extends ChangeNotifier {
       ContactLink.createShort(linkBase, _identity!.publicIdentity);
 
   /// The person behind a link: a full link is read as it is; a short link
-  /// is looked up from that person's app, which must be online.
+  /// is a contact, or is looked up from that person's app. While they are
+  /// offline, the details from the last lookup on this device are used.
   /// Throws [InvalidIdentityException] or [ProfileUnavailableException].
   Future<ContactInvite> resolveLink(String link) async {
     final key = ContactLink.shortKeyOf(link);
     if (key == null) return ContactLink.parse(_sodium!, link);
-    if (b64Encode(key) == _identity!.id) {
+    final id = b64Encode(key);
+    if (id == _identity!.id) {
       throw const InvalidIdentityException('that is your own call link');
     }
+    // A contact is known already: no lookup needed, works offline.
+    final contact = contacts?.contacts
+        .where((c) => c.identity.id == id)
+        .firstOrNull;
+    if (contact != null) {
+      return ContactInvite(
+        identity: contact.identity,
+        name: contact.name,
+        organisation: contact.organisation.isEmpty
+            ? null
+            : contact.organisation,
+      );
+    }
+    final known = await _profileCache.lookup(id);
     final profiles = _profiles;
-    if (profiles == null) throw const ProfileUnavailableException();
-    return profiles.fetch(key);
+    if (profiles == null) {
+      if (known != null) return known;
+      throw const ProfileUnavailableException();
+    }
+    try {
+      final fresh = await profiles.fetch(
+        key,
+        // With last-known details, don't keep the person waiting long.
+        timeout: Duration(seconds: known == null ? 20 : 6),
+      );
+      await _profileCache.remember(fresh);
+      return fresh;
+    } on ProfileUnavailableException {
+      if (known != null) return known;
+      rethrow;
+    }
   }
 
   void _sendGuestMessage(

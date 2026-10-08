@@ -236,7 +236,8 @@ reply   = envelope (§3) of type "profile", body {n, o?}           sealed, signe
 - The request holds only the requester's public card. The answering app checks that the card belongs to the relay-authenticated sender, and seals the reply to it.
 - The reply is an ordinary signed envelope. It is accepted only when its verified signer is the key in the link, so the encryption key, name and organisation are as trustworthy as a full contact link (§5.8).
 - Only the professional's app answers. Guest pages and browser quick calls don't, and answers are rate limited: one per requester every 3 s, at most 30 a minute.
-- The person must be online for the lookup, as for a call. Full links (§5.7, §5.8) are still accepted everywhere.
+- The person must be online for a first lookup, as for a call. After that, the app keeps the verified result in its encrypted settings, and uses it while the person is offline. A short link of someone already in the contacts needs no lookup at all.
+- Full links (§5.7, §5.8) are still accepted everywhere.
 
 ## 6. Test vectors
 

@@ -11,7 +11,7 @@ import '../../core/downloads.dart';
 /// menu button.
 class HeaderDownloadsAction extends StatelessWidget {
   HeaderDownloadsAction({super.key, Uri? allDownloads})
-      : allDownloads = allDownloads ?? Downloads.all;
+    : allDownloads = allDownloads ?? Downloads.all;
 
   /// The downloads page or website, with every file and its checksum.
   final Uri allDownloads;
