@@ -41,6 +41,11 @@
 	}
 
 	handle {
+		# The app's files keep their names from one version to the next:
+		# browsers must check with the server (a quick "not modified" when
+		# nothing changed) instead of running a copy they kept, or people
+		# would keep using an old version after an update.
+		header Cache-Control "no-cache"
 		root * /srv
 		try_files {path} /index.html
 		# The privacy policy and terms name the operator (SOTTO_OPERATOR,
