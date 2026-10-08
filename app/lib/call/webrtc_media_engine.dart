@@ -51,10 +51,25 @@ class WebRtcMediaEngine implements MediaEngine {
   @override
   Future<void> prepare({required bool video}) async {
     final chosen = devices();
-    final stream = await navigator.mediaDevices.getUserMedia({
-      'audio': _audioConstraints(chosen.microphoneId),
-      'video': video ? _videoConstraints(chosen.cameraId) : false,
-    });
+    MediaStream stream;
+    var noCamera = false;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        'audio': _audioConstraints(chosen.microphoneId),
+        'video': video ? _videoConstraints(chosen.cameraId) : false,
+      });
+    } catch (e) {
+      if (!video) rethrow;
+      // No camera (or it is blocked or busy): join with the microphone
+      // alone rather than not at all. The other side's video still comes
+      // through.
+      debugPrint('camera unavailable, joining with voice: $e');
+      stream = await navigator.mediaDevices.getUserMedia({
+        'audio': _audioConstraints(chosen.microphoneId),
+        'video': false,
+      });
+      noCamera = true;
+    }
     if (_closed) {
       await _stop(stream);
       return;
@@ -99,6 +114,13 @@ class WebRtcMediaEngine implements MediaEngine {
     };
     for (final track in stream.getTracks()) {
       await pc.addTrack(track, stream);
+    }
+    if (noCamera) {
+      // Still ask for the other side's video.
+      await pc.addTransceiver(
+        kind: RTCRtpMediaType.RTCRtpMediaTypeVideo,
+        init: RTCRtpTransceiverInit(direction: TransceiverDirection.RecvOnly),
+      );
     }
   }
 

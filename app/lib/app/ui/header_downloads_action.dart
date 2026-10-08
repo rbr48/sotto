@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/downloads.dart';
-import '../app_controller.dart';
 
 /// App download links placed at the top-right of the header / AppBar.
 ///
@@ -11,9 +10,10 @@ import '../app_controller.dart';
 /// Windows, and Linux. On narrow screens, collapses into a compact dropdown
 /// menu button.
 class HeaderDownloadsAction extends StatelessWidget {
-  const HeaderDownloadsAction({super.key, required this.app});
+  const HeaderDownloadsAction({super.key, required this.allDownloads});
 
-  final AppController app;
+  /// The server's downloads page, with every file and its checksum.
+  final Uri allDownloads;
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +26,7 @@ class HeaderDownloadsAction extends StatelessWidget {
     final androidUrl = Downloads.android;
     final windowsUrl = Downloads.windows;
     final linuxUrl = Downloads.linux;
-    final allDownloadsUrl = app.server.web.resolve('downloads.html');
+    final allDownloadsUrl = allDownloads;
 
     if (!isWide) {
       return PopupMenuButton<Uri>(

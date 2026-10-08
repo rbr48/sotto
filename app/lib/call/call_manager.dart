@@ -277,10 +277,7 @@ class CallManager extends ChangeNotifier {
     try {
       await media.prepare(video: video);
     } catch (e) {
-      await _end(
-        CallEndReason.failed,
-        error: 'Camera or microphone unavailable: $e',
-      );
+      await _end(CallEndReason.failed, error: mediaErrorMessage(e));
       return;
     }
     if (!_isCurrent(callId)) return;
@@ -313,10 +310,7 @@ class CallManager extends ChangeNotifier {
       await media.prepare(video: _state.video && withVideo);
     } catch (e) {
       send(_state.peer!, 'call.reject', const {}, callId);
-      await _end(
-        CallEndReason.failed,
-        error: 'Camera or microphone unavailable: $e',
-      );
+      await _end(CallEndReason.failed, error: mediaErrorMessage(e));
       return;
     }
     if (!_isCurrent(callId)) return;
@@ -668,4 +662,22 @@ class CallManager extends ChangeNotifier {
     _media?.close();
     super.dispose();
   }
+}
+
+/// What to tell someone whose microphone (or camera) could not be opened.
+String mediaErrorMessage(Object error) {
+  final text = '$error';
+  if (text.contains('NotFoundError') || text.contains('DevicesNotFound')) {
+    return 'No microphone was found on this device. Connect one, or try '
+        'from another device.';
+  }
+  if (text.contains('NotAllowedError') || text.contains('Permission')) {
+    return 'The microphone is blocked. Allow it for this site (the icon in '
+        'the address bar or the app settings), then try again.';
+  }
+  if (text.contains('NotReadableError') || text.contains('in use')) {
+    return 'The microphone is being used by another app. Close that app, '
+        'then try again.';
+  }
+  return 'The microphone or camera could not be opened ($text).';
 }

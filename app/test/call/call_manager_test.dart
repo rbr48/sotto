@@ -275,7 +275,7 @@ void main() {
     });
   });
 
-  test('no camera: the call fails before anything is sent', () {
+  test('no microphone: the call fails before anything is sent', () {
     fakeAsync((async) {
       final network = Network();
       final alice = Person('alice', Identity.generate(sodium), network);
@@ -289,10 +289,26 @@ void main() {
       manager.call(bob.public);
       async.flushMicrotasks();
       expect(manager.state.endReason, CallEndReason.failed);
-      expect(manager.state.error, contains('Camera or microphone'));
+      expect(manager.state.error, contains('microphone'));
       expect(alice.sent, isEmpty);
       expect(bob.phase, CallPhase.idle);
     });
+  });
+
+  test('media errors are explained in plain words', () {
+    expect(
+      mediaErrorMessage('NotFoundError: Requested device not found'),
+      startsWith('No microphone was found'),
+    );
+    expect(
+      mediaErrorMessage('NotAllowedError: Permission denied'),
+      startsWith('The microphone is blocked'),
+    );
+    expect(
+      mediaErrorMessage('NotReadableError: Could not start audio source'),
+      contains('another app'),
+    );
+    expect(mediaErrorMessage('Oops'), contains('Oops'));
   });
 
   test('messages from other people or other calls are ignored', () {

@@ -67,7 +67,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
                 elevation: 0,
                 scrolledUnderElevation: 0,
                 actions: [
-                  HeaderDownloadsAction(app: app),
+                  HeaderDownloadsAction(
+                    allDownloads: app.server.web.resolve('downloads.html'),
+                  ),
                   const SizedBox(width: 8),
                 ],
               )
