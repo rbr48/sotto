@@ -216,8 +216,26 @@ class InitialsAvatar extends StatelessWidget {
     );
   }
 
+  /// Titles left out of initials ("Dr Meera Rao" is MR, not DR).
+  static const _titles = {
+    'dr',
+    'mr',
+    'mrs',
+    'ms',
+    'mx',
+    'miss',
+    'prof',
+    'sir',
+    'dame',
+    'rev',
+  };
+
   static String initials(String name) {
-    final parts = name.trim().split(RegExp(r'\s+'));
+    var parts = name.trim().split(RegExp(r'\s+'));
+    final named = parts
+        .where((p) => !_titles.contains(p.toLowerCase().replaceAll('.', '')))
+        .toList();
+    if (named.isNotEmpty) parts = named;
     if (parts.isEmpty || parts.first.isEmpty) return '?';
     if (parts.length == 1) return parts.first.characters.first.toUpperCase();
     return '${parts.first.characters.first}${parts.last.characters.first}'

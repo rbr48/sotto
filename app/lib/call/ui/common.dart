@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
+import '../../core/ui_kit.dart';
 import '../../relay/relay_client.dart';
 import '../call_controller.dart';
 import '../call_manager.dart';
@@ -550,18 +551,10 @@ class RoundCallButton extends StatelessWidget {
 }
 
 /// Up to two initials for an avatar ("Dr Meera Rao (Lotus)" → "DR").
-String initialsOf(String name) {
-  final words = name
-      .replaceAll(RegExp(r'\(.*?\)'), ' ')
-      .trim()
-      .split(RegExp(r'\s+'))
-      .where((w) => w.isNotEmpty)
-      .toList();
-  if (words.isEmpty) return '?';
-  final first = words.first.characters.first;
-  final last = words.length > 1 ? words.last.characters.first : '';
-  return '$first$last'.toUpperCase();
-}
+/// "Dr Meera Rao (Rao Physiotherapy)" is MR: the name, without the
+/// practice or the title.
+String initialsOf(String name) =>
+    InitialsAvatar.initials(name.replaceAll(RegExp(r'\(.*?\)'), ' '));
 
 /// Mm:ss since the call connected.
 class CallTimer extends StatefulWidget {

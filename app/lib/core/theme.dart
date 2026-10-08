@@ -50,6 +50,8 @@ abstract final class SottoTheme {
     );
     const buttonSize = Size(64, 48);
     const buttonText = TextStyle(
+      // Named here too: a button's text style replaces the theme's font.
+      fontFamily: 'Roboto',
       fontSize: 15,
       fontWeight: FontWeight.w600,
       letterSpacing: 0.1,
