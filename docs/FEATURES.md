@@ -33,6 +33,7 @@ The features planned for the product. Phase numbers refer to [ROADMAP.md](ROADMA
 | No directory | Nobody can search for you; people reach you only through links or QR codes you share | 5–6 | Free |
 | All data on your device | Contacts, call history, session notes, settings and recordings are stored only on your device, encrypted | 6 | Free |
 | App lock | Protect the app with a PIN (fingerprint and face unlock: Phase 12) | 6 | Free |
+| Remember me on this browser | Professionals using Sotto in a browser can keep their identity, links, contacts and history across reloads, encrypted in the browser (off by default; for one's own computer). Without it, the page warns before a reload would end the session | 7 | Free |
 | Hide my IP address | Route calls through the relay so the other person never sees your IP address | 4 | Free |
 | No tracking or analytics | Diagnostics and crash reports are opt-in and exported by you | 8 | Free |
 | Billing kept separate | Payments are handled by the payment provider; our servers never hold billing details. Your licence is checked by signature, offline | 9 | Pro / Business |

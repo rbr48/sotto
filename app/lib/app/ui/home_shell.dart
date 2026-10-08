@@ -239,6 +239,28 @@ class _HomeTabState extends State<HomeTab> {
           _LastCallCard(app: app, calls: calls),
           const SizedBox(height: 16),
         ],
+        if (!app.persistent) ...[
+          Card(
+            color: theme.colorScheme.errorContainer,
+            child: ListTile(
+              leading: const Icon(Icons.timer_outlined),
+              title: const Text('These links work only while this tab is open'),
+              subtitle: Text(
+                app.canRememberInBrowser
+                    ? 'Reloading or closing the tab creates new links. On '
+                          'your own computer, let this browser remember you.'
+                    : 'Reloading or closing the tab creates new links.',
+              ),
+              trailing: app.canRememberInBrowser
+                  ? FilledButton.tonal(
+                      onPressed: call.active ? null : app.rememberInBrowser,
+                      child: const Text('Remember me'),
+                    )
+                  : null,
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
         GuestLinksCard(controller: calls, shownAs: app.profile?.label ?? ''),
         const SizedBox(height: 20),
         Card(

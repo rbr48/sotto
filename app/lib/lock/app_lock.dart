@@ -33,10 +33,15 @@ class Argon2PinHasher implements PinHasher {
   }
 }
 
-/// For the browser, where nothing is stored and Argon2id isn't available: a
-/// keyed BLAKE2b hash under a key that exists only for this page load.
+/// For the browser, where Argon2id isn't available: a keyed BLAKE2b hash.
+/// The key exists only for this page load, unless the browser remembers the
+/// identity: then it is kept with the identity's secrets, so the PIN still
+/// works after reloading.
 class SessionPinHasher implements PinHasher {
-  SessionPinHasher(this._sodium) : _key = _sodium.crypto.genericHash.keygen();
+  SessionPinHasher(this._sodium, {Uint8List? key})
+    : _key = key == null
+          ? _sodium.crypto.genericHash.keygen()
+          : SecureKey.fromList(_sodium, key);
 
   final Sodium _sodium;
   final SecureKey _key;

@@ -8,7 +8,7 @@ This is a living document. It records what Sotto protects, against whom, and wha
 |---|---|
 | Call audio and video | In transit only (WebRTC DTLS-SRTP), device to device |
 | Call setup data (SDP, ICE candidates: IP addresses, codec details) | In transit, inside end-to-end envelopes |
-| Identities (master secret) | Professional's device, in the OS keystore; guests: memory only |
+| Identities (master secret) | Professional's device, in the OS keystore (in the browser: memory only, or the browser's storage with *Remember me*, §9.1 of `PROTOCOL.md`); guests: memory only |
 | Contacts, call history, notes, recordings | Professional's device only, in the encrypted vault (`PROTOCOL.md` §9) |
 | Backups | Wherever the user saves them, encrypted with their passphrase (`PROTOCOL.md` §8) |
 | Metadata: who talks to whom, when, from which IP | Seen briefly by the relay in RAM; never stored |
@@ -50,6 +50,7 @@ This is a living document. It records what Sotto protects, against whom, and wha
 | Third parties (Google STUN) see users' IPs | The relay hands out Sotto's own STUN server; Google STUN is only a fallback for relays that offer none | ✅ |
 | Flooding / resource exhaustion | In-memory limits: messages per connection, connections per address (addresses kept only as keyed hashes), devices per ID, message size, 60 s offline queue with per-recipient and total caps | ✅ |
 | Stolen or copied device storage (disk image, phone backup, another user on a shared PC) | Contacts, history, notes and settings are in an encrypted vault whose key is in the OS keystore, never next to the file; the identity's master secret is in the keystore too | ✅ |
+| A browser that remembers the identity ("Remember me on this browser") is used or copied by someone else | Off by default, and the screens say to use it only on one's own computer. Secrets are encrypted with a non-extractable Web Crypto key, so scripts can't copy the key out; the app lock's PIN guards the screens; *Forget this browser* deletes everything. Anyone who can use that browser profile, or copy its files, can still open the identity (see limitation 11) | Partial |
 | Someone picks up the unlocked device and the app is open | App lock with a PIN (auto-lock after leaving the app, *Lock now*); wrong PINs make the next try wait (30 s, doubling to an hour, counted across restarts). Auto-answer, backups, changing or removing the PIN and erasing all ask for the PIN | ✅ (biometrics: Phase 12) |
 | Stolen device: identity theft | Master secret in the OS keystore (hardware-backed where available); the app lock hides the app. Someone who can unlock the operating system and extract keystore items (e.g. root on Android) can still copy the identity: the user should then create a new identity and tell contacts | Partial |
 | Notifications reveal who is calling or waiting (screen visible to others, the system's notification history) | Desktop notifications say only "A guest is waiting" / "Incoming call" unless the user turns on names; never names while the app is locked | ✅ |
@@ -71,6 +72,7 @@ This is a living document. It records what Sotto protects, against whom, and wha
 8. **Web guests run code served by the web server.** A compromised web host could serve modified JavaScript. Mitigations to consider: subresource integrity, reproducible builds, published hashes, and encouraging professionals to use the native app.
 9. **Endpoint compromise** (malware on a participant's device) is out of scope; no messaging system can protect against it.
 10. **No external audit yet.** Planned before public launch (Phase 13).
+11. **A remembered browser is as safe as that browser profile.** With *Remember me on this browser*, the identity stays in the browser's storage. The wrapping key is non-extractable, but browsers keep it in the profile's files, and the browser's PIN verifier is a keyed hash, not Argon2id. Someone who can use or copy the profile can therefore use the identity. Use it on your own computer only; on shared computers, keep the default (nothing kept), and prefer the apps.
 
 ## 5. Cryptographic choices
 

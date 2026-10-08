@@ -262,7 +262,7 @@ plaintext = JSON {"v":1, "values": {"<key>": "<string>", …}}
 - `vault_key` is 32 random bytes, stored in the OS keystore under `sotto.vault.key.v1` (never next to the file). The identity's master secret stays in its own keystore entry (`sotto.identity.master.v1`).
 - Every change rewrites the file with a fresh nonce, atomically (temporary file, then rename).
 - A file whose key is missing, or that fails to decrypt, is never silently replaced: the app explains the problem and offers to start with empty storage (keeping the identity) or to restore a backup.
-- In the browser, the same vault lives in memory and disappears with the tab.
+- In the browser, the same vault lives in memory and disappears with the tab, unless the user turns on **Remember me on this browser** (below).
 
 | Key | Contents |
 |---|---|
@@ -270,7 +270,7 @@ plaintext = JSON {"v":1, "values": {"<key>": "<string>", …}}
 | `sotto.contacts.v1` | Contacts (keys, name, organisation, verified, auto-answer choices) and the auto-answer switch and delay |
 | `sotto.history.v1` | Call history with notes, and the retention period |
 | `sotto.guest_links.v1` | Guest links (§5.7) |
-| `sotto.lock.v1` | App lock: Argon2id PIN verifier (`crypto_pwhash_str`), failed attempts, auto-lock time. Device-only |
+| `sotto.lock.v1` | App lock: PIN verifier (Argon2id `crypto_pwhash_str` in the apps; keyed BLAKE2b in the browser, §9.1), failed attempts, auto-lock time. Device-only |
 | `sotto.devices.v1` | Chosen camera, microphone and speaker. Device-only |
 | `sotto.settings.hide_ip` | "Hide my IP address" |
 | `sotto.settings.sounds` | Ringtone and chimes on/off |
@@ -278,4 +278,18 @@ plaintext = JSON {"v":1, "values": {"<key>": "<string>", …}}
 | `sotto.settings.desktop` | Tray and notification choices. Device-only |
 
 Earlier versions kept settings directly in the keystore; on first start they are moved into the vault and deleted from the keystore.
+
+### 9.1 Remember me on this browser
+
+Off by default. When on, the browser keeps what the OS keystore and the vault file keep in the apps, in an IndexedDB database `sotto` (table `kv`):
+
+| Record | Contents |
+|---|---|
+| `wrapping-key` | An AES-256-GCM `CryptoKey` created by Web Crypto as **non-extractable**: scripts (ours included) can use it but can't read it |
+| `secret:<name>` | Each keystore entry (`sotto.identity.master.v1`, `sotto.vault.key.v1`, `sotto.lock.key.v1`) as `iv (12) || AES-GCM(value, wrapping-key)` |
+| `vault` | The vault file's bytes, as above (already encrypted with the vault key) |
+
+- `sotto.lock.key.v1` is the 32-byte key of the browser's PIN verifier (keyed BLAKE2b; the web build has no Argon2id). It is kept with the secrets so that the PIN still works after reloading.
+- Turning it on copies the session's identity, PIN key and vault into this storage; *Forget this browser* copies them back to memory and deletes the database (the tab keeps working until it is closed). Erasing everything deletes it too.
+- Non-extractable means a script can't copy the key out; it does not protect against someone who can use this browser profile or read its files. The option is meant for one's own computer.
 

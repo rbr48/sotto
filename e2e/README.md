@@ -1,6 +1,6 @@
 # End-to-end tests
 
-`call.mjs`, `guest.mjs`, `autoanswer.mjs`, `phase6.mjs` and `phase7.mjs` run real calls between headless Chromium tabs (fake camera and
+`call.mjs`, `guest.mjs`, `autoanswer.mjs`, `phase6.mjs`, `phase7.mjs`, `remember.mjs`, `firefox.mjs` and `safari.mjs` run real calls between headless Chromium tabs (fake camera and
 microphone) through the real relay and a real TURN server. They check:
 
 - the crypto self-test passes in the browser
@@ -12,6 +12,7 @@ microphone) through the real relay and a real TURN server. They check:
 - Phase 6: contact links, calling from contacts, call timer and quality, history with talk time and a note, the app lock (a call rings on top of it), the device picker
 - Phase 7: ringtone and ringback tone, a dialog left open closes for an incoming call, the knock chime, no server setting in the browser
 - every frame sent to the relay is a login, an ICE request or an opaque encrypted envelope, with no names, notes or PINs; pages contact no third-party hosts
+- Remember me on this browser (`remember.mjs`): the warning and the "links work only while this tab is open" card without it; with it, the same links after reloading; what IndexedDB holds is encrypted and its key isn't extractable; *Forget this browser* deletes it; an empty database left behind doesn't break it
 - Safari's engine (`safari.mjs`, WebKit with the professional in Chromium): the crypto self-test, a signed guest link (verified name, device check), clear advice when the camera can't be used, a signed contact link, a tampered link rejected. Not a live call: Playwright's Linux WebKit always refuses camera and microphone access, so calls from Safari are checked by hand (below)
 
 ```bash

@@ -7,6 +7,7 @@ import 'package:sodium/sodium.dart';
 import '../call/call_controller.dart';
 import '../call/devices.dart';
 import '../contacts/contact_book.dart';
+import '../core/leave_warning.dart';
 import '../core/server_address.dart';
 import '../core/test_hooks.dart';
 import '../crypto/encoding.dart';
@@ -17,6 +18,7 @@ import '../history/call_history.dart';
 import '../lock/app_lock.dart';
 import '../sound/call_sounds.dart';
 import '../storage/backup.dart';
+import '../storage/browser_storage.dart';
 import '../storage/vault.dart';
 import '../storage/vault_file.dart';
 
@@ -67,7 +69,8 @@ class Profile {
 /// [CallController] once the user has an identity and a profile.
 ///
 /// In the browser ([persistent] false) everything lives in memory and is
-/// gone when the tab closes.
+/// gone when the tab closes, unless the user chose "Remember me on this
+/// browser" ([rememberedInBrowser]).
 class AppController extends ChangeNotifier {
   AppController({
     required this.relayUrl,
@@ -76,8 +79,10 @@ class AppController extends ChangeNotifier {
     SecretStore? keystore,
     Future<VaultFile> Function()? openVaultFile,
     DeviceLister Function()? deviceLister,
+    BrowserStorageBackend? browserStorage,
     this.startCalls = true,
   }) : _deviceLister = deviceLister ?? WebRtcDeviceLister.new,
+       _browser = browserStorage ?? defaultBrowserStorage(),
        _persistent = persistent ?? !kIsWeb,
        _keystore =
            keystore ??
@@ -89,6 +94,10 @@ class AppController extends ChangeNotifier {
                : () async => MemoryVaultFile());
 
   static const String profileKey = 'sotto.profile.v1';
+
+  /// The key of the browser's PIN hash (see [SessionPinHasher]); kept with
+  /// the identity's secrets.
+  static const String pinKeyName = 'sotto.lock.key.v1';
 
   static const String desktopKey = 'sotto.settings.desktop';
 
@@ -118,6 +127,17 @@ class AppController extends ChangeNotifier {
   SecretStore _keystore;
   Future<VaultFile> Function() _openVaultFile;
   final DeviceLister Function() _deviceLister;
+  final BrowserStorageBackend _browser;
+  bool _lookedInBrowser = false;
+
+  /// Whether this browser remembers the identity across reloads.
+  bool get rememberedInBrowser => _rememberedInBrowser;
+  bool _rememberedInBrowser = false;
+
+  /// Whether "Remember me on this browser" can be offered: in the browser,
+  /// not in the native apps (which always keep the identity).
+  bool get canRememberInBrowser =>
+      _browser.supported && (!_persistent || _rememberedInBrowser);
 
   AppStage _stage = AppStage.loading;
   AppStage get stage => _stage;
@@ -184,7 +204,7 @@ class AppController extends ChangeNotifier {
   /// Whether the user chose another server (not possible in the browser,
   /// which always uses the server it was loaded from).
   bool get usesCustomServer => _customServer != null;
-  bool get canChangeServer => persistent;
+  bool get canChangeServer => persistent && !_rememberedInBrowser;
 
   /// Backups need Argon2id and a device that keeps the identity.
   bool get backupsAvailable =>
@@ -194,6 +214,17 @@ class AppController extends ChangeNotifier {
     _setStage(AppStage.loading);
     try {
       _sodium ??= await SottoCrypto.init();
+      if (!_lookedInBrowser && !_persistent && _browser.supported) {
+        _lookedInBrowser = true;
+        try {
+          if (await _browser.open() case final remembered?) {
+            _useBrowser(remembered);
+          }
+        } catch (e) {
+          // Private windows may refuse storage: carry on, keeping nothing.
+          debugPrint('Browser storage unavailable: $e');
+        }
+      }
       final file = _vaultFile = await _openVaultFile();
       try {
         await _keystore.read(Vault.keyName);
@@ -233,11 +264,13 @@ class AppController extends ChangeNotifier {
 
   Future<void> _loadStores(Vault vault) async {
     final sumo = SottoCrypto.passwordHashing(sodium);
+    // The browser keeps one kind of PIN hash, remembered or not, so a PIN
+    // set before "Remember me" still works after it.
     lock = AppLock(
       vault,
-      persistent && sumo != null
+      persistent && !_browser.supported && sumo != null
           ? Argon2PinHasher(sumo)
-          : SessionPinHasher(sodium),
+          : SessionPinHasher(sodium, key: await _pinKey()),
     );
     contacts = ContactBook(vault);
     history = CallHistory(vault);
@@ -252,16 +285,81 @@ class AppController extends ChangeNotifier {
         : null;
   }
 
+  /// The browser's PIN-hash key, created once and kept with the secrets.
+  Future<Uint8List> _pinKey() async {
+    if (await _keystore.read(pinKeyName) case final stored?) {
+      return b64Decode(stored);
+    }
+    final key = sodium.randombytes.buf(32);
+    await _keystore.write(pinKeyName, b64Encode(key));
+    return key;
+  }
+
   /// Onboarding: creates the identity (if there is none yet) and saves the
-  /// profile.
+  /// profile; in the browser, optionally remembers it.
   Future<void> completeOnboarding({
     required String name,
     String practice = '',
+    bool rememberInBrowser = false,
   }) async {
     _identity ??= await IdentityStore(sodium, _keystore).loadOrCreate();
     await updateProfile(name: name, practice: practice);
     await _vault!.delete(legacyHostNameKey);
+    if (rememberInBrowser && canRememberInBrowser) {
+      await this.rememberInBrowser();
+      return;
+    }
     await _startCalls();
+  }
+
+  /// "Remember me on this browser": moves the identity and the data into
+  /// the browser's storage, so reloading keeps the same links, contacts and
+  /// history. Restarts the connection (not during a call).
+  Future<void> rememberInBrowser() async {
+    if (!canRememberInBrowser || _rememberedInBrowser) return;
+    if (_calls?.call.active ?? false) {
+      throw StateError('not during a call');
+    }
+    final stored = await _browser.create();
+    await _moveTo(stored.secrets, stored.vaultFile);
+    _useBrowser(stored);
+    await start();
+  }
+
+  /// Forgets the identity in this browser: everything stored here is
+  /// deleted; this tab keeps working until it is closed or reloaded.
+  Future<void> forgetBrowser() async {
+    if (!_rememberedInBrowser) return;
+    final secrets = MemorySecretStore();
+    final file = MemoryVaultFile();
+    await _moveTo(secrets, file);
+    await _browser.erase();
+    _keystore = secrets;
+    _openVaultFile = () async => file;
+    _persistent = false;
+    _rememberedInBrowser = false;
+    await start();
+  }
+
+  void _useBrowser(BrowserStorage stored) {
+    _keystore = stored.secrets;
+    _openVaultFile = () async => stored.vaultFile;
+    _persistent = true;
+    _rememberedInBrowser = true;
+  }
+
+  /// Copies the identity, the PIN key and the vault's contents to other
+  /// storage, and stops the calls (the caller restarts with [start]).
+  Future<void> _moveTo(SecretStore secrets, VaultFile file) async {
+    for (final key in [IdentityStore.masterSecretKey, pinKeyName]) {
+      if (await _keystore.read(key) case final value?) {
+        await secrets.write(key, value);
+      }
+    }
+    final vault = await Vault.open(sodium: sodium, keys: secrets, file: file);
+    await vault.replaceAll(_vault!.snapshot());
+    vault.dispose();
+    _stopCalls();
   }
 
   Future<void> updateProfile({
@@ -393,6 +491,13 @@ class AppController extends ChangeNotifier {
     _vault?.dispose();
     _vault = null;
     _profile = null;
+    if (_rememberedInBrowser) {
+      await _browser.erase();
+      _keystore = MemorySecretStore();
+      _openVaultFile = () async => MemoryVaultFile();
+      _persistent = false;
+      _rememberedInBrowser = false;
+    }
     await start();
   }
 
@@ -412,6 +517,8 @@ class AppController extends ChangeNotifier {
 
   void _setStage(AppStage stage) {
     _stage = stage;
+    // A browser session that keeps nothing would lose its links on reload.
+    setLeaveWarning(stage == AppStage.ready && !_persistent);
     notifyListeners();
   }
 

@@ -47,10 +47,11 @@ What doesn't hold yet (details in [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md)
 - **Browser guests run the code the server sends them.** A compromised or compelled server could send modified code. Run your own server, or use one you trust; the apps don't have this problem.
 - **Call setup has no forward secrecy yet** (call media does): a stolen device key could decrypt recorded past call-setup messages, which hold IP addresses and timing, not the conversation.
 - **While calls run, the servers see metadata**: who is online, who calls whom and when, and IP addresses. It is kept in memory only, never stored.
+- **"Remember me on this browser" is only as safe as that browser profile.** It is off by default; use it on your own computer only.
 
 ## Try it
 
-**Online** (after the test server is deployed): open `https://sotto.izhaanintellect.fun/` on one device and enter a name (a browser session keeps nothing after the tab closes; install the app to keep contacts and history). Share a guest link with a "client" on another device, or your contact link (Contacts → Share my contact) with a "colleague". Compare the safety numbers. `?selftest=1` runs the crypto self-test in the browser.
+**Online** (after the test server is deployed): open `https://sotto.izhaanintellect.fun/` on one device and enter a name (a browser session keeps nothing after the tab closes or reloads, unless you choose *Remember me on this browser* on your own computer; the apps always keep your contacts and history). Share a guest link with a "client" on another device, or your contact link (Contacts → Share my contact) with a "colleague". Compare the safety numbers. `?selftest=1` runs the crypto self-test in the browser.
 
 **Locally:**
 

@@ -210,6 +210,23 @@ class SettingsTab extends StatelessWidget {
             ),
           ]),
         _Section('This device', [
+          if (app.canRememberInBrowser)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: app.rememberedInBrowser,
+              onChanged: calls.call.active
+                  ? null
+                  : (on) => on ? app.rememberInBrowser() : _forget(context),
+              title: const Text('Remember me on this browser'),
+              subtitle: Text(
+                app.rememberedInBrowser
+                    ? 'Your links, contacts and history stay in this '
+                          'browser, encrypted. Turn off to delete them here.'
+                    : 'Off: everything is gone when you close or reload '
+                          'this tab, and your links stop working. Turn on '
+                          'only on your own computer.',
+              ),
+            ),
           if (calls.ownId case final id?)
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -488,6 +505,44 @@ class SettingsTab extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _forget(BuildContext context) async {
+    // Forgetting only removes data, so it needs the PIN only if there is one.
+    if (app.lock.hasPin &&
+        !await confirmWithPin(
+          context,
+          app.lock,
+          reason: 'Forgetting this browser',
+        )) {
+      return;
+    }
+    if (!context.mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Forget this browser?'),
+        content: const SizedBox(
+          width: 420,
+          child: Text(
+            'Your identity, contacts, history and notes are deleted from this '
+            'browser. This tab keeps working until you close or reload it; '
+            'then your links stop working.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Forget'),
+          ),
+        ],
+      ),
+    );
+    if (ok ?? false) await app.forgetBrowser();
   }
 
   Future<void> _erase(BuildContext context) async {

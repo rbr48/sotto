@@ -23,6 +23,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
   late final _name = TextEditingController(text: widget.app.suggestedName);
   final _practice = TextEditingController();
   bool _protect = false;
+  bool _remember = false;
   bool _busy = false;
   String? _nameError;
 
@@ -43,6 +44,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
     await widget.app.completeOnboarding(
       name: _name.text,
       practice: _practice.text,
+      rememberInBrowser: _remember,
     );
   }
 
@@ -76,8 +78,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
                       leading: Icon(Icons.public),
                       title: Text('Browser session'),
                       subtitle: Text(
-                        'Nothing is kept after you close this tab. Install '
-                        'the Sotto app to keep your contacts and history.',
+                        'Nothing is kept after you close or reload this tab, '
+                        'unless you choose "Remember me on this browser". '
+                        'The Sotto app keeps your contacts and history.',
                       ),
                     ),
                   ),
@@ -157,7 +160,18 @@ class _OnboardingPageState extends State<OnboardingPage> {
         labelText: 'Practice or organisation (optional)',
       ),
     ),
-    if (app.persistent)
+    if (app.canRememberInBrowser && !app.persistent)
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        value: _remember,
+        onChanged: (v) => setState(() => _remember = v),
+        title: const Text('Remember me on this browser'),
+        subtitle: const Text(
+          'Keeps your links, contacts and history when you reload or come '
+          'back. Only on your own computer, not a shared one.',
+        ),
+      ),
+    if (app.persistent || _remember)
       SwitchListTile(
         contentPadding: EdgeInsets.zero,
         value: _protect,

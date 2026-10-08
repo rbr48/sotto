@@ -159,6 +159,14 @@ class ShareContactDialog extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               SelectableText(link, maxLines: 3, style: mono),
+              if (!app.persistent) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'This browser session keeps nothing: after you close or '
+                  'reload the tab, this link stops working.',
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ],
             ],
           ),
         ),
