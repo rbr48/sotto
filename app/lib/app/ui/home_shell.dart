@@ -13,6 +13,7 @@ import '../../crypto/identity.dart';
 import '../../guest/ui/host_widgets.dart';
 import '../../history/ui/history_tab.dart';
 import '../app_controller.dart';
+import 'header_downloads_action.dart';
 import 'settings_tab.dart';
 
 /// The professional's main screen: Home, Contacts, History and Settings.
@@ -127,6 +128,10 @@ class _HomeShellState extends State<HomeShell> {
               onPressed: app.lock.lock,
               icon: const Icon(Icons.lock_outline),
             ),
+          if (kIsWeb) ...[
+            HeaderDownloadsAction(app: app),
+            const SizedBox(width: 8),
+          ],
           RelayStatusChip(status: calls.relayStatus),
           const SizedBox(width: 8),
         ],
@@ -359,105 +364,6 @@ class _HomeTabState extends State<HomeTab> {
             ),
           ),
         ),
-        if (kIsWeb) ...[
-          const SizedBox(height: 20),
-          Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: theme.colorScheme.outlineVariant),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.primaryContainer.withValues(
-                            alpha: 0.5,
-                          ),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(
-                          Icons.download_rounded,
-                          color: theme.colorScheme.primary,
-                          size: 22,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Download Sotto apps',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            Text(
-                              'Direct downloads for Android, Windows, and Linux.',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      FilledButton.tonalIcon(
-                        onPressed: () => launchUrl(
-                          app.server.web.resolve('downloads/sotto-android.apk'),
-                          mode: LaunchMode.externalApplication,
-                        ),
-                        icon: const Icon(Icons.android),
-                        label: const Text('Android (.apk)'),
-                      ),
-                      FilledButton.tonalIcon(
-                        onPressed: () => launchUrl(
-                          app.server.web.resolve(
-                            'downloads/sotto-windows-x64.zip',
-                          ),
-                          mode: LaunchMode.externalApplication,
-                        ),
-                        icon: const Icon(Icons.window),
-                        label: const Text('Windows (.zip)'),
-                      ),
-                      FilledButton.tonalIcon(
-                        onPressed: () => launchUrl(
-                          app.server.web.resolve(
-                            'downloads/sotto-linux-x64.tar.gz',
-                          ),
-                          mode: LaunchMode.externalApplication,
-                        ),
-                        icon: const Icon(Icons.terminal),
-                        label: const Text('Linux (.tar.gz)'),
-                      ),
-                      TextButton.icon(
-                        onPressed: () => launchUrl(
-                          app.server.web.resolve('downloads.html'),
-                          mode: LaunchMode.externalApplication,
-                        ),
-                        icon: const Icon(Icons.open_in_new),
-                        label: const Text('All downloads & checksums'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
       ],
     );
   }
