@@ -6,7 +6,11 @@ abstract final class SottoConfig {
   static const String _relayOverride = String.fromEnvironment(
     'SOTTO_RELAY_URL',
   );
-  static const String _defaultRelay = 'wss://sotto.izhaanintellect.fun/relay';
+  static const String _defaultRelay = 'wss://call.sottocall.com/relay';
+
+  /// Earlier built-in servers. The same server still answers there, so a
+  /// user who picked one of these by hand is moved to the built-in server.
+  static const Set<String> formerDefaultHosts = {'sotto.izhaanintellect.fun'};
 
   /// The relay to connect to. The web build talks to the server it was
   /// loaded from, so a self-hosted copy works without rebuilding.

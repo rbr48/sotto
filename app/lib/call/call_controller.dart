@@ -21,6 +21,7 @@ import 'call_code.dart';
 import 'call_manager.dart';
 import 'devices.dart';
 import 'media_engine.dart';
+import 'screen_awake.dart';
 import 'webrtc_media_engine.dart';
 
 /// Everything the call screens need: the relay connection, the current
@@ -47,10 +48,14 @@ class CallController extends ChangeNotifier {
     this.devices,
     String Function()? hostName,
     SoundOutput? sounds,
+    ScreenAwake? screenAwake,
   }) : _sounds = sounds, // ignore: prefer_initializing_formals
        _givenIdentity = identity,
        _settings = settings ?? MemorySecretStore(),
-       _hostName = hostName ?? (() => '');
+       _hostName = hostName ?? (() => ''),
+       _screen = VideoCallScreen(screenAwake ?? WakelockScreenAwake()) {
+    addListener(_updateScreen);
+  }
 
   /// Used only if the relay offers no STUN/TURN servers (e.g. a bare local
   /// test relay). The Sotto relay hands out its own STUN and TURN servers.
@@ -71,6 +76,8 @@ class CallController extends ChangeNotifier {
   final Identity? _givenIdentity;
   final SecretStore _settings;
   final String Function() _hostName;
+  final VideoCallScreen _screen;
+  void _updateScreen() => _screen.update(call);
 
   /// The professional's contacts (auto-answer, names); `null` for guests and
   /// quick calls.
@@ -708,6 +715,8 @@ class CallController extends ChangeNotifier {
 
   @override
   void dispose() {
+    removeListener(_updateScreen);
+    _screen.release();
     for (final subscription in _subscriptions) {
       subscription.cancel();
     }

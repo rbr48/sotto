@@ -1,9 +1,12 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../call/ui/common.dart';
 import '../../lock/ui/lock_ui.dart';
 import '../../storage/ui/backup_ui.dart';
 import '../app_controller.dart';
+import 'header_downloads_action.dart';
 
 enum _Step { welcome, profile, restore }
 
@@ -56,6 +59,17 @@ class _OnboardingPageState extends State<OnboardingPage> {
       title: 'Sotto · Welcome',
       color: theme.colorScheme.primary,
       child: Scaffold(
+        appBar: kIsWeb
+            ? AppBar(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                scrolledUnderElevation: 0,
+                actions: [
+                  HeaderDownloadsAction(app: app),
+                  const SizedBox(width: 8),
+                ],
+              )
+            : null,
         body: SafeArea(
           child: Centered(
             child: Column(
@@ -74,11 +88,15 @@ class _OnboardingPageState extends State<OnboardingPage> {
                     color: theme.colorScheme.secondaryContainer,
                     child: const ListTile(
                       leading: Icon(Icons.public),
-                      title: Text('Browser session'),
+                      title: Text('This browser forgets you'),
                       subtitle: Text(
-                        'Nothing is kept after you close or reload this tab, '
-                        'unless you choose "Remember me on this browser". '
-                        'The Sotto app keeps your contacts and history.',
+                        'This browser forgets everything when you close or '
+                        'reload the tab. Turn on Remember me to keep your '
+                        'contacts here, or install the Sotto app.\n'
+                        'Where it is kept: with Remember me, only in this '
+                        'browser on this computer; with the app, only on '
+                        'your phone or computer. Always encrypted, never on '
+                        'our servers.',
                       ),
                     ),
                   ),
@@ -123,6 +141,60 @@ class _OnboardingPageState extends State<OnboardingPage> {
         label: const Text('Restore from a backup'),
       ),
     ],
+    if (kIsWeb) ...[
+      const SizedBox(height: 24),
+      const Divider(),
+      const SizedBox(height: 16),
+      Text(
+        'Or download the app to keep your contacts and history on your device:',
+        style: Theme.of(context).textTheme.bodySmall
+            ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+        textAlign: TextAlign.center,
+      ),
+      const SizedBox(height: 12),
+      Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          OutlinedButton.icon(
+            onPressed: () => launchUrl(
+              app.server.web.resolve('downloads/sotto-android.apk'),
+              mode: LaunchMode.externalApplication,
+            ),
+            icon: const Icon(Icons.android, size: 18),
+            label: const Text('Android'),
+          ),
+          OutlinedButton.icon(
+            onPressed: () => launchUrl(
+              app.server.web.resolve('downloads/sotto-windows-x64.zip'),
+              mode: LaunchMode.externalApplication,
+            ),
+            icon: const Icon(Icons.desktop_windows, size: 18),
+            label: const Text('Windows'),
+          ),
+          OutlinedButton.icon(
+            onPressed: () => launchUrl(
+              app.server.web.resolve('downloads/sotto-linux-x64.tar.gz'),
+              mode: LaunchMode.externalApplication,
+            ),
+            icon: const Icon(Icons.terminal, size: 18),
+            label: const Text('Linux'),
+          ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      Center(
+        child: TextButton.icon(
+          onPressed: () => launchUrl(
+            app.server.web.resolve('downloads.html'),
+            mode: LaunchMode.externalApplication,
+          ),
+          icon: const Icon(Icons.open_in_new, size: 16),
+          label: const Text('All downloads & checksums'),
+        ),
+      ),
+    ],
   ];
 
   List<Widget> _profile(AppController app) => [
@@ -165,8 +237,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
         onChanged: (v) => setState(() => _remember = v),
         title: const Text('Remember me on this browser'),
         subtitle: const Text(
-          'Keeps your links, contacts and history when you reload or come '
-          'back. Only on your own computer, not a shared one.',
+          'Keeps your links, contacts and history in this browser, on this '
+          'computer only (encrypted, never on our servers). Use it only on '
+          'your own computer, not a shared one.',
         ),
       ),
     if (app.persistent || _remember)

@@ -9,6 +9,7 @@ import '../call/call_controller.dart';
 import '../core/update_check.dart';
 import '../call/devices.dart';
 import '../contacts/contact_book.dart';
+import '../core/config.dart';
 import '../core/leave_warning.dart';
 import '../core/server_address.dart';
 import '../core/test_hooks.dart';
@@ -84,6 +85,7 @@ class AppController extends ChangeNotifier {
     BrowserStorageBackend? browserStorage,
     this.startCalls = true,
     UpdateChecker? updateChecker,
+    this.formerDefaultHosts = SottoConfig.formerDefaultHosts,
   }) : _updates =
            updateChecker ?? (kIsWeb || !startCalls ? null : UpdateChecker()),
        _deviceLister = deviceLister ?? WebRtcDeviceLister.new,
@@ -123,6 +125,10 @@ class AppController extends ChangeNotifier {
 
   final Uri relayUrl;
   final Uri linkBase;
+
+  /// Hosts of earlier built-in servers: a choice of one of these is
+  /// replaced by the built-in server.
+  final Set<String> formerDefaultHosts;
 
   /// Whether data survives restarts (native apps) or lives only in memory
   /// (browser, or a session without the system keystore).
@@ -342,6 +348,11 @@ class AppController extends ChangeNotifier {
     _customServer = canChangeServer
         ? ServerAddress.decode(await vault.read(serverKey))
         : null;
+    if (_customServer case final custom?
+        when formerDefaultHosts.contains(custom.web.host)) {
+      _customServer = null;
+      await vault.delete(serverKey);
+    }
   }
 
   /// The browser's PIN-hash key, created once and kept with the secrets.

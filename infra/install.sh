@@ -171,7 +171,16 @@ ask_domain() {
       PROXY_PORT=$saved_proxy
     fi
   fi
-  if [[ $BEHIND_PROXY == 1 && -z $TLS_CERT && -z $TLS_KEY && -f $ENV_FILE ]]; then
+  if [[ -z $DOMAIN && -t 0 && $ASSUME_YES == 0 ]]; then
+    read -r -p 'Domain for this Sotto server (e.g. calls.example.org): ' DOMAIN
+  fi
+  [[ -n $DOMAIN ]] || die 'no domain given (use --domain)'
+  DOMAIN=${DOMAIN,,}
+  valid_domain "$DOMAIN" || die "not a valid domain name: $DOMAIN"
+  # The certificate saved in .env is for the domain it was saved with: after a
+  # change of domain, look for the new domain's.
+  if [[ $BEHIND_PROXY == 1 && -z $TLS_CERT && -z $TLS_KEY && -f $ENV_FILE &&
+    $(saved SOTTO_DOMAIN) == "$DOMAIN" ]]; then
     TLS_CERT=$(saved SOTTO_TLS_CERT)
     TLS_KEY=$(saved SOTTO_TLS_KEY)
     if [[ -n $TLS_CERT && ! -r $TLS_CERT ]] || [[ -n $TLS_KEY && ! -r $TLS_KEY ]]; then
@@ -179,12 +188,6 @@ ask_domain() {
       TLS_CERT='' TLS_KEY=''
     fi
   fi
-  if [[ -z $DOMAIN && -t 0 && $ASSUME_YES == 0 ]]; then
-    read -r -p 'Domain for this Sotto server (e.g. calls.example.org): ' DOMAIN
-  fi
-  [[ -n $DOMAIN ]] || die 'no domain given (use --domain)'
-  DOMAIN=${DOMAIN,,}
-  valid_domain "$DOMAIN" || die "not a valid domain name: $DOMAIN"
 }
 
 # A value saved in .env.

@@ -61,11 +61,10 @@ if [ -r "$CERT" ] && [ -r "$KEY" ]; then
   set -- "$@" \
     --tls-listening-port=5349 \
     --cert="$CERT" \
-    --pkey="$KEY" \
-    --no-dtls
+    --pkey="$KEY"
   echo "sotto-coturn: TURN over TLS enabled on port 5349"
 else
-  set -- "$@" --no-tls --no-dtls
+  set -- "$@" --no-tls
   echo "sotto-coturn: no certificate yet ($CERT); TURN over TLS disabled (restart coturn once there is one)"
 fi
 

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -12,6 +13,7 @@ import '../../crypto/identity.dart';
 import '../../guest/ui/host_widgets.dart';
 import '../../history/ui/history_tab.dart';
 import '../app_controller.dart';
+import 'header_downloads_action.dart';
 import 'settings_tab.dart';
 
 /// The professional's main screen: Home, Contacts, History and Settings.
@@ -126,6 +128,10 @@ class _HomeShellState extends State<HomeShell> {
               onPressed: app.lock.lock,
               icon: const Icon(Icons.lock_outline),
             ),
+          if (kIsWeb) ...[
+            HeaderDownloadsAction(app: app),
+            const SizedBox(width: 8),
+          ],
           RelayStatusChip(status: calls.relayStatus),
           const SizedBox(width: 8),
         ],

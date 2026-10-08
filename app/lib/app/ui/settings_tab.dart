@@ -245,11 +245,12 @@ class SettingsTab extends StatelessWidget {
               title: const Text('Remember me on this browser'),
               subtitle: Text(
                 app.rememberedInBrowser
-                    ? 'Your links, contacts and history stay in this '
-                          'browser, encrypted. Turn off to delete them here.'
-                    : 'Off: everything is gone when you close or reload '
-                          'this tab, and your links stop working. Turn on '
-                          'only on your own computer.',
+                    ? 'Your links, contacts and history are kept in this '
+                          'browser, on this computer only (encrypted, never '
+                          'on our servers). Turn off to delete them here.'
+                    : 'Off: this browser forgets everything when you close '
+                          'or reload the tab, and your links stop working. '
+                          'Turn on only on your own computer.',
               ),
             ),
           if (calls.ownId case final id?)
@@ -300,6 +301,16 @@ class SettingsTab extends StatelessWidget {
             title: const Text('Terms of use'),
             onTap: () => launchUrl(
               app.server.web.resolve('terms.html'),
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.download_outlined),
+            title: const Text('Download apps'),
+            subtitle: const Text('Get Sotto for Android, Windows, and Linux.'),
+            onTap: () => launchUrl(
+              app.server.web.resolve('downloads.html'),
               mode: LaunchMode.externalApplication,
             ),
           ),

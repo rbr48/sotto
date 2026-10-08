@@ -51,7 +51,7 @@ What doesn't hold yet (details in [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md)
 
 ## Try it
 
-**Online** (after the test server is deployed): open `https://sotto.izhaanintellect.fun/` on one device and enter a name (a browser session keeps nothing after the tab closes or reloads, unless you choose *Remember me on this browser* on your own computer; the apps always keep your contacts and history). Share a guest link with a "client" on another device, or your contact link (Contacts → Share my contact) with a "colleague". Compare the safety numbers. `?selftest=1` runs the crypto self-test in the browser.
+**Online** (after the test server is deployed): open `https://call.sottocall.com/` on one device and enter a name (a browser session keeps nothing after the tab closes or reloads, unless you choose *Remember me on this browser* on your own computer; the apps always keep your contacts and history). Share a guest link with a "client" on another device, or your contact link (Contacts → Share my contact) with a "colleague". Compare the safety numbers. `?selftest=1` runs the crypto self-test in the browser.
 
 **Locally:**
 
@@ -88,7 +88,7 @@ See [`e2e/README.md`](e2e/README.md) for the end-to-end call test.
 
 ## Before using the name publicly
 
-- [ ] Domain (for example `sotto.app`, `getsotto.com`, `sottocall.com`)
+- [x] Domain: `sottocall.com` (the hosted server is `call.sottocall.com`)
 - [ ] Trademark search (local office, USPTO, EUIPO; classes 9 and 38)
 - [ ] Play Store / Microsoft Store name check
 - [ ] Social handles
