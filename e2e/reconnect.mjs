@@ -36,6 +36,9 @@ if (!existsSync(pidfile)) {
   process.exit(0);
 }
 const turnPid = Number(readFileSync(pidfile, 'utf8').trim());
+// Fails early if the pidfile is stale (e.g. the TURN server couldn't get its
+// port and exited) or the process belongs to someone else.
+process.kill(turnPid, 0);
 
 const browser = await launch();
 let frozen = false;
