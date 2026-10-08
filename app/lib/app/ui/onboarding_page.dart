@@ -66,6 +66,17 @@ class _OnboardingPageState extends State<OnboardingPage> {
                 backgroundColor: Colors.transparent,
                 elevation: 0,
                 scrolledUnderElevation: 0,
+                leading: Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: IconButton(
+                    tooltip: 'Sotto home',
+                    onPressed: () => launchUrl(
+                      Uri.parse('https://sottocall.com'),
+                      mode: LaunchMode.externalApplication,
+                    ),
+                    icon: const SottoLogo(size: 34),
+                  ),
+                ),
                 actions: [
                   HeaderDownloadsAction(),
                   const SizedBox(width: 8),
