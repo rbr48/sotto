@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'app/app_controller.dart';
 import 'app/ui/app_root.dart';
@@ -9,25 +12,40 @@ import 'call/ui/quick_call_page.dart';
 import 'contacts/contact_link.dart';
 import 'core/config.dart';
 import 'core/theme.dart';
+import 'desktop/autostart.dart';
+import 'desktop/desktop_integration.dart';
+import 'desktop/single_instance.dart';
 import 'diagnostics/crypto_self_test_page.dart';
 import 'guest/guest_link.dart';
 import 'guest/ui/guest_page.dart';
 import 'sound/call_sounds.dart';
 
-void main() {
+Future<void> main(List<String> args) async {
   // Keep Flutter's router away from the URL so link payloads after `#` are
   // left alone.
   setUrlStrategy(null);
   // Desktop plugins (window, tray) talk to the engine before the first frame.
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const SottoApp());
+  // One Sotto per desktop session: a second start shows the first.
+  if (isDesktop) {
+    try {
+      final dir = await getApplicationSupportDirectory();
+      if (await SingleInstance.claim(dir) == null) exit(0);
+    } catch (e) {
+      debugPrint('Single-instance check skipped: $e');
+    }
+  }
+  runApp(SottoApp(startHidden: args.contains(Autostart.hiddenFlag)));
 }
 
 /// What the app was opened for.
 enum _Mode { selfTest, guest, quickCall, app }
 
 class SottoApp extends StatefulWidget {
-  const SottoApp({super.key});
+  const SottoApp({super.key, this.startHidden = false});
+
+  /// Desktop: started at login, so it opens in the tray.
+  final bool startHidden;
 
   @override
   State<SottoApp> createState() => _SottoAppState();
@@ -86,7 +104,7 @@ class _SottoAppState extends State<SottoApp> {
         link: Uri.base.toString(),
         dialImmediately: Uri.base.queryParameters.containsKey('call'),
       ),
-      _Mode.app => AppRoot(app: _app!),
+      _Mode.app => AppRoot(app: _app!, startHidden: widget.startHidden),
     },
   );
 }

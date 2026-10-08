@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status bar icon: Sotto's speech bubble (white; Android tints it). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,3C6.95,3 3,6.58 3,11c0,2.13 0.93,4.06 2.45,5.49L4.5,21l4.42,-2.26C9.88,18.91 10.92,19 12,19c5.05,0 9,-3.58 9,-8S17.05,3 12,3zM8,12.5c-0.83,0 -1.5,-0.67 -1.5,-1.5S7.17,9.5 8,9.5 9.5,10.17 9.5,11 8.83,12.5 8,12.5zM12,12.5c-0.83,0 -1.5,-0.67 -1.5,-1.5S11.17,9.5 12,9.5s1.5,0.67 1.5,1.5S12.83,12.5 12,12.5zM16,12.5c-0.83,0 -1.5,-0.67 -1.5,-1.5S15.17,9.5 16,9.5s1.5,0.67 1.5,1.5S16.83,12.5 16,12.5z" />
+</vector>

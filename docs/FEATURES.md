@@ -77,9 +77,11 @@ The features planned for the product. Phase numbers refer to [ROADMAP.md](ROADMA
 | Feature | Description | Phase | Plan |
 |---|---|---|---|
 | Tray mode (PC) | The app stays in the system tray so it can still receive knocking clients and calls | 7 | Free |
+| Start at login (PC) | Optionally starts in the tray when you log in, so calls ring without opening Sotto first | 8 | Free |
+| Ring when closed (Android) | Sotto stays connected to your own server in the background (a quiet permanent notification); calls ring full screen with Answer / Decline, also on the lock screen, and knocking guests show a notification. No push service is involved | 8 | Free |
 | Desktop notifications | A popup and sound when a client knocks or a colleague calls | 7 | Free |
 | Auto-answer for trusted callers | Optional: calls from people you choose (verified contacts only) connect by themselves after a short ring you can still decline. Starts as voice only, with a sound and "Auto-answered" banner on both sides. Only you can turn it on, on your own device | 5B (open app), 12 (locked phone) | Free |
-| Android wake-up | A content-free push wakes your phone with a full-screen call / knock screen even when the app is closed. The server never stores your push token | 12 | Free |
+| Android wake-up (battery saver) | Instead of staying connected: a content-free push wakes your phone when someone calls. The server never stores your push token | 12 | Free |
 | Google-free option | UnifiedPush support for receiving calls without Google services | 12 | Free |
 | Ongoing-call notification (Android) | Keeps the call alive in the background | 12 | Free |
 

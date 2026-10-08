@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:sodium/sodium.dart';
 
+import '../android/android_integration.dart';
 import '../call/call_controller.dart';
 import '../call/devices.dart';
 import '../contacts/contact_book.dart';
@@ -177,6 +178,9 @@ class AppController extends ChangeNotifier {
   DesktopPrefs _desktopPrefs = const DesktopPrefs();
 
   bool _trayAvailable = false;
+
+  /// Android's background ringing and its permissions (Android app only).
+  AndroidIntegration? android;
 
   /// Whether a tray icon could be shown (desktop apps).
   bool get trayAvailable => _trayAvailable;

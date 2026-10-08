@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../android/android_integration.dart';
 import '../../call/call_controller.dart';
 import '../../core/server_address.dart';
+import '../../desktop/autostart.dart';
 import '../../desktop/desktop_integration.dart';
 import '../../call/ui/common.dart';
 import '../../contacts/contact_book.dart';
@@ -62,6 +64,22 @@ class SettingsTab extends StatelessWidget {
                     )
                   : null,
             ),
+            if (Autostart.supported)
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Start Sotto when I log in'),
+                subtitle: Text(
+                  app.trayAvailable
+                      ? 'Sotto starts in the tray, ready for calls and waiting '
+                            'guests, without opening a window.'
+                      : 'Sotto opens when you log in, ready for calls and '
+                            'waiting guests.',
+                ),
+                value: app.desktopPrefs.startAtLogin,
+                onChanged: (v) => app.setDesktopPrefs(
+                  app.desktopPrefs.copyWith(startAtLogin: v),
+                ),
+              ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Notifications'),
@@ -88,6 +106,10 @@ class SettingsTab extends StatelessWidget {
                     )
                   : null,
             ),
+          ]),
+        if (app.android case final android?)
+          _Section('Calls while Sotto is closed', [
+            _AndroidBackground(app: app, android: android),
           ]),
         _Section('Privacy', [
           ListenableBuilder(
@@ -750,5 +772,113 @@ class _ServerDialogState extends State<_ServerDialog> {
             : const Text('Check and use'),
       ),
     ],
+  );
+}
+
+/// Android: "Ring even when Sotto is closed", what Android still has to
+/// allow for it, and the notification choices.
+class _AndroidBackground extends StatelessWidget {
+  const _AndroidBackground({required this.app, required this.android});
+
+  final AppController app;
+  final AndroidIntegration android;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: android,
+    builder: (context, _) {
+      final status = android.status;
+      final ring = app.desktopPrefs.ringWhenClosed;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Ring even when Sotto is closed'),
+            subtitle: const Text(
+              'Sotto stays connected to your server in the background, with '
+              'a quiet notification, so calls and waiting guests ring like a '
+              'phone call. Uses a little battery. No push service is used.',
+            ),
+            value: ring,
+            onChanged: (v) => app.setDesktopPrefs(
+              app.desktopPrefs.copyWith(ringWhenClosed: v),
+            ),
+          ),
+          if (!status.notificationsAllowed)
+            _Fix(
+              text:
+                  'Notifications are off: calls can\'t ring while Sotto is '
+                  'in the background.',
+              action: 'Allow notifications',
+              onPressed: android.requestNotifications,
+            ),
+          if (ring && !status.batteryUnrestricted)
+            _Fix(
+              text:
+                  'Battery optimization may stop Sotto while the phone '
+                  'sleeps, and calls would no longer ring.',
+              action: 'Allow running in the background',
+              onPressed: android.requestBatteryExemption,
+            ),
+          if (!status.fullScreenAllowed)
+            _Fix(
+              text: 'Calls can\'t ring full screen on the lock screen.',
+              action: 'Open settings',
+              onPressed: android.openFullScreenSettings,
+            ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Notify me when a guest knocks'),
+            subtitle: const Text('While Sotto is in the background.'),
+            value: app.desktopPrefs.notifications,
+            onChanged: (v) => app.setDesktopPrefs(
+              app.desktopPrefs.copyWith(notifications: v),
+            ),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Show names on the ringing screen'),
+            subtitle: const Text(
+              'Off: it only says that a call or a guest is waiting. Others may '
+              'see your lock screen, and Android may keep notifications in '
+              'its history. Never shown while Sotto is locked.',
+            ),
+            value: app.desktopPrefs.showNames,
+            onChanged: (v) =>
+                app.setDesktopPrefs(app.desktopPrefs.copyWith(showNames: v)),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+/// Something Android has to allow, with the button that opens it.
+class _Fix extends StatelessWidget {
+  const _Fix({
+    required this.text,
+    required this.action,
+    required this.onPressed,
+  });
+
+  final String text;
+  final String action;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    color: Theme.of(context).colorScheme.errorContainer,
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(text),
+          const SizedBox(height: 8),
+          FilledButton.tonal(onPressed: onPressed, child: Text(action)),
+        ],
+      ),
+    ),
   );
 }

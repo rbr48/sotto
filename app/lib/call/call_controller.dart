@@ -142,8 +142,26 @@ class CallController extends ChangeNotifier {
   final SoundOutput? _sounds;
   late final CallSounds? _callSounds = _sounds == null
       ? null
-      : CallSounds(_sounds, enabled: () => _soundsOn);
+      : CallSounds(
+          _sounds,
+          enabled: () => _soundsOn,
+          systemAlerts: () => _systemAlerts,
+        );
   bool _soundsOn = true;
+  bool _systemAlerts = false;
+
+  /// Android, with the app in the background: the system's notifications
+  /// ring for calls and chime for guests, and nothing is answered
+  /// automatically (Android lets only a visible app use the microphone).
+  bool get systemAlerts => _systemAlerts;
+  set systemAlerts(bool value) {
+    if (value == _systemAlerts) return;
+    _systemAlerts = value;
+    // Back in front while ringing: the app's own ringtone takes over.
+    if (call.phase == CallPhase.incoming) {
+      _callSounds?.onCallState(call, autoAnswered: autoAnswered);
+    }
+  }
 
   /// Ringtone, ringback and chimes.
   bool get soundsOn => _soundsOn;
@@ -382,6 +400,7 @@ class CallController extends ChangeNotifier {
   /// professional's app answers verified contacts chosen for auto-answer,
   /// if switched on.
   AutoAnswer? _decideAutoAnswer(OpenedMessage invite) {
+    if (_systemAlerts) return null;
     if (_visit?.isAdmission(invite) == true) {
       return const AutoAnswer(delay: Duration.zero, video: true);
     }

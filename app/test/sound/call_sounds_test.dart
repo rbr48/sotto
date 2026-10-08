@@ -96,4 +96,21 @@ void main() {
     await pumpEventQueue();
     expect(sounds.looping, Sound.ringtone);
   });
+
+  test('the system rings instead while the app is in the background', () {
+    final out = FakeOutput();
+    var system = true;
+    final sounds = CallSounds(out, systemAlerts: () => system);
+    sounds.onCallState(incoming, autoAnswered: false);
+    sounds.onKnock();
+    expect(sounds.looping, isNull);
+    expect(out.log, isNot(contains('loop ringtone')));
+    expect(out.log, isNot(contains('once knock')));
+
+    // Back in front while still ringing: the app's ringtone takes over.
+    system = false;
+    sounds.onCallState(incoming, autoAnswered: false);
+    expect(sounds.looping, Sound.ringtone);
+    expect(out.log.last, 'loop ringtone');
+  });
 }

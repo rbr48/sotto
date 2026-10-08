@@ -71,3 +71,8 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // Notifications (incoming-call style) and the foreground service.
+    implementation("androidx.core:core-ktx:1.13.1")
+}

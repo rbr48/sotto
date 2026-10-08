@@ -21,13 +21,16 @@ class Notice {
   String toString() => 'Notice($title: $body)';
 }
 
-/// The user's desktop choices, kept in the vault.
+/// The user's choices for running in the background (desktop and
+/// Android), kept in the vault.
 @immutable
 class DesktopPrefs {
   const DesktopPrefs({
     this.keepInTray = true,
     this.notifications = true,
     this.showNames = false,
+    this.startAtLogin = false,
+    this.ringWhenClosed = true,
   });
 
   /// Closing the window keeps Sotto running in the system tray, so calls
@@ -42,20 +45,33 @@ class DesktopPrefs {
   /// keep notifications in its history, and others may see the screen.
   final bool showNames;
 
+  /// Desktop: start Sotto (in the tray) when the user logs in.
+  final bool startAtLogin;
+
+  /// Android: keep running after the app is closed, so calls and knocking
+  /// guests still ring.
+  final bool ringWhenClosed;
+
   DesktopPrefs copyWith({
     bool? keepInTray,
     bool? notifications,
     bool? showNames,
+    bool? startAtLogin,
+    bool? ringWhenClosed,
   }) => DesktopPrefs(
     keepInTray: keepInTray ?? this.keepInTray,
     notifications: notifications ?? this.notifications,
     showNames: showNames ?? this.showNames,
+    startAtLogin: startAtLogin ?? this.startAtLogin,
+    ringWhenClosed: ringWhenClosed ?? this.ringWhenClosed,
   );
 
   String encode() => jsonEncode({
     'tray': keepInTray,
     'notify': notifications,
     'names': showNames,
+    'login': startAtLogin,
+    'ring': ringWhenClosed,
   });
 
   static DesktopPrefs decode(String? stored) {
@@ -66,6 +82,8 @@ class DesktopPrefs {
         keepInTray: json['tray'] as bool? ?? true,
         notifications: json['notify'] as bool? ?? true,
         showNames: json['names'] as bool? ?? false,
+        startAtLogin: json['login'] as bool? ?? false,
+        ringWhenClosed: json['ring'] as bool? ?? true,
       );
     } catch (_) {
       return const DesktopPrefs();
@@ -90,6 +108,20 @@ abstract final class NoticeRules {
             'Someone knocked on your link. Open Sotto to admit them.',
           );
   }
+
+  /// Android's ringing notification while the app is in the background.
+  /// A call always rings (the notifications setting covers the other
+  /// notices); the caller's name only if the user chose so, never while
+  /// locked.
+  static Notice androidCall({
+    required String callerName,
+    required bool video,
+    required DesktopPrefs prefs,
+    required bool locked,
+  }) => Notice(
+    video ? 'Incoming video call' : 'Incoming voice call',
+    prefs.showNames && !locked ? callerName : 'Sotto',
+  );
 
   static Notice? incomingCall({
     required String callerName,

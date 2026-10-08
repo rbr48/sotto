@@ -592,6 +592,8 @@ An **optional** setting on the *receiving* device: calls from people the user ha
 - [ ] Weekly 20-minute feedback calls; a prioritised list of requests
 - [x] ICE restart on network change; reconnect mid-call; "Reconnecting…" UI (PROTOCOL §5.5): both sides show it, the caller restarts ICE (numbered offers, `call.restart` from the callee), repeats every 8 s, gives up after 45 s; the relay connection is checked with `ping` so a socket left dead by a network change is replaced within seconds (§5.2). Tested with a fake clock and end to end (the TURN server frozen mid-call, then resumed)
 - [ ] Verify Wi-Fi ↔ mobile data switching on real Android phones (the end-to-end test simulates the network loss on one machine)
+- [x] Desktop: *Start Sotto when I log in* (Settings → Desktop): an XDG autostart entry on Linux, the user's `Run` registry value on Windows; starts with `--hidden`, straight to the tray (the window may flash briefly first)
+- [x] Android: *Ring even when Sotto is closed* (moved up from Phase 12, see there)
 - [ ] Bandwidth adaptation; audio-only fallback
 - [ ] Local diagnostics with *Export diagnostic report*; opt-in crash reports only
 - [ ] Security hardening: log audit, read-only servers verified, dependency and secret scanning in CI
@@ -657,6 +659,13 @@ Recording happens **only on the professional's device**. Media stays peer-to-pee
 - [ ] Screen sharing from the desktop app (screen or window picker), for going through documents with a client
 
 #### Phase 12 — Android Background & Incoming Calls (Weeks 32–34)
+Done early (Phase 8), without a push service:
+- [x] **Ring even when Sotto is closed** (on by default): a foreground service (`specialUse`, quiet permanent notification) keeps the app's one Flutter engine and its relay connection alive after the window closes; it starts again after a reboot or an app update. Settings shows what Android still has to allow (notifications, battery optimization, full-screen calls) with a button for each
+- [x] Native incoming-call notification while the app is in the background: full screen on a locked phone, *Answer* (opens the app into the call) and *Decline*; the system plays the ringtone, so silent mode and Do Not Disturb apply; a knock notification for waiting guests; names only if chosen and never while Sotto is locked; no auto-answer while in the background (Android lets only a visible app use the microphone)
+- [ ] Verify on real phones (Pixel, Samsung, Xiaomi) with Doze and battery savers; some makers stop background services anyway
+- [ ] A call that continues while the user switches to another app needs the call foreground service below (the microphone is muted for background apps)
+
+Push wake-up, as a battery-saving alternative:
 - [ ] Obtain FCM token; **UnifiedPush** as an alternative
 - [ ] Share push tokens only with contacts via E2E `contact.update`
 - [ ] For guest links: the guest page includes the professional's wake token (stored in the signed link payload, only if the professional enables "Wake my phone for guests")

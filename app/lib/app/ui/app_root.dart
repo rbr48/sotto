@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../../android/android_integration.dart';
+import '../../android/android_platform.dart';
 import '../../call/ui/call_screen.dart';
 import '../../call/ui/common.dart';
 import '../../desktop/desktop_integration.dart';
@@ -12,9 +16,12 @@ import 'onboarding_page.dart';
 /// a call, or the home screen. Also tells the app lock when the app goes
 /// to the background.
 class AppRoot extends StatefulWidget {
-  const AppRoot({super.key, required this.app});
+  const AppRoot({super.key, required this.app, this.startHidden = false});
 
   final AppController app;
+
+  /// Desktop: started at login, so it opens in the tray.
+  final bool startHidden;
 
   @override
   State<AppRoot> createState() => _AppRootState();
@@ -23,24 +30,35 @@ class AppRoot extends StatefulWidget {
 class _AppRootState extends State<AppRoot> with WidgetsBindingObserver {
   AppController get _app => widget.app;
   DesktopIntegration? _desktop;
+  AndroidIntegration? _android;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    if (isDesktop) _desktop = DesktopIntegration(_app)..start();
+    if (isDesktop) {
+      _desktop = DesktopIntegration(_app, startHidden: widget.startHidden)
+        ..start();
+    }
+    if (isAndroid) {
+      final android = _android = AndroidIntegration(_app);
+      _app.android = android;
+      unawaited(android.start());
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _desktop?.dispose();
+    _android?.dispose();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _desktop?.inFront = state == AppLifecycleState.resumed;
+    _android?.inFront = state == AppLifecycleState.resumed;
     if (_app.stage != AppStage.ready) return;
     switch (state) {
       case AppLifecycleState.hidden || AppLifecycleState.paused:
