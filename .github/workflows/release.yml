@@ -26,8 +26,41 @@ env:
   FLUTTER_VERSION: '3.47.6'
 
 jobs:
+  version:
+    name: Release tag and app version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Determine the tag and check it matches app/pubspec.yaml
+        id: tag
+        # Android only installs an update with a higher version code, so the
+        # version in pubspec.yaml must be raised for every release.
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag_name }}
+        run: |
+          VERSION=$(grep '^version:' app/pubspec.yaml | head -n1 | cut -d' ' -f2)
+          NAME=${VERSION%%+*}
+          if [ "$REF_TYPE" = "tag" ]; then TAG="$REF_NAME"
+          elif [ -n "$INPUT_TAG" ]; then TAG="$INPUT_TAG"
+          else TAG="v$NAME"; fi
+          if [ "$TAG" != "v$NAME" ]; then
+            echo "::error::Tag $TAG does not match the app version $VERSION in app/pubspec.yaml (expected v$NAME)"
+            exit 1
+          fi
+          case "$VERSION" in *+*) ;; *)
+            echo "::error::app/pubspec.yaml needs a build number (e.g. $NAME+2): it is Android's version code"
+            exit 1 ;;
+          esac
+          echo "Releasing $TAG (version $VERSION)"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
   build-android:
     name: Android Release (Signed APK)
+    needs: version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,39 +73,63 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-      - name: Configure Keystore
+      - name: Configure the release keystore
+        # Every release must be signed with the same key, or Android refuses
+        # to install it as an update. There is no fallback: without the
+        # secrets, the release stops here.
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
-          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
-            echo "Using configured repository release keystore secret"
-            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > /tmp/release.keystore
-            echo "ANDROID_KEYSTORE_PATH=/tmp/release.keystore" >> $GITHUB_ENV
-            echo "ANDROID_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
-            echo "ANDROID_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> $GITHUB_ENV
-            echo "ANDROID_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}" >> $GITHUB_ENV
-          else
-            echo "No custom ANDROID_KEYSTORE_BASE64 secret; generating release keystore"
-            keytool -genkeypair -v -keystore /tmp/release.keystore -alias sotto -keyalg RSA -keysize 2048 -validity 10000 \
-              -storepass sotto-release-secret -keypass sotto-release-secret \
-              -dname "CN=Sotto, O=Izhaan Intellect, C=US"
-            echo "ANDROID_KEYSTORE_PATH=/tmp/release.keystore" >> $GITHUB_ENV
-            echo "ANDROID_KEYSTORE_PASSWORD=sotto-release-secret" >> $GITHUB_ENV
-            echo "ANDROID_KEY_ALIAS=sotto" >> $GITHUB_ENV
-            echo "ANDROID_KEY_PASSWORD=sotto-release-secret" >> $GITHUB_ENV
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 is not set. Add the release keystore secrets (docs/RELEASES.md) and run the release again."
+            exit 1
           fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.keystore"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
       - name: Build Android Release APK
         working-directory: app
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: flutter build apk --release
-      - name: Package APK
+      - name: Check the signature
+        # Prints the signing certificate's SHA-256 fingerprint (published in
+        # the release notes); if the ANDROID_CERT_SHA256 variable is set, the
+        # APK must match it, so a release can't go out with another key.
+        env:
+          EXPECTED: ${{ vars.ANDROID_CERT_SHA256 }}
         run: |
+          rm -f "$RUNNER_TEMP/release.keystore"
+          APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)
+          "$APKSIGNER" verify --print-certs app/build/app/outputs/flutter-apk/app-release.apk | tee signature.txt
+          if grep -q "CN=Android Debug" signature.txt; then
+            echo "::error::The APK is signed with the debug key"
+            exit 1
+          fi
+          ACTUAL=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' signature.txt | tr -d ':' | tr 'a-f' 'A-F')
+          if [ -z "$ACTUAL" ]; then
+            echo "::error::Could not read the signing certificate"
+            exit 1
+          fi
+          if [ -n "$EXPECTED" ] && [ "$ACTUAL" != "$(echo "$EXPECTED" | tr -d ': ' | tr 'a-f' 'A-F')" ]; then
+            echo "::error::The APK's certificate ($ACTUAL) is not the expected one ($EXPECTED)"
+            exit 1
+          fi
           mkdir -p dist
-          cp app/build/app/outputs/flutter-apk/app-release.apk dist/sotto-android.apk
+          echo "$ACTUAL" > dist/android-cert-sha256.txt
+      - name: Package APK
+        run: cp app/build/app/outputs/flutter-apk/app-release.apk dist/sotto-android.apk
       - uses: actions/upload-artifact@v4
         with:
           name: release-android
-          path: dist/sotto-android.apk
+          path: |
+            dist/sotto-android.apk
+            dist/android-cert-sha256.txt
 
   build-linux:
     name: Linux Release (tar.gz)
+    needs: version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -100,6 +157,7 @@ jobs:
 
   build-windows:
     name: Windows Release (ZIP)
+    needs: version
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -123,22 +181,9 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    needs: [build-android, build-linux, build-windows]
+    needs: [version, build-android, build-linux, build-windows]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Determine Release Tag
-        id: tag
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            TAG="${{ github.ref_name }}"
-          elif [ -n "${{ inputs.tag_name }}" ]; then
-            TAG="${{ inputs.tag_name }}"
-          else
-            VERSION=$(grep '^version:' app/pubspec.yaml | head -n1 | cut -d' ' -f2 | cut -d'+' -f1)
-            TAG="v${VERSION}"
-          fi
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -149,11 +194,22 @@ jobs:
         run: |
           sha256sum sotto-android.apk sotto-linux-x64.tar.gz sotto-windows-x64.zip > SHA256SUMS.txt
           cat SHA256SUMS.txt
+      - name: Release notes header
+        run: |
+          {
+            echo "### Verify your download"
+            echo
+            echo "- Android signing certificate (SHA-256): \`$(cat dist/android-cert-sha256.txt)\`"
+            echo "- File checksums: \`SHA256SUMS.txt\`"
+            echo "- The Windows and Linux builds are not code-signed yet: Windows SmartScreen may warn about an unknown publisher."
+            echo
+          } > notes.md
       - name: Create or update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          name: Sotto ${{ steps.tag.outputs.tag }}
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: Sotto ${{ needs.version.outputs.tag }}
+          body_path: notes.md
           draft: ${{ inputs.draft || false }}
           prerelease: ${{ inputs.prerelease || false }}
           generate_release_notes: true

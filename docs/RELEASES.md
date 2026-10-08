@@ -1,67 +1,52 @@
-# Building and Publishing Releases
+# Building and publishing releases
 
-Sotto automated release builds produce signed application packages for **Android**, **Windows**, and **Linux**, and publishes them directly to **GitHub Releases**.
+The `Release` workflow (`.github/workflows/release.yml`) builds Sotto for **Android**, **Windows** and **Linux** and publishes them on **GitHub Releases**.
 
-## Release Assets
+| Platform | File | What it is |
+|---|---|---|
+| Android | `sotto-android.apk` | Release APK, signed with the project's release key |
+| Windows | `sotto-windows-x64.zip` | Portable bundle (`sotto.exe` and its files). Not code-signed yet: SmartScreen may warn about an unknown publisher |
+| Linux | `sotto-linux-x64.tar.gz` | Portable bundle (`sotto` and its libraries) |
+| Checksums | `SHA256SUMS.txt` | SHA-256 of each file |
 
-Every release produces:
+The release notes start with the Android signing certificate's SHA-256 fingerprint, so anyone can check an APK (`apksigner verify --print-certs sotto-android.apk`).
 
-| Platform | Format | Asset Name | Description |
-|---|---|---|---|
-| **Android** | APK | `sotto-android.apk` | Signed release APK (arm64-v8a, armeabi-v7a, x86_64) |
-| **Windows** | ZIP | `sotto-windows-x64.zip` | Standalone portable Windows release bundle (`sotto.exe` + assets) |
-| **Linux** | tar.gz | `sotto-linux-x64.tar.gz` | Standalone portable Linux release bundle (`sotto` + libraries) |
-| **Checksums** | TXT | `SHA256SUMS.txt` | SHA-256 cryptographic hashes of all binaries |
+## One-time setup: the Android release key
 
----
+Android installs an update only if it is signed with **the same key** as the installed app. Every release must therefore use one permanent key. The workflow never makes one up: without the secrets below, the release stops.
 
-## How to Trigger a Release
-
-### Method 1: Git Tag (Recommended)
-
-1. Ensure the version in `app/pubspec.yaml` is updated (e.g., `version: 0.1.0+1`).
-2. Create and push a tag starting with `v`:
+1. On your own computer (needs Java's `keytool`), create the key. Choose a strong password when asked; use your organisation's country code:
    ```bash
-   git tag v0.1.0
-   git push origin v0.1.0
+   keytool -genkeypair -v -keystore sotto-release.jks -alias sotto -keyalg RSA -keysize 4096 \
+     -validity 10000 -dname "CN=Sotto, O=Izhaan Intellect, C=BD"
    ```
-3. GitHub Actions will automatically start the `Release` workflow, build all three platforms in parallel, and publish the release with release notes.
-
-### Method 2: Manual Trigger via GitHub Actions
-
-1. Go to **Actions** → **Release** in your GitHub repository.
-2. Click **Run workflow**.
-3. (Optional) Provide a custom tag name (e.g. `v0.1.0`), or leave blank to automatically read the version from `app/pubspec.yaml`.
-4. (Optional) Check "Publish as draft" or "Publish as pre-release".
-5. Click **Run workflow**.
-
----
-
-## Android Signing Configuration
-
-The release workflow in `.github/workflows/release.yml` and `app/android/app/build.gradle.kts` supports two signing modes:
-
-### 1. Default Mode (Zero-Config Self-Signed Release)
-If no repository secrets are provided, the workflow generates a valid self-signed release keystore on the fly (`RSA 2048`, validity 10,000 days). This produces a fully signed release APK with APK Signature Scheme v1, v2, and v3 enabled.
-
-### 2. Custom Production Keystore (Optional)
-To sign with your organisation's official production keystore:
-
-1. Generate or locate your `.jks` / `.keystore` file:
+2. **Back up `sotto-release.jks` and its password in two safe places** (for example an encrypted password manager and an offline drive). If they are lost, no update can ever be installed over the existing app; if they leak, someone else can sign "updates".
+3. Encode it:
+   - Linux/macOS: `base64 -w0 sotto-release.jks > sotto-release.jks.b64` (macOS: `base64 -i sotto-release.jks -o sotto-release.jks.b64`)
+   - Windows (PowerShell): `[Convert]::ToBase64String([IO.File]::ReadAllBytes("sotto-release.jks")) > sotto-release.jks.b64`
+4. In GitHub: **Settings → Secrets and variables → Actions → Secrets**, add:
+   - `ANDROID_KEYSTORE_BASE64`: the contents of `sotto-release.jks.b64`
+   - `ANDROID_KEYSTORE_PASSWORD`: the password
+   - `ANDROID_KEY_ALIAS`: `sotto`
+   - `ANDROID_KEY_PASSWORD`: the password (the same, unless you chose another for the key)
+5. Recommended: pin the certificate. Print its fingerprint:
    ```bash
-   keytool -genkey -v -keystore sotto-release.jks -alias sotto -keyalg RSA -keysize 2048 -validity 10000
+   keytool -list -v -keystore sotto-release.jks -alias sotto | grep 'SHA256:'
    ```
-2. Convert the keystore file to base64:
-   * **Linux/macOS:**
-     ```bash
-     base64 -w 0 sotto-release.jks
-     ```
-   * **Windows (PowerShell):**
-     ```powershell
-     [Convert]::ToBase64String([IO.File]::ReadAllBytes("sotto-release.jks"))
-     ```
-3. In your GitHub repository, navigate to **Settings** → **Secrets and variables** → **Actions**, and add the following repository secrets:
-   - `ANDROID_KEYSTORE_BASE64`: The full base64 string from step 2
-   - `ANDROID_KEYSTORE_PASSWORD`: The keystore password
-   - `ANDROID_KEY_ALIAS`: The key alias (e.g., `sotto`)
-   - `ANDROID_KEY_PASSWORD`: The key password
+   and add it under **Settings → Secrets and variables → Actions → Variables** as `ANDROID_CERT_SHA256` (with or without colons). From then on a release signed with any other key fails.
+6. Delete `sotto-release.jks.b64` from your computer once the secret is saved.
+
+## Making a release
+
+1. Raise the version in `app/pubspec.yaml`, both parts: `version: 0.1.2+3`. The part after `+` is Android's version code and must go up with every release, or Android refuses the update. Commit it to `main`.
+2. Tag that commit and push the tag; the tag must match the version (`v0.1.2` for `0.1.2+3`), or the workflow stops:
+   ```bash
+   git tag v0.1.2
+   git push origin v0.1.2
+   ```
+   Or run **Actions → Release → Run workflow** (leave the tag empty to use the version from `pubspec.yaml`; optionally publish as a draft or pre-release).
+3. The workflow checks the version, builds the three platforms, checks the APK's signature, and publishes the release with checksums and the certificate fingerprint.
+
+## Local builds
+
+`flutter build apk --release` without `ANDROID_KEYSTORE_PATH` signs with the debug key: fine for testing, never for release. If `ANDROID_KEYSTORE_PATH` is set but the file is missing, the build fails instead of falling back.
