@@ -6,6 +6,7 @@ import '../../call/ui/common.dart';
 import '../../lock/ui/lock_ui.dart';
 import '../../storage/ui/backup_ui.dart';
 import '../../core/downloads.dart';
+import '../../core/ui_kit.dart';
 import '../app_controller.dart';
 import 'header_downloads_action.dart';
 
@@ -76,33 +77,44 @@ class _OnboardingPageState extends State<OnboardingPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Center(child: SottoWordmark(height: 56)),
-                const SizedBox(height: 20),
-                const Text(
-                  'Private, end-to-end encrypted calls with your clients and '
-                  'colleagues. Nothing is stored on our servers.',
-                  textAlign: TextAlign.center,
-                ),
-                if (!app.persistent) ...[
-                  const SizedBox(height: 12),
-                  Card(
-                    color: theme.colorScheme.secondaryContainer,
-                    child: const ListTile(
-                      leading: Icon(Icons.public),
-                      title: Text('This browser forgets you'),
-                      subtitle: Text(
-                        'This browser forgets everything when you close or '
-                        'reload the tab. Turn on Remember me to keep your '
-                        'contacts here, or install the Sotto app.\n'
-                        'Where it is kept: with Remember me, only in this '
-                        'browser on this computer; with the app, only on '
-                        'your phone or computer. Always encrypted, never on '
-                        'our servers.',
-                      ),
+                const SizedBox(height: 8),
+                const Center(child: SottoWordmark(height: 52)),
+                if (_step == _Step.welcome) ...[
+                  const SizedBox(height: 24),
+                  Text(
+                    'Private calls for professionals',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Private, end-to-end encrypted calls with your clients and '
+                    'colleagues. Nothing is stored on our servers.',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      height: 1.4,
                     ),
                   ),
+                  const SizedBox(height: 28),
+                  const _Feature(
+                    icon: Icons.lock_outline,
+                    title: 'End-to-end encrypted',
+                    text:
+                        'Only you and the person you call can hear and see it.',
+                  ),
+                  const _Feature(
+                    icon: Icons.link_rounded,
+                    title: 'Clients need no app or account',
+                    text: 'They join from a link in any browser.',
+                  ),
+                  const _Feature(
+                    icon: Icons.phone_android_outlined,
+                    title: 'Your data stays with you',
+                    text: 'Contacts, history and notes live on your device.',
+                  ),
                 ],
-                const SizedBox(height: 32),
+                const SizedBox(height: 28),
                 ...switch (_step) {
                   _Step.welcome => _welcome(app),
                   _Step.profile => _profile(app),
@@ -128,6 +140,20 @@ class _OnboardingPageState extends State<OnboardingPage> {
     );
   }
 
+  static const _browserNotice = NoticeCard(
+    icon: Icons.public,
+    title: 'This browser forgets you',
+    body: Text(
+      'This browser forgets everything when you close or '
+      'reload the tab. Turn on Remember me to keep your '
+      'contacts here, or install the Sotto app.\n'
+      'Where it is kept: with Remember me, only in this '
+      'browser on this computer; with the app, only on '
+      'your phone or computer. Always encrypted, never on '
+      'our servers.',
+    ),
+  );
+
   List<Widget> _welcome(AppController app) => [
     FilledButton.icon(
       onPressed: () => setState(() => _step = _Step.profile),
@@ -142,6 +168,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
         label: const Text('Restore from a backup'),
       ),
     ],
+    if (!app.persistent) ...[const SizedBox(height: 20), _browserNotice],
     if (kIsWeb) ...[
       const SizedBox(height: 24),
       const Divider(),
@@ -262,4 +289,42 @@ class _OnboardingPageState extends State<OnboardingPage> {
         child: const Text('Back'),
       ),
   ];
+}
+
+class _Feature extends StatelessWidget {
+  const _Feature({required this.icon, required this.title, required this.text});
+
+  final IconData icon;
+  final String title;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          IconBadge(icon: icon),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: theme.textTheme.titleSmall),
+                const SizedBox(height: 2),
+                Text(
+                  text,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

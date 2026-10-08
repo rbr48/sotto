@@ -4,6 +4,7 @@ import '../../app/app_controller.dart';
 import '../../call/call_controller.dart';
 import '../../call/ui/common.dart';
 import '../../contacts/ui/contact_dialogs.dart';
+import '../../core/ui_kit.dart';
 import '../call_history.dart';
 
 /// Calls on this device, with private session notes.
@@ -24,42 +25,75 @@ class HistoryTab extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            Text(switch (days) {
-              0 => 'Call history is off (see Settings).',
-              null => 'Calls are kept on this device until you delete them.',
-              _ =>
-                'Calls are kept on this device only, and deleted after $days days.',
-            }, style: theme.textTheme.bodySmall),
+            Row(
+              children: [
+                Icon(
+                  Icons.lock_outline,
+                  size: 16,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    switch (days) {
+                      0 => 'Call history is off (see Settings).',
+                      null =>
+                        'Calls are kept on this device until you delete them.',
+                      _ =>
+                        'Calls are kept on this device only, and deleted after '
+                            '$days days.',
+                    },
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
             if (entries.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 32),
-                child: Text('No calls yet.', textAlign: TextAlign.center),
-              ),
-            for (final entry in entries)
-              ListTile(
-                leading: Icon(
-                  entry.missed
-                      ? Icons.call_missed
-                      : entry.outgoing
-                      ? Icons.call_made
-                      : Icons.call_received,
-                  color: entry.missed ? theme.colorScheme.error : null,
-                ),
-                title: Text(_displayName(app, entry)),
-                subtitle: Text(_summary(context, entry)),
-                trailing: entry.note.isEmpty
-                    ? null
-                    : const Icon(
-                        Icons.sticky_note_2_outlined,
-                        semanticLabel: 'Has a note',
+              const EmptyState(
+                icon: Icons.history,
+                title: 'No calls yet.',
+                message: 'Your calls appear here, with private notes.',
+              )
+            else ...[
+              const SizedBox(height: 12),
+              Card(
+                child: Column(
+                  children: [
+                    for (final (index, entry) in entries.indexed) ...[
+                      if (index > 0) const Divider(indent: 72),
+                      ListTile(
+                        leading: IconBadge(
+                          icon: entry.missed
+                              ? Icons.call_missed
+                              : entry.outgoing
+                              ? Icons.call_made
+                              : Icons.call_received,
+                          color: entry.missed ? theme.colorScheme.error : null,
+                        ),
+                        title: Text(_displayName(app, entry)),
+                        subtitle: Text(_summary(context, entry)),
+                        trailing: entry.note.isEmpty
+                            ? null
+                            : const Icon(
+                                Icons.sticky_note_2_outlined,
+                                semanticLabel: 'Has a note',
+                              ),
+                        onTap: () => showDialog<void>(
+                          context: context,
+                          builder: (_) => CallDetailsDialog(
+                            app: app,
+                            calls: calls,
+                            id: entry.id,
+                          ),
+                        ),
                       ),
-                onTap: () => showDialog<void>(
-                  context: context,
-                  builder: (_) =>
-                      CallDetailsDialog(app: app, calls: calls, id: entry.id),
+                    ],
+                  ],
                 ),
               ),
-            if (entries.isNotEmpty)
+              const SizedBox(height: 8),
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
@@ -68,6 +102,7 @@ class HistoryTab extends StatelessWidget {
                   label: const Text('Delete all history'),
                 ),
               ),
+            ],
           ],
         );
       },

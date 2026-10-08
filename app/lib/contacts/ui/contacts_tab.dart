@@ -5,6 +5,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../app/app_controller.dart';
 import '../../call/call_controller.dart';
 import '../../core/test_hooks.dart';
+import '../../core/ui_kit.dart';
 import 'contact_dialogs.dart';
 
 /// Contacts: share your own contact link, add colleagues, call them.
@@ -16,7 +17,6 @@ class ContactsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return ListenableBuilder(
       listenable: app.contacts,
       builder: (context, _) {
@@ -49,58 +49,63 @@ class ContactsTab extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             if (contacts.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 32),
-                child: Text(
-                  'No contacts yet. Add colleagues from their contact link, '
-                  'or add someone after a call.',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodyMedium,
-                ),
-              ),
-            for (final contact in contacts)
-              ListTile(
-                leading: ExcludeSemantics(
-                  child: CircleAvatar(
-                    child: Text(
-                      contact.name.isEmpty
-                          ? '?'
-                          : contact.name[0].toUpperCase(),
-                    ),
-                  ),
-                ),
-                title: Text(contact.name),
-                subtitle: Text(
-                  [
-                    if (contact.organisation.isNotEmpty) contact.organisation,
-                    contact.verified ? 'Verified' : 'Not verified',
-                    if (contact.autoAnswer) 'Auto-answer',
-                  ].join(' · '),
-                ),
-                onTap: () => showDialog<void>(
-                  context: context,
-                  builder: (_) => ContactDetailsDialog(
-                    app: app,
-                    calls: calls,
-                    contact: contact,
-                  ),
-                ),
-                trailing: Wrap(
+              const EmptyState(
+                icon: Icons.people_outline,
+                title: 'No contacts yet',
+                message:
+                    'Add colleagues from their contact link, or add someone '
+                    'after a call.',
+              )
+            else ...[
+              const SizedBox(height: 8),
+              SectionLabel('Contacts · ${contacts.length}'),
+              Card(
+                child: Column(
                   children: [
-                    IconButton(
-                      tooltip: 'Voice call ${contact.name}',
-                      icon: const Icon(Icons.call),
-                      onPressed: () =>
-                          calls.callPeer(contact.identity, video: false),
-                    ),
-                    IconButton(
-                      tooltip: 'Video call ${contact.name}',
-                      icon: const Icon(Icons.videocam),
-                      onPressed: () => calls.callPeer(contact.identity),
-                    ),
+                    for (final (index, contact) in contacts.indexed) ...[
+                      if (index > 0) const Divider(indent: 72),
+                      ListTile(
+                        leading: InitialsAvatar(name: contact.name),
+                        title: Text(contact.name),
+                        subtitle: Text(
+                          [
+                            if (contact.organisation.isNotEmpty)
+                              contact.organisation,
+                            contact.verified ? 'Verified' : 'Not verified',
+                            if (contact.autoAnswer) 'Auto-answer',
+                          ].join(' · '),
+                        ),
+                        onTap: () => showDialog<void>(
+                          context: context,
+                          builder: (_) => ContactDetailsDialog(
+                            app: app,
+                            calls: calls,
+                            contact: contact,
+                          ),
+                        ),
+                        trailing: Wrap(
+                          children: [
+                            IconButton(
+                              tooltip: 'Voice call ${contact.name}',
+                              icon: const Icon(Icons.call),
+                              onPressed: () => calls.callPeer(
+                                contact.identity,
+                                video: false,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Video call ${contact.name}',
+                              icon: const Icon(Icons.videocam),
+                              onPressed: () => calls.callPeer(contact.identity),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
+            ],
           ],
         );
       },

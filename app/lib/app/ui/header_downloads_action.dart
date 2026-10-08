@@ -42,8 +42,8 @@ class HeaderDownloadsAction extends StatelessWidget {
               dense: true,
               contentPadding: EdgeInsets.zero,
               leading: Icon(Icons.android),
-              title: Text('Android (.apk)'),
-              subtitle: Text('Direct APK package'),
+              title: Text('Android'),
+              subtitle: Text('APK for phones and tablets'),
             ),
           ),
           PopupMenuItem(
@@ -52,8 +52,8 @@ class HeaderDownloadsAction extends StatelessWidget {
               dense: true,
               contentPadding: EdgeInsets.zero,
               leading: Icon(Icons.desktop_windows),
-              title: Text('Windows (.zip)'),
-              subtitle: Text('64-bit portable archive'),
+              title: Text('Windows'),
+              subtitle: Text('Installer, 64-bit'),
             ),
           ),
           PopupMenuItem(
@@ -62,8 +62,8 @@ class HeaderDownloadsAction extends StatelessWidget {
               dense: true,
               contentPadding: EdgeInsets.zero,
               leading: Icon(Icons.terminal),
-              title: Text('Linux (.tar.gz)'),
-              subtitle: Text('64-bit portable archive'),
+              title: Text('Linux'),
+              subtitle: Text('AppImage, 64-bit'),
             ),
           ),
           const PopupMenuDivider(),
@@ -77,43 +77,60 @@ class HeaderDownloadsAction extends StatelessWidget {
             ),
           ),
         ],
-        child: Container(
-          height: 36,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerHighest.withValues(
-              alpha: 0.5,
-            ),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.file_download_outlined,
-                size: 16,
-                color: theme.colorScheme.primary,
-              ),
-              const SizedBox(width: 5),
-              Text(
-                'Get app',
-                style: theme.textTheme.labelMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: theme.colorScheme.onSurface,
+        child: width < 600
+            ? Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerLowest,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: theme.colorScheme.outlineVariant),
+                ),
+                child: Icon(
+                  Icons.file_download_outlined,
+                  size: 20,
+                  color: theme.colorScheme.primary,
+                ),
+              )
+            : Container(
+                height: 36,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.5,
+                  ),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: theme.colorScheme.outlineVariant.withValues(
+                      alpha: 0.6,
+                    ),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.file_download_outlined,
+                      size: 16,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      'Get app',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: theme.colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    Icon(
+                      Icons.arrow_drop_down,
+                      size: 18,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 2),
-              Icon(
-                Icons.arrow_drop_down,
-                size: 18,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ],
-          ),
-        ),
       );
     }
 
