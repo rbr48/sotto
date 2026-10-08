@@ -72,6 +72,12 @@ export async function clickButton(page, name) {
   await enableSemantics(page);
   const button = page.getByRole('button', { name, exact: typeof name === 'string' }).first();
   await button.waitFor({ timeout, polling: 250 });
+  // A disabled button ignores clicks (e.g. "Join" until the camera preview
+  // is ready): wait until it is enabled, since a dispatched click doesn't.
+  for (const end = Date.now() + timeout; !(await button.isEnabled()); ) {
+    if (Date.now() > end) throw new Error(`button "${name}" stayed disabled`);
+    await page.waitForTimeout(250);
+  }
   if (page.context().browser()?.browserType().name() === 'firefox') {
     // Firefox: the accessibility tree is rebuilt while a call's timer ticks,
     // and a real click can straddle the rebuild and get lost. One click

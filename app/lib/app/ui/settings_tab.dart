@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../../android/android_integration.dart';
 import '../../call/call_controller.dart';
 import '../../core/server_address.dart';
+import '../../core/version.dart';
 import '../../desktop/autostart.dart';
+import '../../diagnostics/ui/diagnostic_report_dialog.dart';
 import '../../desktop/desktop_integration.dart';
 import '../../call/ui/common.dart';
 import '../../contacts/contact_book.dart';
@@ -269,6 +271,43 @@ class SettingsTab extends StatelessWidget {
               label: const Text('Erase Sotto from this device'),
             ),
           ),
+        ]),
+        _Section('Help', [
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.bug_report_outlined),
+            title: const Text('Diagnostic report'),
+            subtitle: const Text(
+              'When something doesn\'t work: see and copy a report of the '
+              'connection and recent call states, without personal data.',
+            ),
+            onTap: () => showDiagnosticReport(context, app),
+          ),
+        ]),
+        _Section('Updates', [
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.info_outline),
+            title: Text('Sotto $sottoVersion'),
+            subtitle: app.availableUpdate != null
+                ? Text('Version ${app.availableUpdate!.version} is available.')
+                : null,
+          ),
+          if (app.canCheckUpdates)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Check for updates'),
+              subtitle: const Text(
+                'Once a day, Sotto asks GitHub for the latest version and '
+                'tells you when there is a newer one. GitHub sees your IP '
+                'address, nothing else. Sotto never installs anything by '
+                'itself.',
+              ),
+              value: app.desktopPrefs.checkUpdates,
+              onChanged: (v) => app.setDesktopPrefs(
+                app.desktopPrefs.copyWith(checkUpdates: v),
+              ),
+            ),
         ]),
       ],
     ),

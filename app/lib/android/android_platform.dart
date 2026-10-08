@@ -33,7 +33,7 @@ class AndroidStatus {
 /// The `sotto/android` channel to the native side
 /// (`android/app/src/main/kotlin/…/Bridge.kt`); faked in tests.
 abstract interface class AndroidPlatform {
-  /// Taps on the call notification: "answer" or "decline".
+  /// Taps on the call notifications: "answer", "decline" or "hangUp".
   Stream<String> get actions;
 
   Future<void> setRingWhenClosed(bool on);
@@ -53,6 +53,15 @@ abstract interface class AndroidPlatform {
 
   /// The call ended: the app stops showing over the lock screen.
   Future<void> callFinished();
+
+  /// During a call: keeps the microphone working outside the app, with an
+  /// "Ongoing call" notification (timer from [since] once connected).
+  Future<void> startCallService({
+    required String title,
+    required String name,
+    DateTime? since,
+  });
+  Future<void> stopCallService();
 }
 
 class MethodChannelAndroid implements AndroidPlatform {
@@ -126,4 +135,18 @@ class MethodChannelAndroid implements AndroidPlatform {
 
   @override
   Future<void> callFinished() => _call('callFinished');
+
+  @override
+  Future<void> startCallService({
+    required String title,
+    required String name,
+    DateTime? since,
+  }) => _call('startCallService', {
+    'title': title,
+    'name': name,
+    'since': since?.millisecondsSinceEpoch,
+  });
+
+  @override
+  Future<void> stopCallService() => _call('stopCallService');
 }

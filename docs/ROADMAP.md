@@ -595,7 +595,9 @@ An **optional** setting on the *receiving* device: calls from people the user ha
 - [x] Desktop: *Start Sotto when I log in* (Settings → Desktop): an XDG autostart entry on Linux, the user's `Run` registry value on Windows; starts with `--hidden`, straight to the tray (the window may flash briefly first)
 - [x] Android: *Ring even when Sotto is closed* (moved up from Phase 12, see there)
 - [ ] Bandwidth adaptation; audio-only fallback
-- [ ] Local diagnostics with *Export diagnostic report*; opt-in crash reports only
+- [x] Local diagnostics: *Settings → Help → Diagnostic report* shows the whole report (version, platform, server host, relay and TURN state, call state, background permissions, recent relay and call events from an in-memory log) and copies it; nothing is sent, and it holds no names, contacts, call partners, links, IDs or keys (tested)
+- [ ] Opt-in crash reports
+- [x] Update notice: the native apps ask GitHub Releases once a day (switch in *Settings → Updates*; GitHub sees the IP address only) and show *"Sotto x.y.z is available"* with *Download* (opens the release page) and *Not now*; nothing is installed by the app. Builds for another repository set `SOTTO_UPDATE_URL` (empty turns it off); a test keeps `lib/core/version.dart` equal to `pubspec.yaml`
 - [ ] Security hardening: log audit, read-only servers verified, dependency and secret scanning in CI
 - [ ] Privacy policy and terms that plainly list the short-lived metadata in section 5.10
 - [ ] Windows installer (MSIX / Inno Setup) and Linux AppImage / `.deb`
@@ -663,7 +665,7 @@ Done early (Phase 8), without a push service:
 - [x] **Ring even when Sotto is closed** (on by default): a foreground service (`specialUse`, quiet permanent notification) keeps the app's one Flutter engine and its relay connection alive after the window closes; it starts again after a reboot or an app update. Settings shows what Android still has to allow (notifications, battery optimization, full-screen calls) with a button for each
 - [x] Native incoming-call notification while the app is in the background: full screen on a locked phone, *Answer* (opens the app into the call) and *Decline*; the system plays the ringtone, so silent mode and Do Not Disturb apply; a knock notification for waiting guests; names only if chosen and never while Sotto is locked; no auto-answer while in the background (Android lets only a visible app use the microphone)
 - [ ] Verify on real phones (Pixel, Samsung, Xiaomi) with Doze and battery savers; some makers stop background services anyway
-- [ ] A call that continues while the user switches to another app needs the call foreground service below (the microphone is muted for background apps)
+- [x] A call continues while the user switches to another app: a microphone foreground service (`CallService`) runs from the start of an outgoing call or from answering, with an *Ongoing call* notification (timer once connected, *Hang up*, tap to return); names as for ringing. The camera still pauses in the background
 
 Push wake-up, as a battery-saving alternative:
 - [ ] Obtain FCM token; **UnifiedPush** as an alternative
@@ -671,7 +673,7 @@ Push wake-up, as a battery-saving alternative:
 - [ ] For guest links: the guest page includes the professional's wake token (stored in the signed link payload, only if the professional enables "Wake my phone for guests")
 - [ ] Relay sends a **content-free** high-priority push and keeps nothing
 - [ ] Native incoming-call / knocking UI (`flutter_callkit_incoming`), lock screen and full-screen intent
-- [ ] Foreground service during calls with types `phoneCall|microphone|camera` (Android 14+)
+- [ ] Foreground service type `camera` too, so video continues in the background (only `microphone` so far)
 - [ ] Permissions: `USE_FULL_SCREEN_INTENT`, `FOREGROUND_SERVICE_PHONE_CALL`, `FOREGROUND_SERVICE_MICROPHONE`, `FOREGROUND_SERVICE_CAMERA`
 - [ ] Test on Samsung, Xiaomi and Pixel with Doze and battery savers
 - [ ] **Auto-answer on a locked phone / closed app:** after the wake-up push, start the call foreground service (types `phoneCall|microphone`) before opening the microphone, ring for the chosen delay, then answer; persistent notification "Auto-answer is on" while enabled

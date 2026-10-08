@@ -92,7 +92,9 @@ The features planned for the product. Phase numbers refer to [ROADMAP.md](ROADMA
 | Network switching | Moving from Wi-Fi to mobile data reconnects the call instead of dropping it | 8 | Free |
 | Automatic reconnect | Short internet drops show "Reconnecting…" and recover | 8 | Free |
 | Adaptive quality | Video quality drops automatically on a weak connection, falling back to voice only if needed | 8 | Free |
-| Local diagnostics | Export an anonymised report to share with support when something goes wrong | 8 | Free |
+| Local diagnostics | See and copy a report (connection, call states, recent events; no names or contacts) to share with support when something goes wrong | 8 | Free |
+| Update notice | The PC and Android apps say when a newer version is out (once-a-day check you can switch off) | 8 | Free |
+| Calls in the background (Android) | Leaving the app keeps the call and microphone going, with an *Ongoing call* notification to return or hang up | 8 | Free |
 
 ## 8. Deployment options
 

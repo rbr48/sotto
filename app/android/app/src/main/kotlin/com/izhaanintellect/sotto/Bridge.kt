@@ -106,6 +106,12 @@ object Bridge {
                 null
             }
             "cancelKnock" -> { CallNotifications.cancelKnock(app); null }
+            "startCallService" -> {
+                CallService.start(app, args["title"] as String, args["name"] as String,
+                    (args["since"] as? Number)?.toLong())
+                null
+            }
+            "stopCallService" -> { CallService.stop(app); null }
             "callFinished" -> {
                 (activity as? MainActivity)?.leaveLockScreen()
                 null

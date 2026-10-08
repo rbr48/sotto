@@ -45,7 +45,7 @@ class HistoryTab extends StatelessWidget {
                       : Icons.call_received,
                   color: entry.missed ? theme.colorScheme.error : null,
                 ),
-                title: Text(entry.name),
+                title: Text(_displayName(app, entry)),
                 subtitle: Text(_summary(context, entry)),
                 trailing: entry.note.isEmpty
                     ? null
@@ -148,7 +148,7 @@ class _CallDetailsDialogState extends State<CallDetailsDialog> {
     final peer = entry.peer;
     final isContact = peer != null && widget.app.contacts.find(peer) != null;
     return AlertDialog(
-      title: Text(entry.name),
+      title: Text(_displayName(widget.app, entry)),
       content: SizedBox(
         width: 440,
         child: SingleChildScrollView(
@@ -189,9 +189,7 @@ class _CallDetailsDialogState extends State<CallDetailsDialog> {
                           context: context,
                           builder: (_) => AddContactDialog(
                             safetyNumber: widget.calls.safetyNumberWith(peer),
-                            name: entry.name == 'Unknown caller'
-                                ? ''
-                                : entry.name,
+                            name: _claimedName(entry.name),
                             onSave: (name, org, verified) =>
                                 widget.app.contacts.add(
                                   peer,
@@ -231,4 +229,21 @@ class _CallDetailsDialogState extends State<CallDetailsDialog> {
       ],
     );
   }
+}
+
+/// Who a call was with: the contact's current name if they are (now) a
+/// contact, otherwise the name saved when the call ended.
+String _displayName(AppController app, CallRecord entry) {
+  final peer = entry.peer;
+  final contact = peer == null ? null : app.contacts.find(peer);
+  return contact?.label ?? entry.name;
+}
+
+/// The name to suggest when adding the person as a contact.
+String _claimedName(String saved) {
+  const suffix = ' (not in your contacts)';
+  if (saved == 'Unknown caller') return '';
+  return saved.endsWith(suffix)
+      ? saved.substring(0, saved.length - suffix.length)
+      : saved;
 }
