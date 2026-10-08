@@ -143,9 +143,8 @@ class _OnboardingPageState extends State<OnboardingPage> {
       const SizedBox(height: 16),
       Text(
         'Or download the app to keep your contacts and history on your device:',
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
+        style: Theme.of(context).textTheme.bodySmall
+            ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
         textAlign: TextAlign.center,
       ),
       const SizedBox(height: 12),

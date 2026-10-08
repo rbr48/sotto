@@ -23,10 +23,10 @@ class HeaderDownloadsAction extends StatelessWidget {
     final isWide = width >= 860;
 
     final androidUrl = app.server.web.resolve('downloads/sotto-android.apk');
-    final windowsUrl =
-        app.server.web.resolve('downloads/sotto-windows-x64.zip');
-    final linuxUrl =
-        app.server.web.resolve('downloads/sotto-linux-x64.tar.gz');
+    final windowsUrl = app.server.web.resolve(
+      'downloads/sotto-windows-x64.zip',
+    );
+    final linuxUrl = app.server.web.resolve('downloads/sotto-linux-x64.tar.gz');
     final allDownloadsUrl = app.server.web.resolve('downloads.html');
 
     if (!isWide) {
@@ -34,7 +34,8 @@ class HeaderDownloadsAction extends StatelessWidget {
         tooltip: 'Download Sotto apps',
         offset: const Offset(0, 42),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        onSelected: (url) => launchUrl(url, mode: LaunchMode.externalApplication),
+        onSelected: (url) =>
+            launchUrl(url, mode: LaunchMode.externalApplication),
         itemBuilder: (context) => [
           PopupMenuItem(
             value: androidUrl,
@@ -120,9 +121,7 @@ class HeaderDownloadsAction extends StatelessWidget {
     return Container(
       height: 36,
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(
-          alpha: 0.5,
-        ),
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
@@ -142,7 +141,10 @@ class HeaderDownloadsAction extends StatelessWidget {
                 left: Radius.circular(18),
               ),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -168,30 +170,24 @@ class HeaderDownloadsAction extends StatelessWidget {
             icon: Icons.android,
             label: 'Android',
             tooltip: 'Download Android APK (sotto-android.apk)',
-            onTap: () => launchUrl(
-              androidUrl,
-              mode: LaunchMode.externalApplication,
-            ),
+            onTap: () =>
+                launchUrl(androidUrl, mode: LaunchMode.externalApplication),
           ),
           const SizedBox(width: 4),
           _QuickDownloadButton(
             icon: Icons.desktop_windows,
             label: 'Windows',
             tooltip: 'Download Windows 64-bit portable (sotto-windows-x64.zip)',
-            onTap: () => launchUrl(
-              windowsUrl,
-              mode: LaunchMode.externalApplication,
-            ),
+            onTap: () =>
+                launchUrl(windowsUrl, mode: LaunchMode.externalApplication),
           ),
           const SizedBox(width: 4),
           _QuickDownloadButton(
             icon: Icons.terminal,
             label: 'Linux',
             tooltip: 'Download Linux 64-bit portable (sotto-linux-x64.tar.gz)',
-            onTap: () => launchUrl(
-              linuxUrl,
-              mode: LaunchMode.externalApplication,
-            ),
+            onTap: () =>
+                launchUrl(linuxUrl, mode: LaunchMode.externalApplication),
           ),
           const SizedBox(width: 2),
           Tooltip(
