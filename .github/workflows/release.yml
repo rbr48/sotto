@@ -107,7 +107,7 @@ jobs:
             echo "::error::The APK is signed with the debug key"
             exit 1
           fi
-          ACTUAL=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' signature.txt | tr -d ':' | tr 'a-f' 'A-F')
+          ACTUAL=$(grep -E -i "certificate SHA-256 digest:" signature.txt | head -n 1 | sed -E 's/.*certificate SHA-256 digest:[[:space:]]*//I' | tr -d ': ' | tr 'a-f' 'A-F')
           if [ -z "$ACTUAL" ]; then
             echo "::error::Could not read the signing certificate"
             exit 1
