@@ -40,6 +40,9 @@
 		}
 	}
 
+	@download_page path /download /download/ /downloads /downloads/
+	redir @download_page /downloads.html
+
 	handle {
 		# The app's files keep their names from one version to the next:
 		# browsers must check with the server (a quick "not modified" when
@@ -47,10 +50,10 @@
 		# would keep using an old version after an update.
 		header Cache-Control "no-cache"
 		root * /srv
-		try_files {path} /index.html
+		try_files {path} {path}.html /index.html
 		# The privacy policy and terms name the operator (SOTTO_OPERATOR,
 		# SOTTO_CONTACT from .env).
-		@legal path /privacy.html /terms.html
+		@legal path /privacy.html /terms.html /downloads.html
 		templates @legal
 		file_server
 	}
