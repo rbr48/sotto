@@ -1,0 +1,4 @@
+Sotto 0.1.8
+- Short links work while the other person is offline: contacts open at once, and people you looked up before are remembered on your device
+- Initials leave out titles: Dr Meera Rao is MR
+- Buttons use the app's font on every system
