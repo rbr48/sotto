@@ -45,7 +45,13 @@ class InCallView extends StatelessWidget {
               builder: (context, constraints) => Stack(
                 children: [
                   Positioned.fill(
-                    child: showVideo
+                    child: showVideo && call.peerVideoPaused
+                        // Their last frame would freeze: show who it is.
+                        ? CallStage(
+                            name: name,
+                            note: 'Video paused: weak connection',
+                          )
+                        : showVideo
                         ? RTCVideoView(
                             controller.remoteRenderer,
                             objectFit: RTCVideoViewObjectFit
@@ -250,7 +256,7 @@ class _VideoHeader extends StatelessWidget {
 }
 
 /// Small chips: encrypted (tap for the safety number), auto-answered,
-/// relayed, quality, reconnecting.
+/// relayed, quality, reconnecting, video paused for a weak connection.
 class _StatusRow extends StatelessWidget {
   const _StatusRow({required this.controller, required this.peerName});
 
@@ -291,6 +297,24 @@ class _StatusRow extends StatelessWidget {
               tooltip: 'Relayed through Sotto: IP addresses are hidden',
             ),
           if (quality != null) QualityPill(quality: quality),
+          if (controller.videoLevel == VideoLevel.paused)
+            const _Chip(
+              icon: Icons.videocam_off_outlined,
+              text: 'Your video paused',
+              iconColor: Color(0xFFFFC857),
+              tooltip:
+                  'Your connection is too weak for video: the call goes on '
+                  'with voice, and video comes back when it improves',
+            ),
+          if (call.peerVideoPaused)
+            const _Chip(
+              icon: Icons.videocam_off_outlined,
+              text: 'Their video paused',
+              iconColor: Color(0xFFFFC857),
+              tooltip:
+                  "Their connection is too weak for video: you still hear "
+                  'them, and video comes back when it improves',
+            ),
         ],
       ],
     );

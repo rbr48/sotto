@@ -22,6 +22,7 @@ import 'call_manager.dart';
 import 'devices.dart';
 import 'media_engine.dart';
 import 'screen_awake.dart';
+import 'video_adapter.dart';
 import 'webrtc_media_engine.dart';
 
 /// Everything the call screens need: the relay connection, the current
@@ -208,6 +209,13 @@ class CallController extends ChangeNotifier {
 
   /// Connection quality of the current call, from local statistics.
   CallQuality? get quality => _quality;
+
+  /// Steps this device's video down (and back up) with its upload.
+  final VideoAdapter _videoAdapter = VideoAdapter();
+
+  /// How much video this device sends right now; [VideoLevel.paused] when
+  /// its connection is too weak for video (the voice goes on).
+  VideoLevel get videoLevel => _videoAdapter.level;
   Timer? _qualityTimer;
 
   DateTime? _connectedAt;
@@ -261,6 +269,10 @@ class CallController extends ChangeNotifier {
   }
 
   Future<void> start() async {
+    registerTestAction('sottoTestUpload', (quality) {
+      final upload = CallQuality.values.asNameMap()[quality];
+      if (upload != null) unawaited(debugUploadSample(upload));
+    });
     try {
       final sodium = _sodium = await SottoCrypto.init();
       final identity = _identity = _givenIdentity ?? Identity.generate(sodium);
@@ -606,6 +618,8 @@ class CallController extends ChangeNotifier {
       _route = null;
       _quality = null;
       _connectedAt = null;
+      _videoAdapter.reset();
+      _sentLevel = VideoLevel.full;
     }
     if (call.reconnecting != _reconnecting) {
       _reconnecting = call.reconnecting;
@@ -617,8 +631,10 @@ class CallController extends ChangeNotifier {
         // The new path may differ (e.g. relayed instead of direct).
         _route = null;
         _quality = null;
+        unawaited(_setVideoLevel(null));
       }
     }
+    publishForTests('peer-video-paused', '${call.peerVideoPaused}');
     if (call.phase == CallPhase.connected) {
       _connectedAt ??= DateTime.now();
       publishForTests('sending-video', '$sendingVideo');
@@ -647,6 +663,46 @@ class CallController extends ChangeNotifier {
       publishForTests('quality', quality.name);
       notifyListeners();
     }
+    if (sendingVideo) {
+      final level = _videoAdapter.onSample(
+        sample?.uploadAt(_videoAdapter.level),
+      );
+      if (level != null) await _applyVideoLevel(level);
+    }
+  }
+
+  /// Back to full video (`null`), e.g. on a new network path.
+  Future<void> _setVideoLevel(VideoLevel? level) async {
+    if (level == null) {
+      if (_videoAdapter.level == VideoLevel.full) return;
+      _videoAdapter.reset();
+      level = VideoLevel.full;
+    }
+    await _applyVideoLevel(level);
+  }
+
+  VideoLevel _sentLevel = VideoLevel.full;
+
+  Future<void> _applyVideoLevel(VideoLevel level) async {
+    final media = _manager?.media;
+    if (media == null) return;
+    final wasPaused = _sentLevel == VideoLevel.paused;
+    _sentLevel = level;
+    EventLog.instance.add('video level: ${level.name}');
+    publishForTests('video-level', level.name);
+    final applied = await media.setVideoLevel(level);
+    publishForTests('video-level-applied', applied ? level.name : 'failed');
+    final paused = level == VideoLevel.paused;
+    if (paused != wasPaused) _manager?.sendVideoPaused(paused);
+    notifyListeners();
+  }
+
+  /// For tests: as if the upload had this quality for one sample (also
+  /// `window.sottoTestUpload('poor')` in test builds of the web app).
+  @visibleForTesting
+  Future<void> debugUploadSample(CallQuality upload) async {
+    final level = _videoAdapter.onSample(upload);
+    if (level != null) await _applyVideoLevel(level);
   }
 
   /// Reads the selected ICE candidate pair after connecting, retrying for

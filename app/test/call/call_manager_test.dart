@@ -528,6 +528,20 @@ void main() {
       },
     );
 
+    test('a weak upload pauses video: the other side is told', () {
+      fakeAsync((async) {
+        final (network: _, :alice, :bob) = connected(async);
+        alice.manager.sendVideoPaused(true);
+        async.flushMicrotasks();
+        expect(bob.manager.state.peerVideoPaused, isTrue);
+        expect(alice.manager.state.peerVideoPaused, isFalse);
+        alice.manager.sendVideoPaused(false);
+        async.flushMicrotasks();
+        expect(bob.manager.state.peerVideoPaused, isFalse);
+        expect(bob.phase, CallPhase.connected);
+      });
+    });
+
     test('a connection that recovers by itself needs no restart', () {
       fakeAsync((async) {
         final (network: _, :alice, :bob) = connected(async);

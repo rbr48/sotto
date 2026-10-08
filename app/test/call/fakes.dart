@@ -82,4 +82,12 @@ class FakeMediaEngine implements MediaEngine {
     closed = true;
     log.add('close');
   }
+
+  final videoLevels = <VideoLevel>[];
+
+  @override
+  Future<bool> setVideoLevel(VideoLevel level) async {
+    videoLevels.add(level);
+    return true;
+  }
 }

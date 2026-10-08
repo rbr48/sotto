@@ -4,7 +4,7 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
-    "test": "node call.mjs && node guest.mjs && node autoanswer.mjs && node phase6.mjs && node phase7.mjs && node remember.mjs && node reconnect.mjs && node firefox.mjs && node safari.mjs"
+    "test": "node call.mjs && node guest.mjs && node autoanswer.mjs && node phase6.mjs && node phase7.mjs && node remember.mjs && node reconnect.mjs && node adapt.mjs && node firefox.mjs && node safari.mjs"
   },
   "devDependencies": {
     "playwright": "1.63.0"
