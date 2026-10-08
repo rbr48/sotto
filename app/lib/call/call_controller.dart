@@ -61,6 +61,9 @@ class CallController extends ChangeNotifier {
   ];
 
   static const hideIpSetting = 'sotto.settings.hide_ip';
+
+  /// Marks a name the caller gave themselves (not a contact, not verified).
+  static const notInContacts = ' (not in your contacts)';
   static const soundsSetting = 'sotto.settings.sounds';
 
   final Uri relayUrl;
@@ -245,10 +248,7 @@ class CallController extends ChangeNotifier {
     }
     // Their own word, not verified: marked as such.
     if (call.peer == peer && call.peerClaimedName != null) {
-      return (
-        name: '${call.peerClaimedName} (not in your contacts)',
-        guest: false,
-      );
+      return (name: '${call.peerClaimedName}$notInContacts', guest: false);
     }
     return (name: 'Unknown caller', guest: false);
   }
@@ -567,6 +567,8 @@ class CallController extends ChangeNotifier {
   void _logCall(CallState call) {
     if (call.phase != _loggedPhase) {
       _loggedPhase = call.phase;
+      // Back to idle after a call: nothing new to say.
+      if (call.phase == CallPhase.idle) return;
       final kind = call.video ? 'video' : 'voice';
       final direction = call.outgoing ? 'outgoing' : 'incoming';
       EventLog.instance.add(switch (call.phase) {

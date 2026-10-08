@@ -10,9 +10,12 @@ import '../call_manager.dart';
 import '../devices.dart';
 import '../media_engine.dart';
 
-/// The connecting/connected call: remote video, own preview, safety number,
-/// timer, quality, route and controls. Shared by the professional's app,
-/// browser quick calls and the guest's page.
+/// The connecting/connected call: remote video (or, for voice, the other
+/// person's initials), own preview, timer and controls. Shared by the
+/// professional's app, browser quick calls and the guest's page.
+///
+/// Status stays small and out of the way: a lock (tap it for the safety
+/// number), the connection quality, and whether the call is relayed.
 class InCallView extends StatelessWidget {
   const InCallView({super.key, required this.controller, this.title});
 
@@ -25,146 +28,525 @@ class InCallView extends StatelessWidget {
   Widget build(BuildContext context) {
     final call = controller.call;
     final name = title ?? controller.peerName;
+    final connected = call.phase == CallPhase.connected;
+    final showVideo = connected && call.video;
+    final status = call.reconnecting
+        ? 'Reconnecting…'
+        : connected
+        ? null
+        : 'Connecting…';
 
-    return Column(
-      children: [
-        Expanded(
-          child: LayoutBuilder(
-            builder: (context, constraints) => Stack(
-              children: [
-                Positioned.fill(
-                  child: ColoredBox(
-                    color: Colors.black,
-                    child: call.phase == CallPhase.connected && call.video
+    return ColoredBox(
+      color: callStage,
+      child: Column(
+        children: [
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) => Stack(
+                children: [
+                  Positioned.fill(
+                    child: showVideo
                         ? RTCVideoView(
                             controller.remoteRenderer,
                             objectFit: RTCVideoViewObjectFit
                                 .RTCVideoViewObjectFitContain,
                           )
-                        : Center(
-                            child: Text(
-                              call.phase == CallPhase.connected
-                                  ? 'Voice call'
-                                  : 'Connecting…',
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 18,
-                              ),
-                            ),
+                        : CallStage(
+                            name: name,
+                            timerSince: controller.connectedAt,
+                            status: status,
                           ),
                   ),
-                ),
-                Positioned(
-                  left: 12,
-                  right: 12,
-                  top: 12,
-                  child: Column(
-                    children: [
-                      Pill(
-                        text: call.phase == CallPhase.connected
-                            ? name
-                            : '$name · connecting…',
-                        trailing: controller.connectedAt == null
-                            ? null
-                            : CallTimer(since: controller.connectedAt!),
+                  if (showVideo)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      top: 0,
+                      child: _VideoHeader(
+                        name: name,
+                        connectedAt: controller.connectedAt,
+                        status: status,
                       ),
-                      const SizedBox(height: 8),
-                      if (controller.safetyNumber case final number?)
-                        SafetyNumberBadge(number: number),
-                      Wrap(
-                        alignment: WrapAlignment.center,
-                        spacing: 8,
-                        children: [
-                          if (controller.autoAnswered)
-                            const _SmallPill(
-                              icon: Icons.phone_callback,
-                              text: 'Auto-answered',
-                            ),
-                          if (call.reconnecting) const ReconnectingPill(),
-                          if (controller.route case final route?
-                              when !call.reconnecting)
-                            _SmallPill(
-                              icon: route == MediaRoute.relayed
-                                  ? Icons.shield_outlined
-                                  : Icons.swap_horiz,
-                              text: switch (route) {
-                                MediaRoute.direct => 'Direct connection',
-                                MediaRoute.relayed =>
-                                  'Relayed through Sotto · IP addresses hidden',
-                              },
-                            ),
-                          if (controller.quality case final quality?
-                              when !call.reconnecting)
-                            QualityPill(quality: quality),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                if (call.video && controller.sendingVideo)
-                  DraggablePreview(
-                    area: constraints.biggest,
-                    child: RTCVideoView(
-                      controller.localRenderer,
-                      mirror: true,
-                      objectFit:
-                          RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                     ),
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    top: showVideo ? 72 : 12,
+                    child: _StatusRow(controller: controller, peerName: name),
                   ),
-              ],
+                  if (call.video && controller.sendingVideo)
+                    DraggablePreview(
+                      area: constraints.biggest,
+                      child: RTCVideoView(
+                        controller.localRenderer,
+                        mirror: true,
+                        objectFit:
+                            RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
-        ),
-        ControlBar(
+          _CallControls(controller: controller),
+        ],
+      ),
+    );
+  }
+}
+
+/// The dark background of every call screen.
+const callStage = Color(0xFF101014);
+
+/// Splits off the "not in your contacts" mark: the name, and a note to
+/// show under it (or `null`).
+(String, String?) splitPeerName(String name) {
+  const mark = CallController.notInContacts;
+  return name.endsWith(mark)
+      ? (name.substring(0, name.length - mark.length), 'Not in your contacts')
+      : (name, null);
+}
+
+/// The calm middle of every call screen: initials, name, a note, and the
+/// status (ringing, a timer, …).
+class CallStage extends StatelessWidget {
+  const CallStage({
+    super.key,
+    required this.name,
+    this.note,
+    this.status,
+    this.timerSince,
+    this.extra,
+  });
+
+  final String name;
+
+  /// e.g. "Not in your contacts".
+  final String? note;
+
+  /// e.g. "Ringing…"; a timer instead if [timerSince] is set and this is
+  /// `null`.
+  final String? status;
+  final DateTime? timerSince;
+
+  /// Under the status (e.g. the "End-to-end encrypted" button).
+  final Widget? extra;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final (shown, mark) = splitPeerName(name);
+    final subtitle = note ?? mark;
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 72),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            IconButton.filledTonal(
-              tooltip: controller.micEnabled ? 'Mute' : 'Unmute',
-              onPressed: controller.toggleMic,
-              icon: Icon(controller.micEnabled ? Icons.mic : Icons.mic_off),
+            CircleAvatar(
+              radius: 56,
+              backgroundColor: theme.colorScheme.primaryContainer,
+              foregroundColor: theme.colorScheme.onPrimaryContainer,
+              child: shown == 'Unknown caller'
+                  ? const Icon(Icons.person, size: 56)
+                  : Text(
+                      initialsOf(shown),
+                      style: const TextStyle(
+                        fontSize: 38,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
             ),
-            if (call.video && controller.sendingVideo)
-              IconButton.filledTonal(
+            const SizedBox(height: 20),
+            Text(
+              shown,
+              key: const Key('caller-name'),
+              textAlign: TextAlign.center,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (subtitle != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: Colors.white54,
+                ),
+              ),
+            ],
+            const SizedBox(height: 10),
+            if (status != null || timerSince == null)
+              Text(
+                status ?? 'Connecting…',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: Colors.white70,
+                ),
+              )
+            else
+              CallTimer(since: timerSince!, color: Colors.white70),
+            if (extra != null) ...[const SizedBox(height: 16), extra!],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Video calls: the name and timer over the top of the picture.
+class _VideoHeader extends StatelessWidget {
+  const _VideoHeader({
+    required this.name,
+    required this.connectedAt,
+    required this.status,
+  });
+
+  final String name;
+  final DateTime? connectedAt;
+  final String? status;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xB3000000), Color(0x00000000)],
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                splitPeerName(name).$1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            DefaultTextStyle.merge(
+              style: const TextStyle(color: Colors.white),
+              child: status != null
+                  ? Text(status!, style: const TextStyle(color: Colors.white))
+                  : connectedAt != null
+                  ? CallTimer(since: connectedAt!, color: Colors.white)
+                  : const SizedBox.shrink(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Small chips: encrypted (tap for the safety number), auto-answered,
+/// relayed, quality, reconnecting.
+class _StatusRow extends StatelessWidget {
+  const _StatusRow({required this.controller, required this.peerName});
+
+  final CallController controller;
+  final String peerName;
+
+  @override
+  Widget build(BuildContext context) {
+    final call = controller.call;
+    final route = controller.route;
+    final quality = controller.quality;
+    return Wrap(
+      alignment: WrapAlignment.center,
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        if (controller.safetyNumber case final number?)
+          _Chip(
+            icon: Icons.lock,
+            text: 'Encrypted',
+            tooltip: 'End-to-end encrypted. Show the safety number',
+            onTap: () => showSafetyNumber(
+              context,
+              number: number,
+              peerName: splitPeerName(peerName).$1,
+              verified: controller.peerContact?.verified ?? false,
+            ),
+          ),
+        if (controller.autoAnswered)
+          const _Chip(icon: Icons.phone_callback, text: 'Auto-answered'),
+        if (call.reconnecting)
+          const ReconnectingPill()
+        else ...[
+          if (route == MediaRoute.relayed)
+            const _Chip(
+              icon: Icons.shield_outlined,
+              text: 'Relayed',
+              tooltip: 'Relayed through Sotto: IP addresses are hidden',
+            ),
+          if (quality != null) QualityPill(quality: quality),
+        ],
+      ],
+    );
+  }
+}
+
+/// The safety number, on request: both people see the same numbers if no
+/// one is in between.
+Future<void> showSafetyNumber(
+  BuildContext context, {
+  required String number,
+  required String peerName,
+  required bool verified,
+}) => showModalBottomSheet<void>(
+  context: context,
+  showDragHandle: true,
+  isScrollControlled: true,
+  builder: (context) {
+    final theme = Theme.of(context);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.lock, color: theme.colorScheme.primary),
+                const SizedBox(width: 12),
+                Text('End-to-end encrypted', style: theme.textTheme.titleLarge),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              verified
+                  ? 'You compared this safety number with $peerName before.'
+                  : 'Only you and $peerName can hear and see this call. To be '
+                        'sure no one is in between, compare these numbers with '
+                        'theirs, in person or over another channel. They must '
+                        'be the same.',
+            ),
+            const SizedBox(height: 16),
+            SafetyNumberBadge(number: number),
+          ],
+        ),
+      ),
+    );
+  },
+);
+
+/// A small status chip over the call.
+class _Chip extends StatelessWidget {
+  const _Chip({
+    required this.icon,
+    required this.text,
+    this.iconColor,
+    this.tooltip,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String text;
+  final Color? iconColor;
+  final String? tooltip;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget chip = Material(
+      color: const Color(0x66000000),
+      shape: const StadiumBorder(side: BorderSide(color: Color(0x33FFFFFF))),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: iconColor ?? Colors.white70),
+              const SizedBox(width: 5),
+              Text(
+                text,
+                style: const TextStyle(color: Colors.white, fontSize: 12.5),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (onTap != null) {
+      chip = Semantics(
+        button: true,
+        label: tooltip ?? text,
+        excludeSemantics: true,
+        child: chip,
+      );
+    }
+    return tooltip == null ? chip : Tooltip(message: tooltip!, child: chip);
+  }
+}
+
+/// Round buttons with a label under each: mute, camera, switch camera,
+/// devices, hang up.
+class _CallControls extends StatelessWidget {
+  const _CallControls({required this.controller});
+
+  final CallController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final call = controller.call;
+    final video = call.video && controller.sendingVideo;
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+        child: Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 18,
+          runSpacing: 12,
+          children: [
+            RoundCallButton(
+              tooltip: controller.micEnabled ? 'Mute' : 'Unmute',
+              label: controller.micEnabled ? 'Mute' : 'Unmute',
+              icon: controller.micEnabled ? Icons.mic : Icons.mic_off,
+              active: !controller.micEnabled,
+              onPressed: controller.toggleMic,
+            ),
+            if (video)
+              RoundCallButton(
                 tooltip: controller.cameraEnabled
                     ? 'Turn camera off'
                     : 'Turn camera on',
+                label: 'Camera',
+                icon: controller.cameraEnabled
+                    ? Icons.videocam
+                    : Icons.videocam_off,
+                active: !controller.cameraEnabled,
                 onPressed: controller.toggleCamera,
-                icon: Icon(
-                  controller.cameraEnabled
-                      ? Icons.videocam
-                      : Icons.videocam_off,
-                ),
               ),
-            if (call.video &&
-                controller.sendingVideo &&
-                Theme.of(context).platform == TargetPlatform.android)
-              IconButton.filledTonal(
+            if (video && Theme.of(context).platform == TargetPlatform.android)
+              RoundCallButton(
                 tooltip: 'Switch camera',
+                label: 'Flip',
+                icon: Icons.cameraswitch,
                 onPressed: controller.switchCamera,
-                icon: const Icon(Icons.cameraswitch),
               ),
             if (controller.devices != null)
-              IconButton.filledTonal(
+              RoundCallButton(
                 tooltip: 'Audio and video devices',
+                label: 'Devices',
+                icon: Icons.tune,
                 onPressed: () => showModalBottomSheet<void>(
                   context: context,
                   showDragHandle: true,
                   builder: (_) => DevicePicker(controller: controller),
                 ),
-                icon: const Icon(Icons.tune),
               ),
-            HangUpButton(controller: controller, tooltip: 'Hang up'),
+            RoundCallButton(
+              tooltip: 'Hang up',
+              label: 'End',
+              icon: Icons.call_end,
+              danger: true,
+              onPressed: controller.hangUp,
+            ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class RoundCallButton extends StatelessWidget {
+  const RoundCallButton({
+    super.key,
+    required this.tooltip,
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+    this.active = false,
+    this.danger = false,
+    this.color,
+  });
+
+  final String tooltip;
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  /// Switched on (e.g. muted): shown light.
+  final bool active;
+  final bool danger;
+
+  /// A colour of its own (e.g. green for Accept).
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final background = color != null
+        ? color!
+        : danger
+        ? const Color(0xFFE5484D)
+        : active
+        ? Colors.white
+        : const Color(0xFF2A2A31);
+    final foreground = active && !danger ? Colors.black : Colors.white;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          tooltip: tooltip,
+          onPressed: onPressed,
+          iconSize: 26,
+          style: IconButton.styleFrom(
+            backgroundColor: background,
+            foregroundColor: foreground,
+            fixedSize: const Size.square(64),
+          ),
+          icon: Icon(icon),
+        ),
+        const SizedBox(height: 6),
+        ExcludeSemantics(
+          child: Text(
+            label,
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
+          ),
         ),
       ],
     );
   }
 }
 
+/// Up to two initials for an avatar ("Dr Meera Rao (Lotus)" → "DR").
+String initialsOf(String name) {
+  final words = name
+      .replaceAll(RegExp(r'\(.*?\)'), ' ')
+      .trim()
+      .split(RegExp(r'\s+'))
+      .where((w) => w.isNotEmpty)
+      .toList();
+  if (words.isEmpty) return '?';
+  final first = words.first.characters.first;
+  final last = words.length > 1 ? words.last.characters.first : '';
+  return '$first$last'.toUpperCase();
+}
+
 /// Mm:ss since the call connected.
 class CallTimer extends StatefulWidget {
-  const CallTimer({super.key, required this.since});
+  const CallTimer({super.key, required this.since, this.color});
 
   final DateTime since;
+
+  /// Over the dark call stage, a light colour.
+  final Color? color;
 
   @override
   State<CallTimer> createState() => _CallTimerState();
@@ -192,8 +574,10 @@ class _CallTimerState extends State<CallTimer> {
   Widget build(BuildContext context) => Text(
     formatDuration(DateTime.now().difference(widget.since)),
     key: const Key('call-timer'),
-    style: Theme.of(context).textTheme.titleMedium
-        ?.copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+      color: widget.color,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    ),
   );
 }
 
@@ -216,7 +600,7 @@ class ReconnectingPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Semantics(
     liveRegion: true,
-    child: const _SmallPill(
+    child: const _Chip(
       icon: Icons.sync_problem,
       iconColor: Colors.orange,
       text: 'Reconnecting… the call continues when the network is back',
@@ -232,44 +616,12 @@ class QualityPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (text, color) = switch (quality) {
-      CallQuality.good => ('Good connection', Colors.green),
-      CallQuality.fair => ('Fair connection', Colors.orange),
-      CallQuality.poor => ('Poor connection', Colors.red),
+      CallQuality.good => ('Good connection', Colors.greenAccent),
+      CallQuality.fair => ('Fair connection', Colors.orangeAccent),
+      CallQuality.poor => ('Poor connection', Colors.redAccent),
     };
-    return _SmallPill(
-      icon: Icons.signal_cellular_alt,
-      iconColor: color,
-      text: text,
-    );
+    return _Chip(icon: Icons.signal_cellular_alt, iconColor: color, text: text);
   }
-}
-
-class _SmallPill extends StatelessWidget {
-  const _SmallPill({required this.icon, required this.text, this.iconColor});
-
-  final IconData icon;
-  final String text;
-  final Color? iconColor;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 8),
-    child: Material(
-      color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.85),
-      borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 16, color: iconColor),
-            const SizedBox(width: 6),
-            Text(text, style: Theme.of(context).textTheme.labelLarge),
-          ],
-        ),
-      ),
-    ),
-  );
 }
 
 /// The user's own video, which can be dragged anywhere in the call area.
@@ -286,7 +638,10 @@ class DraggablePreview extends StatefulWidget {
 class _DraggablePreviewState extends State<DraggablePreview> {
   static const _size = Size(160, 120);
   static const _margin = 16.0;
+
+  /// Where the user put it; `null` = the bottom right corner.
   Offset? _position;
+  bool _dragging = false;
 
   Offset _clamp(Offset p) => Offset(
     p.dx.clamp(
@@ -299,6 +654,19 @@ class _DraggablePreviewState extends State<DraggablePreview> {
     ),
   );
 
+  /// The corner nearest to [p]: the window snaps there when let go.
+  Offset _nearestCorner(Offset p) {
+    final right = widget.area.width - _size.width - _margin;
+    final bottom = widget.area.height - _size.height - _margin;
+    final centre = p + Offset(_size.width / 2, _size.height / 2);
+    return _clamp(
+      Offset(
+        centre.dx < widget.area.width / 2 ? _margin : right,
+        centre.dy < widget.area.height / 2 ? _margin : bottom,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final position = _clamp(
@@ -308,7 +676,9 @@ class _DraggablePreviewState extends State<DraggablePreview> {
             widget.area.height - _size.height - _margin,
           ),
     );
-    return Positioned(
+    return AnimatedPositioned(
+      duration: _dragging ? Duration.zero : const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
       left: position.dx,
       top: position.dy,
       width: _size.width,
@@ -317,11 +687,30 @@ class _DraggablePreviewState extends State<DraggablePreview> {
         label: 'Your video (drag to move)',
         child: GestureDetector(
           key: const Key('self-preview'),
-          onPanUpdate: (details) =>
-              setState(() => _position = _clamp(position + details.delta)),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: ColoredBox(color: Colors.black54, child: widget.child),
+          // The whole window takes the drag, not only the video in it.
+          behavior: HitTestBehavior.opaque,
+          onPanStart: (_) => setState(() => _dragging = true),
+          // From where it is now, not where it was when last drawn: a quick
+          // flick ends before the next frame.
+          onPanUpdate: (details) => setState(
+            () => _position = _clamp((_position ?? position) + details.delta),
+          ),
+          onPanEnd: (_) => setState(() {
+            _dragging = false;
+            _position = _nearestCorner(_position ?? position);
+          }),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0x55FFFFFF)),
+              boxShadow: const [
+                BoxShadow(color: Color(0x66000000), blurRadius: 12),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(13),
+              child: ColoredBox(color: Colors.black54, child: widget.child),
+            ),
           ),
         ),
       ),
@@ -331,9 +720,18 @@ class _DraggablePreviewState extends State<DraggablePreview> {
 
 /// Camera, microphone and speaker choices (also during a call).
 class DevicePicker extends StatelessWidget {
-  const DevicePicker({super.key, required this.controller});
+  const DevicePicker({
+    super.key,
+    required this.controller,
+    this.embedded = false,
+  });
 
   final CallController controller;
+
+  /// Part of a page that scrolls (Settings): a plain column, so scrolling
+  /// over the choices scrolls the page. Otherwise (the in-call sheet) it
+  /// scrolls by itself.
+  final bool embedded;
 
   @override
   Widget build(BuildContext context) {
@@ -341,65 +739,52 @@ class DevicePicker extends StatelessWidget {
     if (devices == null) return const SizedBox.shrink();
     return ListenableBuilder(
       listenable: devices,
-      builder: (context, _) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          children: [
-            for (final kind in DeviceKind.values) ...[
-              Text(switch (kind) {
-                DeviceKind.camera => 'Camera',
-                DeviceKind.microphone => 'Microphone',
-                DeviceKind.speaker => 'Speaker',
-              }, style: Theme.of(context).textTheme.titleSmall),
-              RadioGroup<String?>(
-                groupValue: devices.effective.idFor(kind),
-                onChanged: (id) => controller.useDevice(kind, id),
-                child: Column(
-                  children: [
-                    const RadioListTile<String?>(
-                      value: null,
-                      title: Text('System default'),
+      builder: (context, _) {
+        final choices = [
+          for (final kind in DeviceKind.values) ...[
+            Text(switch (kind) {
+              DeviceKind.camera => 'Camera',
+              DeviceKind.microphone => 'Microphone',
+              DeviceKind.speaker => 'Speaker',
+            }, style: Theme.of(context).textTheme.titleSmall),
+            RadioGroup<String?>(
+              groupValue: devices.effective.idFor(kind),
+              onChanged: (id) => controller.useDevice(kind, id),
+              child: Column(
+                children: [
+                  const RadioListTile<String?>(
+                    value: null,
+                    title: Text('System default'),
+                  ),
+                  for (final device in devices.available(kind))
+                    RadioListTile<String?>(
+                      value: device.id,
+                      title: Text(device.label),
                     ),
-                    for (final device in devices.available(kind))
-                      RadioListTile<String?>(
-                        value: device.id,
-                        title: Text(device.label),
-                      ),
-                  ],
-                ),
+                ],
               ),
-            ],
+            ),
           ],
-        ),
-      ),
+        ];
+        if (embedded) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: choices,
+          );
+        }
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            children: choices,
+          ),
+        );
+      },
     );
   }
 }
 
-class HangUpButton extends StatelessWidget {
-  const HangUpButton({
-    super.key,
-    required this.controller,
-    required this.tooltip,
-  });
-
-  final CallController controller;
-  final String tooltip;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return IconButton.filled(
-      tooltip: tooltip,
-      style: IconButton.styleFrom(backgroundColor: scheme.error),
-      onPressed: controller.hangUp,
-      icon: Icon(Icons.call_end, color: scheme.onError),
-    );
-  }
-}
-
-/// Sotto's logo mark: a speech bubble with a quiet sound wave (drawn by
+/// Sotto's logo mark: a phone handset with quiet sound waves (drawn by
 /// tools/icons/generate.py). Decorative: screen readers skip it.
 class SottoLogo extends StatelessWidget {
   const SottoLogo({super.key, this.size = 72});
@@ -451,21 +836,6 @@ class Centered extends StatelessWidget {
         constraints: const BoxConstraints(maxWidth: 520),
         child: child,
       ),
-    ),
-  );
-}
-
-class ControlBar extends StatelessWidget {
-  const ControlBar({super.key, required this.children});
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 16),
-    child: Wrap(
-      spacing: 16,
-      alignment: WrapAlignment.center,
-      children: children,
     ),
   );
 }

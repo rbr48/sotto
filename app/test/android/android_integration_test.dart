@@ -56,6 +56,7 @@ class FakeAndroid implements AndroidPlatform {
     required String title,
     required String name,
     DateTime? since,
+    bool video = false,
   }) async => log.add('call service: $title / $name / ${since != null}');
 
   @override

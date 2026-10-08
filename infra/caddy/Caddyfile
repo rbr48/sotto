@@ -43,6 +43,10 @@
 	handle {
 		root * /srv
 		try_files {path} /index.html
+		# The privacy policy and terms name the operator (SOTTO_OPERATOR,
+		# SOTTO_CONTACT from .env).
+		@legal path /privacy.html /terms.html
+		templates @legal
 		file_server
 	}
 }

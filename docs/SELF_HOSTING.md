@@ -67,6 +67,10 @@ server {
     ssl_certificate     /etc/letsencrypt/live/calls.yourpractice.org/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/calls.yourpractice.org/privkey.pem;
 
+    # Sotto keeps no request logs; don't let the proxy keep them either
+    # (they would hold every visitor's IP address).
+    access_log off;
+
     location / {
         proxy_pass http://127.0.0.1:8185;
         proxy_http_version 1.1;
@@ -105,7 +109,7 @@ The choice is kept on the device and included in backups.
 
 **In a browser:** open `https://<domain>/`. A browser session always uses the server it was loaded from and keeps nothing after the tab is closed.
 
-**Check it:** `https://<domain>/health` shows `{"status":"ok"}`; `https://<domain>/?selftest=1` runs the browser crypto self-test. Make a call between two networks (for example Wi-Fi and mobile data) with *Hide my IP address* on: the call screen must show *Relayed through Sotto*. More tests: [`NETWORK_TESTING.md`](NETWORK_TESTING.md).
+**Check it:** `https://<domain>/health` shows `{"status":"ok"}`; `https://<domain>/?selftest=1` runs the browser crypto self-test. Make a call between two networks (for example Wi-Fi and mobile data) with *Hide my IP address* on: the call screen must show *Relayed*. More tests: [`NETWORK_TESTING.md`](NETWORK_TESTING.md).
 
 ## Update
 
@@ -123,6 +127,16 @@ sudo ./infra/install.sh status              # containers and health check
 sudo ./infra/install.sh uninstall           # stop everything
 sudo ./infra/install.sh uninstall --purge   # also delete the TLS certificates and .env
 ```
+
+## Privacy policy and terms
+
+Your server serves a privacy policy and terms of use at `https://<domain>/privacy.html` and `/terms.html`; the app (*Settings → Help*) and the guest page link to them. They describe exactly what Sotto processes, and name who runs the server: set it once with
+
+```bash
+sudo ./infra/install.sh install --domain calls.example.org --operator "Your Practice Ltd" --contact privacy@yourpractice.org
+```
+
+(kept in `infra/.env` as `SOTTO_OPERATOR` and `SOTTO_CONTACT`; later installs keep them). Without them the pages say "the operator of <domain>". If you put Sotto behind your own reverse proxy, keep its access logs off (`access_log off;` in Nginx, as in the configuration above), or the pages' "no request logs" is no longer true. Have them checked for your country's rules before you rely on them.
 
 ## Backups
 

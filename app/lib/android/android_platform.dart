@@ -60,6 +60,7 @@ abstract interface class AndroidPlatform {
     required String title,
     required String name,
     DateTime? since,
+    bool video = false,
   });
   Future<void> stopCallService();
 }
@@ -141,10 +142,12 @@ class MethodChannelAndroid implements AndroidPlatform {
     required String title,
     required String name,
     DateTime? since,
+    bool video = false,
   }) => _call('startCallService', {
     'title': title,
     'name': name,
     'since': since?.millisecondsSinceEpoch,
+    'video': video,
   });
 
   @override

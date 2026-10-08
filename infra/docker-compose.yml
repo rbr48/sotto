@@ -37,6 +37,9 @@ services:
     depends_on: [relay]
     environment:
       SOTTO_DOMAIN: ${SOTTO_DOMAIN:?set SOTTO_DOMAIN in .env}
+      # Who runs this server, for /privacy.html and /terms.html.
+      SOTTO_OPERATOR: ${SOTTO_OPERATOR:-}
+      SOTTO_CONTACT: ${SOTTO_CONTACT:-}
     ports:
       - '80:80'
       - '443:443'

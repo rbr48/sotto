@@ -99,11 +99,11 @@ Then test a call with two devices (or two browser windows):
 3. On B, tap **Accept**. Allow camera and microphone on both.
 4. Compare the **safety number** shown on both screens: it must be identical.
 
-The tab title shows the call status: *Ready* → *Ringing…* / *Incoming call* → *Connected*. During a call the screen shows **Direct connection** or **Relayed through Sotto**. `https://sotto.izhaanintellect.fun/?selftest=1` runs the crypto self-test in the browser.
+The tab title shows the call status: *Ready* → *Ringing…* / *Incoming call* → *Connected*. During a call, a small **Relayed** chip at the top means the call goes through the TURN server; no chip means a direct connection (*Settings → Help → Diagnostic report* shows the route either way). `https://sotto.izhaanintellect.fun/?selftest=1` runs the crypto self-test in the browser.
 
 **Guest links:** on the professional's device, copy the **personal guest link** (or create a one-time link) and open it on another device or browser. The guest checks their camera, presses **Join with video** and waits; the professional presses **Admit** in the waiting room.
 
-To test TURN, turn on **Hide my IP address** before calling: the call must show *Relayed through Sotto*. See [`NETWORK_TESTING.md`](NETWORK_TESTING.md) for the full network test matrix.
+To test TURN, turn on **Hide my IP address** before calling: the call must show the *Relayed* chip. See [`NETWORK_TESTING.md`](NETWORK_TESTING.md) for the full network test matrix.
 
 ## 6. Update to a new version
 

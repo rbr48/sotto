@@ -43,40 +43,54 @@ class _Outgoing extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final call = controller.call;
-    return Column(
-      children: [
-        Expanded(
-          child: Stack(
-            children: [
-              if (call.video)
+    return ColoredBox(
+      color: callStage,
+      child: Column(
+        children: [
+          Expanded(
+            child: Stack(
+              children: [
+                if (call.video)
+                  Positioned.fill(
+                    child: Opacity(
+                      opacity: 0.35,
+                      child: RTCVideoView(
+                        controller.localRenderer,
+                        mirror: true,
+                        objectFit:
+                            RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                      ),
+                    ),
+                  ),
                 Positioned.fill(
-                  child: RTCVideoView(
-                    controller.localRenderer,
-                    mirror: true,
-                    objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                  child: CallStage(
+                    name: controller.peerName,
+                    status: call.phase == CallPhase.ringing
+                        ? 'Ringing…'
+                        : 'Calling…',
+                    note: call.phase == CallPhase.ringing
+                        ? null
+                        : 'Waiting for their device',
                   ),
                 ),
-              Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Pill(text: controller.peerName),
-                    const SizedBox(height: 12),
-                    Pill(
-                      text: call.phase == CallPhase.ringing
-                          ? 'Ringing…'
-                          : 'Calling… (waiting for their device)',
-                    ),
-                  ],
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        ControlBar(
-          children: [HangUpButton(controller: controller, tooltip: 'Cancel')],
-        ),
-      ],
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+              child: RoundCallButton(
+                tooltip: 'Cancel',
+                label: 'End',
+                icon: Icons.call_end,
+                danger: true,
+                onPressed: controller.hangUp,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -88,57 +102,63 @@ class _Incoming extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final call = controller.call;
     final contact = controller.peerContact;
-    return Centered(
+    return ColoredBox(
+      color: callStage,
       child: Column(
         children: [
-          Icon(
-            call.video ? Icons.videocam : Icons.call,
-            size: 64,
-            color: theme.colorScheme.primary,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            call.video ? 'Incoming video call' : 'Incoming voice call',
-            style: theme.textTheme.headlineSmall,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            controller.peerName,
-            key: const Key('caller-name'),
-            style: theme.textTheme.titleLarge,
-          ),
-          if (contact != null && !contact.verified)
-            Text(
-              'Safety number not yet compared',
-              style: theme.textTheme.bodySmall,
+          Expanded(
+            child: CallStage(
+              name: controller.peerName,
+              note: contact != null && !contact.verified
+                  ? 'Safety number not yet compared'
+                  : null,
+              status: call.video
+                  ? 'Incoming video call'
+                  : 'Incoming voice call',
+              extra: controller.safetyNumber == null
+                  ? null
+                  : TextButton.icon(
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white70,
+                      ),
+                      onPressed: () => showSafetyNumber(
+                        context,
+                        number: controller.safetyNumber!,
+                        peerName: splitPeerName(controller.peerName).$1,
+                        verified: contact?.verified ?? false,
+                      ),
+                      icon: const Icon(Icons.lock, size: 16),
+                      label: const Text('End-to-end encrypted'),
+                    ),
             ),
-          const SizedBox(height: 16),
-          if (controller.safetyNumber case final number?)
-            SafetyNumberBadge(number: number),
-          const SizedBox(height: 32),
-          Wrap(
-            spacing: 24,
-            children: [
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: theme.colorScheme.error,
-                ),
-                onPressed: controller.decline,
-                icon: const Icon(Icons.call_end),
-                label: const Text('Decline'),
+          ),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 28),
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 72,
+                children: [
+                  RoundCallButton(
+                    tooltip: 'Decline',
+                    label: 'Decline',
+                    icon: Icons.call_end,
+                    danger: true,
+                    onPressed: controller.decline,
+                  ),
+                  RoundCallButton(
+                    tooltip: 'Accept',
+                    label: 'Accept',
+                    icon: call.video ? Icons.videocam : Icons.call,
+                    color: const Color(0xFF2FA84F),
+                    onPressed: controller.accept,
+                  ),
+                ],
               ),
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.green.shade700,
-                ),
-                onPressed: controller.accept,
-                icon: const Icon(Icons.call),
-                label: const Text('Accept'),
-              ),
-            ],
+            ),
           ),
         ],
       ),

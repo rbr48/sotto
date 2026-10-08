@@ -24,6 +24,7 @@ import {
   openApp,
   openTab,
   readAttribute,
+  scrollUntilFound,
   setPin,
   titleIncludes,
   typeInto,
@@ -68,7 +69,8 @@ try {
   await clickButton(arun, 'Video call Dr Meera Rao');
   await titleIncludes(meera, 'Incoming call');
   // Arun isn't one of Meera's contacts: his app gives his name, marked as such.
-  await meera.getByText('Arun Mehta (not in your contacts)').first().waitFor();
+  await meera.getByText('Arun Mehta', { exact: true }).first().waitFor();
+  await meera.getByText('Not in your contacts').first().waitFor();
   await clickButton(meera, 'Accept');
   await Promise.all([titleIncludes(arun, 'Connected'), titleIncludes(meera, 'Connected')]);
   await arun.getByText('Dr Meera Rao (Lotus Clinic)').first().waitFor();
@@ -137,7 +139,10 @@ try {
   // 6. Devices.
   await clickButton(meera, 'OK');
   await openTab(meera, 'Settings');
-  await meera.getByText('Camera', { exact: true }).first().waitFor();
+  // The picker is part of the page (scrolling over it scrolls the page):
+  // scroll until its last button shows, so all its choices are on screen.
+  await scrollUntilFound(meera, meera.getByRole('button', { name: 'Look for devices again' }));
+  await meera.getByRole('radio').first().waitFor();
   const radios = await meera.getByRole('radio').count();
   assert.ok(radios >= 4, `expected default + fake camera/mic choices, saw ${radios}`);
   console.log(`✓ device picker lists ${radios} choices (system defaults and the fake devices)`);

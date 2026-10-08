@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy policy · Sotto</title>
+<link rel="icon" href="favicon.png">
+<style>
+  :root { --bg: #fbfaff; --fg: #1d1b26; --muted: #5b5870; --accent: #6a56b8; --line: #e4e0f2; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #15131c; --fg: #ece9f6; --muted: #aaa5c0; --accent: #b3a6ec; --line: #2e2a3d; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.8rem; margin: 0 0 4px; }
+  h2 { font-size: 1.15rem; margin: 32px 0 8px; color: var(--accent); }
+  p, li { color: var(--fg); }
+  .muted { color: var(--muted); }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+  th, td { text-align: left; vertical-align: top; padding: 8px; border-top: 1px solid var(--line); }
+  th { width: 34%; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+<h1>Privacy policy</h1>
+<p class="muted">This Sotto server is run by {{with env "SOTTO_OPERATOR"}}{{.}}{{else}}the operator of {{.Host}}{{end}}.
+Contact: {{with env "SOTTO_CONTACT"}}{{.}}{{else}}the person or organisation that gave you this server's address{{end}}.</p>
+
+<p>Sotto is a calling app built to know as little as possible about you. There are no
+accounts, no phone numbers or e-mail addresses, no advertising, no analytics and no
+tracking. This page explains, plainly, what is processed, where, and for how long.</p>
+
+<h2>Calls are end-to-end encrypted</h2>
+<p>Audio and video travel encrypted from one device to the other (WebRTC with DTLS-SRTP).
+The messages that set up a call, including your name if you send it, are encrypted on
+your device for the other person's device only (libsodium). This server cannot read
+them, and it cannot listen to or watch a call.</p>
+
+<h2>What this server processes</h2>
+<table>
+<tr><th>Never</th><td>Names, contact lists, call history, notes, call content (audio,
+video, call set-up messages). There is no database: nothing about you is stored.</td></tr>
+<tr><th>Briefly, in memory only</th><td>
+<ul>
+<li>The public key of each connected device (it is your Sotto ID), and the IP address of
+the connection, while it is open.</li>
+<li>Which ID sends an encrypted message to which ID, and when, while the message passes
+through. A message for a device that is offline is held for at most 60 seconds, then
+dropped.</li>
+<li>For calls that go through the relay (when devices can't connect directly, or with
+"Hide my IP address"): the IP addresses of both devices and the amount of data, for as
+long as the call lasts. The relay credentials are temporary and contain no ID.</li>
+<li>Counters to prevent abuse (connections per network address, messages per second),
+keyed with a random secret that changes when the server restarts.</li>
+</ul>
+</td></tr>
+<tr><th>Logs</th><td>The Sotto server writes no request logs and never logs keys, IDs, IP
+addresses or message contents; it only logs that it started or stopped.</td></tr>
+</table>
+<p>Hiding even this short-lived information would need onion routing (like Tor), which
+adds too much delay for live calls.</p>
+
+<h2>What stays on your device</h2>
+<ul>
+<li><strong>Apps (Android, Windows, Linux):</strong> your identity keys (in the system
+keystore), and an encrypted file with your profile, contacts, call history and notes,
+settings and guest links. History is deleted after the period you choose in Settings
+(30 days unless you change it). Backups are files you create and keep yourself,
+encrypted with your password.</li>
+<li><strong>Browser:</strong> nothing is kept after you close the tab, unless you choose
+"Remember me on this browser". Then the same data is kept in the browser, encrypted
+with a key the browser cannot export.</li>
+</ul>
+
+<h2>What other people see</h2>
+<ul>
+<li>The person you call sees the name in your profile (or the name you type as a guest),
+and your Sotto ID. A name that isn't verified is marked "not in your contacts".</li>
+<li>When a call connects directly, the two devices learn each other's IP address. With
+"Hide my IP address" on, calls always go through the relay, so the other person never
+sees yours.</li>
+</ul>
+
+<h2>Other services the apps contact</h2>
+<ul>
+<li><strong>Update check:</strong> once a day the Android, Windows and Linux apps ask
+GitHub (the site that hosts Sotto's releases) whether a newer version exists. GitHub sees
+your IP address. You can turn this off in Settings → Updates. The browser never
+checks.</li>
+<li><strong>Connection helper:</strong> only if a server offers no STUN/TURN service of
+its own (this one does), the app asks Google's public STUN server for your public IP
+address, to find a direct path.</li>
+<li><strong>Diagnostic report:</strong> the app never sends it. You can see it and copy it
+in Settings → Help, to give to whoever helps you. It contains no names, contacts, call
+partners, links or keys.</li>
+</ul>
+
+<h2>Recording</h2>
+<p>Sotto does not record calls.</p>
+
+<h2>Your choices and rights</h2>
+<p>Because this server keeps nothing about you, there is nothing on it to access,
+correct or delete. Your data is on your device: you can delete history entries,
+contacts and links in the app, use "Forget this browser", or remove the app. For any
+question about this server, contact its operator (above).</p>
+
+<h2>Changes</h2>
+<p>If Sotto starts processing anything new, this page will say so before it happens.</p>
+
+<p class="muted">See also the <a href="terms.html">terms of use</a>. Sotto is open source
+(AGPL-3.0): anyone can check what it does.</p>
+</main>
+</body>
+</html>

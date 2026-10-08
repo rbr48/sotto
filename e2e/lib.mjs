@@ -94,6 +94,18 @@ export async function clickButton(page, name) {
   }
 }
 
+/** Scrolls a long Flutter page (built lazily, so only what is on screen is
+ * in the accessibility tree) until `locator` is there. */
+export async function scrollUntilFound(page, locator, step = 400) {
+  await enableSemantics(page);
+  for (let i = 0; i < 40 && (await locator.count()) === 0; i++) {
+    await page.mouse.move(640, 360);
+    await page.mouse.wheel(0, step);
+    await page.waitForTimeout(250);
+  }
+  await locator.first().waitFor();
+}
+
 /** Flips a Flutter switch whose label matches `name`. */
 export async function toggleSwitch(page, name) {
   await enableSemantics(page);

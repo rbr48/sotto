@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../../call/call_controller.dart';
@@ -346,6 +347,20 @@ class _GuestPageState extends State<GuestPage> {
                 icon: const Icon(Icons.call),
                 label: const Text('Join with voice only'),
               ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 4,
+            children: [
+              for (final (label, page) in const [
+                ('Privacy policy', 'privacy.html'),
+                ('Terms of use', 'terms.html'),
+              ])
+                TextButton(
+                  onPressed: () => launchUrl(Uri.base.resolve(page)),
+                  child: Text(label),
+                ),
             ],
           ),
         ],
