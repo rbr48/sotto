@@ -159,7 +159,7 @@ jobs:
           cache: true
       - working-directory: app
         run: flutter build linux --release
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: sotto-linux
           path: app/build/linux/x64/release/bundle
@@ -180,7 +180,7 @@ jobs:
           cache: true
       - working-directory: app
         run: flutter build apk --debug
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: sotto-android-debug
           path: app/build/app/outputs/flutter-apk/app-debug.apk
@@ -197,7 +197,7 @@ jobs:
           cache: true
       - working-directory: app
         run: flutter build windows --release
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: sotto-windows
           path: app/build/windows/x64/runner/Release

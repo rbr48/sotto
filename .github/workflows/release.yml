@@ -120,7 +120,7 @@ jobs:
           echo "$ACTUAL" > dist/android-cert-sha256.txt
       - name: Package APK
         run: cp app/build/app/outputs/flutter-apk/app-release.apk dist/sotto-android.apk
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: release-android
           path: |
@@ -150,7 +150,7 @@ jobs:
         run: |
           mkdir -p dist
           tar -czf dist/sotto-linux-x64.tar.gz -C app/build/linux/x64/release/bundle .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: release-linux
           path: dist/sotto-linux-x64.tar.gz
@@ -174,7 +174,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist
           Compress-Archive -Path app/build/windows/x64/runner/Release/* -DestinationPath dist/sotto-windows-x64.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: release-windows
           path: dist/sotto-windows-x64.zip
