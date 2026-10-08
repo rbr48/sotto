@@ -314,6 +314,38 @@ class SettingsTab extends StatelessWidget {
             onTap: () =>
                 launchUrl(Downloads.all, mode: LaunchMode.externalApplication),
           ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.headset_mic_outlined),
+            title: const Text('Sotto Live Call Center'),
+            subtitle: const Text('Call Sotto support directly in the app'),
+            onTap: () => launchUrl(
+              Uri.parse(
+                'https://call.sottocall.com/#c=n3qJ6HlYC0WI3DU_ixZTW6VaXCTX04zQTw5FjPj20CQ',
+              ),
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.support_agent_outlined),
+            title: const Text('Support'),
+            subtitle: const Text('support@sottocall.com'),
+            onTap: () => launchUrl(
+              Uri.parse('mailto:support@sottocall.com'),
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.mail_outline),
+            title: const Text('Contact'),
+            subtitle: const Text('contact@sottocall.com'),
+            onTap: () => launchUrl(
+              Uri.parse('mailto:contact@sottocall.com'),
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
         ]),
         _Section('Updates', [
           ListTile(

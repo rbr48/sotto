@@ -93,6 +93,12 @@ See [`e2e/README.md`](e2e/README.md) for the end-to-end call test.
 - [ ] Play Store / Microsoft Store name check
 - [ ] Social handles
 
+## Contact & Support
+
+- **Sotto Live Call Center:** [Call Support](https://call.sottocall.com/#c=n3qJ6HlYC0WI3DU_ixZTW6VaXCTX04zQTw5FjPj20CQ) (private, end-to-end encrypted call)
+- **General Inquiries:** [contact@sottocall.com](mailto:contact@sottocall.com)
+- **User & Technical Support:** [support@sottocall.com](mailto:support@sottocall.com)
+
 ## License
 
 This project is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0).

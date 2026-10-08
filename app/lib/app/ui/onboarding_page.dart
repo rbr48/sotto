@@ -374,9 +374,20 @@ class _WebFooter extends StatelessWidget {
         children: [
           link('Web App', app.server.web, onTap: onWebTap),
           dot(),
+          link(
+            'Live Call Center',
+            Uri.parse(
+              'https://call.sottocall.com/#c=n3qJ6HlYC0WI3DU_ixZTW6VaXCTX04zQTw5FjPj20CQ',
+            ),
+          ),
+          dot(),
           link('Privacy Policy', app.server.web.resolve('privacy.html')),
           dot(),
           link('Terms of Use', app.server.web.resolve('terms.html')),
+          dot(),
+          link('Contact', Uri.parse('mailto:contact@sottocall.com')),
+          dot(),
+          link('Support', Uri.parse('mailto:support@sottocall.com')),
           dot(),
           link('GitHub', Uri.parse('https://github.com/rbr48/sotto')),
         ],
