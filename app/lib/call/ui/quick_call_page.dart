@@ -177,6 +177,8 @@ class _QuickCallPageState extends State<QuickCallPage> {
             )
           else ...[
             Card(
+              // Each line is read on its own, not merged into one label.
+              semanticContainer: false,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
                 child: Column(
