@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sotto · Private calls, nothing kept</title>
+<meta name="description" content="Sotto: end-to-end encrypted voice and video calls for professionals and their clients. Clients join from a browser link. No accounts, no phone numbers, nothing stored on the server.">
+<meta name="theme-color" content="#5b4b8a">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="favicon.png">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<!-- No trackers, no analytics, no cookies, no third-party fonts or scripts:
+     everything on this page is served from this site. -->
+<style>
+  :root {
+    --bg: #fbfaff; --surface: #ffffff; --soft: #f1eefb; --fg: #1d1b26;
+    --muted: #5b5870; --line: #e4e0f2; --accent: #5b4b8a; --accent-2: #7a66c2;
+    --accent-fg: #ffffff; --shadow: 0 10px 30px rgba(61, 47, 107, 0.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #13111a; --surface: #1b1824; --soft: #221e2f; --fg: #ece9f6;
+      --muted: #aaa5c0; --line: #2e2a3d; --accent: #b3a6ec; --accent-2: #8f7fd6;
+      --accent-fg: #15131c; --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    }
+    .wordmark-light { display: none; }
+  }
+  @media (prefers-color-scheme: light) { .wordmark-dark { display: none; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+
+  header.top { position: sticky; top: 0; z-index: 10; backdrop-filter: blur(12px);
+    background: color-mix(in srgb, var(--bg) 85%, transparent); border-bottom: 1px solid var(--line); }
+  header.top .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+  .brand img.icon { width: 34px; height: 34px; }
+  .brand img.word { height: 22px; }
+  nav a { color: var(--muted); text-decoration: none; margin-left: 22px; font-weight: 500; }
+  nav a:hover { color: var(--fg); }
+  @media (max-width: 640px) { nav a.hide-sm { display: none; } }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 13px 22px; border-radius: 999px; font-weight: 600; text-decoration: none;
+    border: 1px solid transparent; transition: transform .15s ease, background .15s ease; }
+  .btn:hover { transform: translateY(-1px); }
+  .btn.primary { background: var(--accent); color: var(--accent-fg); }
+  .btn.ghost { border-color: var(--line); color: var(--fg); background: var(--surface); }
+  .btn svg { width: 18px; height: 18px; }
+
+  .hero { padding: 72px 0 56px; }
+  .hero .wrap { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 48px; align-items: center; }
+  .eyebrow { display: inline-block; padding: 5px 12px; border-radius: 999px; background: var(--soft);
+    color: var(--accent); font-weight: 600; font-size: .85rem; }
+  h1 { font-size: clamp(2.2rem, 5vw, 3.4rem); line-height: 1.1; margin: 18px 0 16px; letter-spacing: -0.02em; }
+  .lead { font-size: 1.15rem; color: var(--muted); max-width: 34em; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+  .fine { color: var(--muted); font-size: .9rem; margin-top: 14px; }
+  .hero-art { justify-self: center; width: 100%; max-width: 360px; }
+  .hero-art img { width: 100%; height: auto; filter: drop-shadow(0 24px 48px rgba(61, 47, 107, .35)); }
+  @media (max-width: 860px) {
+    .hero { padding-top: 40px; }
+    .hero .wrap { grid-template-columns: 1fr; gap: 24px; }
+    .hero-art { order: -1; justify-self: start; max-width: 120px; }
+  }
+
+  section { padding: 64px 0; }
+  section.alt { background: var(--soft); }
+  h2 { font-size: clamp(1.6rem, 3.4vw, 2.2rem); margin: 0 0 10px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 32px; max-width: 40em; }
+  .grid { display: grid; gap: 18px; grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 22px;
+    box-shadow: var(--shadow); }
+  .card h3 { margin: 12px 0 6px; font-size: 1.08rem; }
+  .card p { margin: 0; color: var(--muted); font-size: .96rem; }
+  .ico { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center;
+    background: var(--soft); color: var(--accent); }
+  .ico svg { width: 22px; height: 22px; }
+
+  .steps { counter-reset: step; display: grid; gap: 18px; grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 860px) { .steps { grid-template-columns: 1fr; } }
+  .step { position: relative; padding-left: 52px; }
+  .step::before { counter-increment: step; content: counter(step); position: absolute; left: 0; top: 0;
+    width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--accent); color: var(--accent-fg); font-weight: 700; }
+  .step h3 { margin: 4px 0 6px; font-size: 1.05rem; }
+  .step p { margin: 0; color: var(--muted); }
+
+  .dl { display: grid; gap: 18px; grid-template-columns: repeat(4, 1fr); }
+  @media (max-width: 960px) { .dl { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) { .dl { grid-template-columns: 1fr; } }
+  .dl .card { display: flex; flex-direction: column; }
+  .dl .card .btn { margin-top: auto; width: 100%; padding: 12px 14px; white-space: nowrap; }
+  .dl .card p { margin-bottom: 18px; }
+  .dl .more { display: block; text-align: center; margin-top: 10px; font-size: .88rem; }
+
+  .facts { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+  @media (max-width: 720px) { .facts { grid-template-columns: 1fr; } }
+  .fact { display: flex; gap: 14px; align-items: flex-start; }
+  .fact .ico { flex: none; }
+  .fact b { display: block; }
+  .fact span { color: var(--muted); font-size: .95rem; }
+
+  footer { border-top: 1px solid var(--line); padding: 32px 0 48px; color: var(--muted); font-size: .92rem; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 14px 28px; justify-content: space-between; }
+  footer a { color: var(--muted); text-decoration: none; margin-right: 18px; }
+  footer a:hover { color: var(--fg); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#" aria-label="Sotto home">
+      <img class="icon" src="icon.svg" alt="">
+      <img class="word wordmark-light" src="wordmark.svg" alt="Sotto">
+      <img class="word wordmark-dark" src="wordmark-dark.svg" alt="Sotto">
+    </a>
+    <nav>
+      <a class="hide-sm" href="#how">How it works</a>
+      <a class="hide-sm" href="#privacy">Privacy</a>
+      <a href="#download">Download</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<section class="hero">
+  <div class="wrap">
+    <div>
+      <span class="eyebrow">End-to-end encrypted calls</span>
+      <h1>Speak freely.<br>Nothing is kept.</h1>
+      <p class="lead">Private voice and video calls for professionals and the people they serve:
+        therapists, lawyers, doctors, advisers and their clients. Clients join from a link in their
+        browser. No accounts, no phone numbers, no call records on our servers.</p>
+      <div class="cta">
+        <a class="btn primary" href="#download">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14"/></svg>
+          Download Sotto
+        </a>
+        <a class="btn ghost" href="https://call.sottocall.com/">Open in your browser</a>
+      </div>
+      <p class="fine">Android, Windows, Linux and any modern browser</p>
+    </div>
+    <div class="hero-art"><img src="icon.svg" alt="The Sotto logo: a phone handset with two quiet sound waves"></div>
+  </div>
+</section>
+
+<section class="alt" id="features">
+  <div class="wrap">
+    <h2>Built to know as little as possible</h2>
+    <p class="sub">The parts that make a call work, and nothing else.</p>
+    <div class="grid">
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
+        <h3>End-to-end encrypted</h3>
+        <p>Audio and video go straight between the two devices, encrypted. A safety number lets you check that nobody is in between.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></div>
+        <h3>Clients join with a link</h3>
+        <p>Send a link. Your client opens it in any browser, checks camera and microphone, and waits until you let them in.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></div>
+        <h3>Nothing stored on servers</h3>
+        <p>No accounts, no database. The server only connects calls, in memory. Contacts and history stay on your device, encrypted.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></div>
+        <h3>Hide your IP address</h3>
+        <p>Turn it on and calls go through the relay, so the other person never sees where you are connecting from.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18h16M6 14l3-3 3 3 6-6"/></svg></div>
+        <h3>Holds on weak networks</h3>
+        <p>Calls reconnect when the network changes, adapt to a slow connection, and drop to voice rather than freeze.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
+        <h3>Your own server, if you like</h3>
+        <p>Organisations can run Sotto on their own server with one command, and point the apps at it.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <h2>How it works</h2>
+    <p class="sub">Set up in a minute; your clients need nothing at all.</p>
+    <div class="steps">
+      <div class="step"><h3>Install Sotto</h3><p>On your phone or computer, or use it in the browser. Enter your name: no sign-up.</p></div>
+      <div class="step"><h3>Share your link</h3><p>Send a guest link to a client, or your contact link to a colleague.</p></div>
+      <div class="step"><h3>Talk privately</h3><p>They knock, you let them in. The call is encrypted from end to end and leaves no record on the server.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="download">
+  <div class="wrap">
+    <h2>Download</h2>
+    <p class="sub">Always the latest version. Each release lists SHA-256 checksums and the Android signing certificate.</p>
+    <div class="dl">
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/></svg></div>
+        <h3>Android</h3>
+        <p>Android 7 or newer. Rings even when the app is closed.</p>
+        <a class="btn primary" href="https://github.com/rbr48/sotto/releases/latest/download/sotto-android.apk">Get the APK</a>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5 10 4.5v7H3zM12 4.2 21 3v8.5h-9zM3 13h7v7l-7-1zM12 13h9v8l-9-1.2z"/></svg></div>
+        <h3>Windows</h3>
+        <p>Windows 10 and 11, 64-bit. Waits in the tray for calls.</p>
+        <a class="btn primary" href="https://github.com/rbr48/sotto/releases/latest/download/sotto-windows-x64-setup.exe">Get installer</a>
+        <a class="more" href="https://github.com/rbr48/sotto/releases/latest/download/sotto-windows-x64.zip">Portable .zip</a>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6M12 19h8"/></svg></div>
+        <h3>Linux</h3>
+        <p>64-bit, Ubuntu 22.04 / Debian 12 or newer.</p>
+        <a class="btn primary" href="https://github.com/rbr48/sotto/releases/latest/download/sotto-linux-x86_64.AppImage">Get AppImage</a>
+        <a class="more" href="https://github.com/rbr48/sotto/releases/latest/download/sotto-linux-amd64.deb">.deb for Ubuntu and Debian</a>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></div>
+        <h3>Browser</h3>
+        <p>Chrome, Edge, Firefox or Safari. Nothing to install.</p>
+        <a class="btn ghost" href="https://call.sottocall.com/">Open Sotto</a>
+      </div>
+    </div>
+    <p class="fine">Windows may warn about an unknown publisher until the app is code-signed: choose “More info”, then “Run anyway”.
+      All releases: <a href="https://github.com/rbr48/sotto/releases">github.com/rbr48/sotto/releases</a>.</p>
+  </div>
+</section>
+
+<section id="privacy">
+  <div class="wrap">
+    <h2>Privacy, plainly</h2>
+    <p class="sub">What happens to your information, without the small print.</p>
+    <div class="facts">
+      <div class="fact"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+        <div><b>No accounts, no phone numbers</b><span>Your Sotto ID is a key made on your device.</span></div></div>
+      <div class="fact"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+        <div><b>No call records on the server</b><span>Who is online is kept in memory only, while the call is set up.</span></div></div>
+      <div class="fact"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+        <div><b>No trackers, no ads</b><span>Not in the apps, and not on this website: it sets no cookies.</span></div></div>
+      <div class="fact"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+        <div><b>Open source</b><span>Anyone can read the code and check what it does (AGPL-3.0).</span></div></div>
+    </div>
+    <p class="fine" style="margin-top:24px">Read the <a href="https://call.sottocall.com/privacy.html">privacy policy</a> and the <a href="https://call.sottocall.com/terms.html">terms of use</a>.
+      Sotto cannot call emergency services.</p>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>© 2026 Izhaan Intellect · Sotto</div>
+    <div>
+      <a href="https://call.sottocall.com/privacy.html">Privacy</a>
+      <a href="https://call.sottocall.com/terms.html">Terms</a>
+      <a href="https://github.com/rbr48/sotto">Source code</a>
+      <a href="https://github.com/rbr48/sotto/blob/main/docs/SELF_HOSTING.md">Self-hosting</a>
+    </div>
+  </div>
+</footer>
+</body>
+</html>
