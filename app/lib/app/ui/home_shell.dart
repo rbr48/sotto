@@ -160,10 +160,7 @@ class _HomeShellState extends State<HomeShell> {
               onPressed: app.lock.lock,
               icon: const Icon(Icons.lock_outline),
             ),
-          if (kIsWeb) ...[
-            HeaderDownloadsAction(),
-            const SizedBox(width: 8),
-          ],
+          if (kIsWeb) ...[HeaderDownloadsAction(), const SizedBox(width: 8)],
           if (narrow)
             const SizedBox(width: 8)
           else ...[

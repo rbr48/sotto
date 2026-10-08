@@ -311,10 +311,8 @@ class SettingsTab extends StatelessWidget {
             leading: const Icon(Icons.download_outlined),
             title: const Text('Download apps'),
             subtitle: const Text('Get Sotto for Android, Windows, and Linux.'),
-            onTap: () => launchUrl(
-              Downloads.all,
-              mode: LaunchMode.externalApplication,
-            ),
+            onTap: () =>
+                launchUrl(Downloads.all, mode: LaunchMode.externalApplication),
           ),
         ]),
         _Section('Updates', [

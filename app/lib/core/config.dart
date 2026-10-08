@@ -1,12 +1,17 @@
 import 'package:flutter/foundation.dart';
 
 /// Build-time configuration. Override the relay with
-/// `--dart-define=SOTTO_RELAY_URL=wss://example.com/relay`.
+/// `--dart-define=SOTTO_RELAY_URL=wss://example.com/relay`, and the address
+/// in links with `--dart-define=SOTTO_LINK_BASE=https://example.com/`.
 abstract final class SottoConfig {
   static const String _relayOverride = String.fromEnvironment(
     'SOTTO_RELAY_URL',
   );
   static const String _defaultRelay = 'wss://call.sottocall.com/relay';
+
+  /// The public address in links, when it is not the relay's site
+  /// (`--dart-define=SOTTO_LINK_BASE=https://call.example.com/`).
+  static const String _linkOverride = String.fromEnvironment('SOTTO_LINK_BASE');
 
   /// Earlier built-in servers. The same server still answers there, so a
   /// user who picked one of these by hand is moved to the built-in server.
@@ -22,6 +27,7 @@ abstract final class SottoConfig {
 
   /// Base for call links: the web app's own address, or the relay's site.
   static Uri get linkBase {
+    if (_linkOverride.isNotEmpty) return Uri.parse(_linkOverride);
     if (kIsWeb && (Uri.base.scheme == 'http' || Uri.base.scheme == 'https')) {
       return Uri(
         scheme: Uri.base.scheme,

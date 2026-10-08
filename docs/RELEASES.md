@@ -5,6 +5,7 @@ The `Release` workflow (`.github/workflows/release.yml`) builds Sotto for **Andr
 | Platform | File | What it is |
 |---|---|---|
 | Android | `sotto-android.apk` | Release APK, signed with the project's release key |
+| Android (Google Play) | `sotto-android-play.aab` | App bundle for the Play Console, same key, without Sotto's own update notice (see [APP_STORES.md](APP_STORES.md)) |
 | Windows | `sotto-windows-x64-setup.exe` | Installer (Inno Setup, `packaging/windows/sotto.iss`): per user, no administrator rights, into `%LOCALAPPDATA%\Programs\Sotto`, with a Start menu entry and an uninstaller. Installing a newer one over it updates Sotto and keeps contacts and history |
 | Windows | `sotto-windows-x64.zip` | Portable bundle (`sotto.exe` and its files) |
 | Linux | `sotto-linux-x86_64.AppImage` | One file that runs on most distributions (`chmod +x`, then run it) |
@@ -12,7 +13,7 @@ The `Release` workflow (`.github/workflows/release.yml`) builds Sotto for **Andr
 | Linux | `sotto-linux-x64.tar.gz` | Portable bundle (`sotto` and its libraries) |
 | Checksums | `SHA256SUMS.txt` | SHA-256 of each file |
 
-The Windows files are not code-signed yet: SmartScreen may warn about an unknown publisher ("More info", then "Run anyway"). The Linux builds are made on Ubuntu 22.04, so they run on Ubuntu 22.04 or newer, Debian 12 or newer, and other distributions of the same age. The AppImage tools are downloaded at pinned versions and checked by SHA-256 (`packaging/linux/fetch-appimage-tools.sh`). CI builds the installer, the .deb and the AppImage for every pull request, and installs the .deb.
+The Windows files are not code-signed until SignPath is set up ([CODE_SIGNING.md](CODE_SIGNING.md)); until then SmartScreen may warn about an unknown publisher ("More info", then "Run anyway"). The Linux builds are made on Ubuntu 22.04, so they run on Ubuntu 22.04 or newer, Debian 12 or newer, and other distributions of the same age. The AppImage tools are downloaded at pinned versions and checked by SHA-256 (`packaging/linux/fetch-appimage-tools.sh`). CI builds the installer, the .deb and the AppImage for every pull request, and installs the .deb.
 
 Download links to `https://github.com/rbr48/sotto/releases/latest/download/<file>` always give the newest release (the app, the downloads page and the website use them).
 

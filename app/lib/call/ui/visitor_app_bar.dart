@@ -58,10 +58,7 @@ class VisitorAppBar extends StatelessWidget implements PreferredSizeWidget {
         ],
       ),
       actions: [
-        if (kIsWeb) ...[
-          HeaderDownloadsAction(),
-          const SizedBox(width: 8),
-        ],
+        if (kIsWeb) ...[HeaderDownloadsAction(), const SizedBox(width: 8)],
         RelayStatusChip(status: status),
       ],
     );

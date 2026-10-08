@@ -77,10 +77,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
                     icon: const SottoLogo(size: 34),
                   ),
                 ),
-                actions: [
-                  HeaderDownloadsAction(),
-                  const SizedBox(width: 8),
-                ],
+                actions: [HeaderDownloadsAction(), const SizedBox(width: 8)],
               )
             : null,
         body: SafeArea(
@@ -356,8 +353,8 @@ class _WebFooter extends StatelessWidget {
     );
 
     Widget link(String label, Uri uri, {VoidCallback? onTap}) => InkWell(
-      onTap: onTap ??
-          () => launchUrl(uri, mode: LaunchMode.externalApplication),
+      onTap:
+          onTap ?? () => launchUrl(uri, mode: LaunchMode.externalApplication),
       borderRadius: BorderRadius.circular(4),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),

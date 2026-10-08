@@ -1,0 +1,6 @@
+Sotto 0.1.7
+- A cleaner, calmer look throughout the app
+- Short call and contact links (about 75 characters)
+- Video steps down on a weak connection and falls back to voice instead of freezing
+- A call without a working camera now goes ahead with the microphone
+- Clearer messages when the microphone can't be used
