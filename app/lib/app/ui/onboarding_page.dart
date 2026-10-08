@@ -61,10 +61,8 @@ class _OnboardingPageState extends State<OnboardingPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Center(child: SottoLogo(size: 80)),
-                const SizedBox(height: 16),
-                const Center(child: SottoWordmark(height: 52)),
-                const SizedBox(height: 16),
+                const Center(child: SottoWordmark(height: 56)),
+                const SizedBox(height: 20),
                 const Text(
                   'Private, end-to-end encrypted calls with your clients and '
                   'colleagues. Nothing is stored on our servers.',
