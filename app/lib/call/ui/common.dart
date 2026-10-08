@@ -784,7 +784,7 @@ class DevicePicker extends StatelessWidget {
   }
 }
 
-/// Sotto's logo mark: a speech bubble with a quiet sound wave (drawn by
+/// Sotto's logo mark: a phone handset with quiet sound waves (drawn by
 /// tools/icons/generate.py). Decorative: screen readers skip it.
 class SottoLogo extends StatelessWidget {
   const SottoLogo({super.key, this.size = 72});

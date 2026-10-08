@@ -1,8 +1,8 @@
 """The "sotto" wordmark, drawn from strokes (no font needed).
 
 Lowercase, geometric and rounded, in one stroke weight like the icon: the
-two t's share one crossbar, and the last o is a speech bubble (the icon's
-bubble, in Sotto's purple).
+two t's share one crossbar, and the last o, in Sotto's purple, speaks
+quietly: the icon's two sound waves, the outer one fainter, come from it.
 
 Units: the x-height is 100 (y = 0 at its top, 100 on the baseline), the
 stroke is STROKE wide, and every stroke has round ends.
@@ -54,13 +54,14 @@ LETTERS = S + _o(O1) + [
     _t_stem(T2),
     [('line', (T1 - 18, H), (T2 + 26, H))],  # the shared crossbar
 ]
-BUBBLE = _o(O2)
-# The bubble's tail, as in the icon: two points on the o and the tip, in
-# multiples of its outer radius (50).
-TAIL = [(-0.62, 0.62), (-0.08, 0.98), (-0.98, 1.08)]
+VOICE = _o(O2)
+# The sound waves, as in the icon: arcs about the o's centre (radius,
+# opacity), from WAVE_FROM to WAVE_TO degrees.
+WAVES = [(72, 1.0), (98, 0.6)]
+WAVE_FROM, WAVE_TO = -80, -10
 
-LEFT, RIGHT = 0, O2 + 50
-TOP, BOTTOM = -30 - H, 50 + 50 * 1.08
+LEFT, RIGHT = 0, O2 + 98 + H
+TOP, BOTTOM = 50 - 98 - H, 100
 
 
 def _points(segment, step):
@@ -88,7 +89,7 @@ def _points(segment, step):
 
 
 def render(height, ink, accent, supersample=4):
-    """The wordmark as an image `height` pixels tall (tail included)."""
+    """The wordmark as an image `height` pixels tall (waves included)."""
     scale = height * supersample / (BOTTOM - TOP)
     width = math.ceil((RIGHT - LEFT) * scale)
     image = Image.new('RGBA', (width, math.ceil(height * supersample)), (0, 0, 0, 0))
@@ -99,7 +100,7 @@ def render(height, ink, accent, supersample=4):
     def at(x, y):
         return ((x - LEFT) * scale, (y - TOP) * scale)
 
-    def stroke(paths, colour):
+    def stroke(paths, colour, draw=draw):
         for path in paths:
             for segment in path:
                 for x, y in _points(segment, step):
@@ -107,8 +108,12 @@ def render(height, ink, accent, supersample=4):
                     draw.ellipse((px - radius, py - radius, px + radius, py + radius), fill=colour)
 
     stroke(LETTERS, ink)
-    stroke(BUBBLE, accent)
-    draw.polygon([at(O2 + dx * 50, 50 + dy * 50) for dx, dy in TAIL], fill=accent)
+    stroke(VOICE, accent)
+    for r, opacity in WAVES:
+        # Its own layer, so that the faint wave stays even where dots overlap.
+        layer = Image.new('RGBA', image.size, (0, 0, 0, 0))
+        stroke([[('arc', (O2, 50), r, WAVE_FROM, WAVE_TO)]], accent[:3] + (round(accent[3] * opacity),), ImageDraw.Draw(layer))
+        image = Image.alpha_composite(image, layer)
     return image.resize((round(image.width / supersample), height), Image.LANCZOS)
 
 
@@ -145,11 +150,14 @@ def svg(ink, accent):
 
     width, height = RIGHT - LEFT, BOTTOM - TOP
     stroke = f'stroke-width="{STROKE}" stroke-linecap="round" stroke-linejoin="round" fill="none"'
-    tail = ' '.join(f'{f(O2 + dx * 50)},{f(50 + dy * 50)}' for dx, dy in TAIL)
     return '\n'.join([
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{f(LEFT)} {f(TOP)} {f(width)} {f(height)}">',
         f'<path d="{"".join(d(p) for p in LETTERS)}" stroke="{ink}" {stroke}/>',
-        f'<path d="{"".join(d(p) for p in BUBBLE)}" stroke="{accent}" {stroke}/>',
-        f'<polygon points="{tail}" fill="{accent}"/>',
+        f'<path d="{"".join(d(p) for p in VOICE)}" stroke="{accent}" {stroke}/>',
+        *[
+            f'<path d="{d([("arc", (O2, 50), r, WAVE_FROM, WAVE_TO)])}" stroke="{accent}" {stroke}'
+            + (f' stroke-opacity="{opacity}"' if opacity < 1 else '') + '/>'
+            for r, opacity in WAVES
+        ],
         '</svg>',
     ]) + '\n'
