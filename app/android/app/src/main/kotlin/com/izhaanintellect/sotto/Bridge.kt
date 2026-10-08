@@ -108,7 +108,7 @@ object Bridge {
             "cancelKnock" -> { CallNotifications.cancelKnock(app); null }
             "startCallService" -> {
                 CallService.start(app, args["title"] as String, args["name"] as String,
-                    (args["since"] as? Number)?.toLong())
+                    (args["since"] as? Number)?.toLong(), args["video"] == true)
                 null
             }
             "stopCallService" -> { CallService.stop(app); null }

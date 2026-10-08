@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terms of use · Sotto</title>
+<link rel="icon" href="favicon.png">
+<style>
+  :root { --bg: #fbfaff; --fg: #1d1b26; --muted: #5b5870; --accent: #6a56b8; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #15131c; --fg: #ece9f6; --muted: #aaa5c0; --accent: #b3a6ec; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.8rem; margin: 0 0 4px; }
+  h2 { font-size: 1.15rem; margin: 32px 0 8px; color: var(--accent); }
+  .muted { color: var(--muted); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+<h1>Terms of use</h1>
+<p class="muted">This Sotto server is run by {{with env "SOTTO_OPERATOR"}}{{.}}{{else}}the operator of {{.Host}}{{end}}
+("the operator"). Contact: {{with env "SOTTO_CONTACT"}}{{.}}{{else}}the person or organisation that gave you this server's address{{end}}.</p>
+
+<p>By using this server to make or receive calls, you agree to these terms.</p>
+
+<h2>Not for emergencies</h2>
+<p><strong>Sotto cannot call emergency services.</strong> In an emergency, use a phone to call
+your local emergency number.</p>
+
+<h2>The service</h2>
+<p>This server connects Sotto apps and browsers so they can call each other, end to end
+encrypted. It is provided as it is, without a guarantee that it is always available or
+free of faults. The operator may change or stop it.</p>
+
+<h2>Acceptable use</h2>
+<p>Don't use this server to break the law, to harass, threaten or deceive anyone, to
+send calls or messages to people who don't want them, or to overload or attack the
+server. The operator may block devices or network addresses that do, and the server
+limits connections and messages automatically.</p>
+
+<h2>Your responsibilities</h2>
+<p>You are responsible for how you use Sotto. If you use it for your work (for example
+with clients or patients), you remain responsible for your professional duties, such as
+confidentiality and consent, and for your own devices: keep them locked and up to date,
+and keep backups of what you can't lose. Sotto can't recover an identity or data that
+only existed on a lost device.</p>
+
+<h2>Privacy</h2>
+<p>How information is handled is described in the <a href="privacy.html">privacy
+policy</a>.</p>
+
+<h2>Software</h2>
+<p>Sotto is open-source software under the GNU Affero General Public License, version 3
+or later. Its source code is public.</p>
+
+<h2>Liability</h2>
+<p>As far as the law allows, the operator is not liable for losses caused by calls that
+fail, drop or are delayed, or by the server being unavailable.</p>
+
+<h2>Changes</h2>
+<p>The operator may update these terms; the current version is always at this
+address.</p>
+</main>
+</body>
+</html>

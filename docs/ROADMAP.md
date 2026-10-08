@@ -598,8 +598,10 @@ An **optional** setting on the *receiving* device: calls from people the user ha
 - [x] Local diagnostics: *Settings → Help → Diagnostic report* shows the whole report (version, platform, server host, relay and TURN state, call state, background permissions, recent relay and call events from an in-memory log) and copies it; nothing is sent, and it holds no names, contacts, call partners, links, IDs or keys (tested)
 - [ ] Opt-in crash reports
 - [x] Update notice: the native apps ask GitHub Releases once a day (switch in *Settings → Updates*; GitHub sees the IP address only) and show *"Sotto x.y.z is available"* with *Download* (opens the release page) and *Not now*; nothing is installed by the app. Builds for another repository set `SOTTO_UPDATE_URL` (empty turns it off); a test keeps `lib/core/version.dart` equal to `pubspec.yaml`
-- [ ] Security hardening: log audit, read-only servers verified, dependency and secret scanning in CI
-- [ ] Privacy policy and terms that plainly list the short-lived metadata in section 5.10
+- [x] Dependency and secret scanning in CI: a *Security* job runs gitleaks over the whole git history and osv-scanner over every lockfile (npm, pub), with pinned, checksum-verified binaries; Dependabot opens weekly update pull requests (npm, pub, GitHub Actions, Docker)
+- [ ] Security hardening: log audit, read-only servers verified
+- [x] Privacy policy and terms (`/privacy.html`, `/terms.html`, linked from *Settings → Help* and the guest page) that plainly list what the server processes, briefly and in memory (section 5.10); they name the operator from `install.sh --operator/--contact` (Caddy templates); the printed Nginx configuration turns access logs off
+- [ ] Have the privacy policy and terms checked by a lawyer for each country we launch in
 - [ ] Windows installer (MSIX / Inno Setup) and Linux AppImage / `.deb`
 
 **Exit criteria / Milestone M3 — Pilot success:** 3+ organisations use it every week; call setup success > 95%; at least 2 pilots say they'd pay.
@@ -673,7 +675,7 @@ Push wake-up, as a battery-saving alternative:
 - [ ] For guest links: the guest page includes the professional's wake token (stored in the signed link payload, only if the professional enables "Wake my phone for guests")
 - [ ] Relay sends a **content-free** high-priority push and keeps nothing
 - [ ] Native incoming-call / knocking UI (`flutter_callkit_incoming`), lock screen and full-screen intent
-- [ ] Foreground service type `camera` too, so video continues in the background (only `microphone` so far)
+- [x] Foreground service type `camera` too during video calls, so video continues in the background
 - [ ] Permissions: `USE_FULL_SCREEN_INTENT`, `FOREGROUND_SERVICE_PHONE_CALL`, `FOREGROUND_SERVICE_MICROPHONE`, `FOREGROUND_SERVICE_CAMERA`
 - [ ] Test on Samsung, Xiaomi and Pixel with Doze and battery savers
 - [ ] **Auto-answer on a locked phone / closed app:** after the wake-up push, start the call foreground service (types `phoneCall|microphone`) before opening the microphone, ring for the chosen delay, then answer; persistent notification "Auto-answer is on" while enabled

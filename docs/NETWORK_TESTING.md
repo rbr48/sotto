@@ -1,6 +1,6 @@
 # Network Test Matrix (Phase 4)
 
-Run these before each release. Use two devices, open `https://sotto.izhaanintellect.fun/` on one (or the app), and call its link from the other. During the call the screen shows **Direct connection** or **Relayed through Sotto · IP addresses hidden**.
+Run these before each release. Use two devices, open `https://sotto.izhaanintellect.fun/` on one (or the app), and call its link from the other. During the call a small **Relayed** chip at the top means the call goes through the TURN server, and no chip means a direct connection; *Settings → Help → Diagnostic report* shows the route (`Call route: direct | relayed`).
 
 | # | Device A network | Device B network | Hide my IP | Expected route | Result |
 |---|---|---|---|---|---|

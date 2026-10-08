@@ -12,6 +12,31 @@ env:
   FLUTTER_VERSION: '3.47.6'
 
 jobs:
+  security:
+    name: Security (secrets and vulnerable dependencies)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks and osv-scanner (pinned, checksums verified)
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          cd "$RUNNER_TEMP"
+          curl -sSfL -o gitleaks.tgz https://github.com/gitleaks/gitleaks/releases/download/v8.30.0/gitleaks_8.30.0_linux_x64.tar.gz
+          curl -sSfL -o bin/osv-scanner https://github.com/google/osv-scanner/releases/download/v2.5.1/osv-scanner_linux_amd64
+          sha256sum -c - <<'SUMS'
+          79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e  gitleaks.tgz
+          f9f25499a2c8cc367b3af45df2ea7eeca7fbccceab9c35079968f4b3652194be  bin/osv-scanner
+          SUMS
+          tar xzf gitleaks.tgz -C bin gitleaks
+          chmod +x bin/osv-scanner
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: No secrets in the code or its history
+        run: gitleaks git --no-banner --redact --exit-code 1 .
+      - name: No known vulnerabilities in the locked dependencies
+        run: osv-scanner scan source --recursive .
+
   server:
     name: Relay server
     runs-on: ubuntu-latest

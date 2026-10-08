@@ -17,6 +17,9 @@
 #   --tls-cert FILE        with --behind-proxy: the domain's certificate (full chain)
 #   --tls-key FILE         and key, for TURN over TLS (port 5349). Found automatically
 #                          when Certbot made them (/etc/letsencrypt/live/DOMAIN/)
+#   --operator NAME        who runs this server (shown in its privacy policy and terms,
+#                          /privacy.html and /terms.html; default: the domain)
+#   --contact ADDRESS      how users reach the operator (an email address or URL)
 #   --yes                  don't ask; accept the defaults (install Docker, add swap,
 #                          open firewall ports)
 #   --no-firewall          don't touch ufw/firewalld
@@ -42,6 +45,8 @@ BEHIND_PROXY=0
 PROXY_PORT=8185
 TLS_CERT=''
 TLS_KEY=''
+OPERATOR=''
+CONTACT=''
 ASSUME_YES=0
 FIREWALL=1
 DNS_CHECK=1
@@ -105,6 +110,8 @@ parse_args() {
         ;;
       --tls-cert) TLS_CERT=${2:-}; shift 2 ;;
       --tls-key) TLS_KEY=${2:-}; shift 2 ;;
+      --operator) OPERATOR=${2:-}; shift 2 ;;
+      --contact) CONTACT=${2:-}; shift 2 ;;
       --yes | -y) ASSUME_YES=1; shift ;;
       --no-firewall) FIREWALL=0; shift ;;
       --skip-dns-check) DNS_CHECK=0; shift ;;
@@ -120,6 +127,13 @@ parse_args() {
   if [[ ($TLS_CERT || $TLS_KEY) && $BEHIND_PROXY == 0 ]]; then
     die '--tls-cert and --tls-key go with --behind-proxy (otherwise Caddy gets the certificate)'
   fi
+  # Shown in web pages through Caddy templates: one plain line, no markup.
+  local value
+  for value in "$OPERATOR" "$CONTACT"; do
+    if [[ $value == *$'\n'* || $value == *'{{'* || $value == *'<'* || ${#value} -gt 120 ]]; then
+      die "--operator and --contact take one plain line of at most 120 characters"
+    fi
+  done
   case $COMMAND in
     install | update | status | uninstall) ;;
     *) die "unknown command: $COMMAND (install, update, status or uninstall)" ;;
@@ -378,6 +392,11 @@ write_env() {
     secret=$(sed -n 's/^SOTTO_TURN_SECRET=//p' "$ENV_FILE" | tail -n 1)
   fi
   if [[ -z $secret ]]; then secret=$(new_secret); fi
+  # Keep the operator details from an earlier install unless new ones are given.
+  if [[ -f $ENV_FILE ]]; then
+    [[ -n $OPERATOR ]] || OPERATOR=$(saved SOTTO_OPERATOR)
+    [[ -n $CONTACT ]] || CONTACT=$(saved SOTTO_CONTACT)
+  fi
   local content
   content="# Written by install.sh. The TURN secret is shared by the relay and coturn.
 SOTTO_DOMAIN=$DOMAIN
@@ -385,6 +404,14 @@ SOTTO_TURN_SECRET=$secret"
   if [[ -n $EXTERNAL_IP ]]; then
     content+="
 SOTTO_TURN_EXTERNAL_IP=$EXTERNAL_IP"
+  fi
+  if [[ -n $OPERATOR ]]; then
+    content+="
+SOTTO_OPERATOR=$OPERATOR"
+  fi
+  if [[ -n $CONTACT ]]; then
+    content+="
+SOTTO_CONTACT=$CONTACT"
   fi
   local proxy=''
   if [[ $BEHIND_PROXY == 1 ]]; then
@@ -534,6 +561,10 @@ server {
     # Your certificate, for example from: certbot --nginx -d $DOMAIN
     ssl_certificate     ${TLS_CERT:-/etc/letsencrypt/live/$DOMAIN/fullchain.pem};
     ssl_certificate_key ${TLS_KEY:-/etc/letsencrypt/live/$DOMAIN/privkey.pem};
+
+    # Sotto keeps no request logs; don't let the proxy keep them either
+    # (they would hold every visitor's IP address).
+    access_log off;
 
     location / {
         proxy_pass http://127.0.0.1:$PROXY_PORT;

@@ -35,8 +35,14 @@ String appDiagnosticReport(AppController app, {DateTime? now}) {
       'Call now': call == null || !call.active
           ? 'none'
           : '${call.phase.name}${call.reconnecting ? ' (reconnecting)' : ''}',
-      'Call route': calls?.route?.name,
-      'Call quality': calls?.quality?.name,
+      // During a call its route and quality; otherwise the last call's.
+      if (call != null && call.active) ...{
+        'Call route': calls?.route?.name,
+        'Call quality': calls?.quality?.name,
+      } else ...{
+        'Last call route': calls?.route?.name,
+        'Last call quality': calls?.quality?.name,
+      },
       'Sounds': calls?.soundsOn,
       'App lock PIN set': app.lock.hasPin,
       if (android != null) ...{

@@ -1,0 +1,7 @@
+# Secret scanning (gitleaks, run in CI). The default rules, plus:
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Vendored libsodium.js: its function names (…_keygen, …_KEYBYTES) look like keys"
+paths = ['''app/web/sodium\.js''']

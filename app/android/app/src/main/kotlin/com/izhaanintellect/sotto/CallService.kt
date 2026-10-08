@@ -16,9 +16,10 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 
 /**
- * Runs during a call, so the microphone keeps working when the user leaves
- * the app (Android mutes it for background apps otherwise). Its "Ongoing
- * call" notification returns to the call or hangs up.
+ * Runs during a call, so the microphone (and, in a video call, the camera)
+ * keeps working when the user leaves the app: Android cuts them off for
+ * background apps otherwise. Its "Ongoing call" notification returns to the
+ * call or hangs up.
  */
 class CallService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
@@ -27,12 +28,18 @@ class CallService : Service() {
         val title = intent?.getStringExtra(EXTRA_TITLE) ?: "Ongoing call"
         val name = intent?.getStringExtra(EXTRA_NAME) ?: "Sotto"
         val since = intent?.getLongExtra(EXTRA_SINCE, 0L) ?: 0L
+        val video = intent?.getBooleanExtra(EXTRA_VIDEO, false) ?: false
         try {
             ServiceCompat.startForeground(
                 this,
                 NOTIFICATION_ID,
                 notification(title, name, since),
-                if (Build.VERSION.SDK_INT >= 30) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0,
+                when {
+                    Build.VERSION.SDK_INT < 30 -> 0
+                    video -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                    else -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                },
             )
         } catch (e: Exception) {
             // Android refuses a microphone service started from the
@@ -81,16 +88,18 @@ class CallService : Service() {
         private const val EXTRA_TITLE = "title"
         private const val EXTRA_NAME = "name"
         private const val EXTRA_SINCE = "since"
+        private const val EXTRA_VIDEO = "video"
 
         /** Starts or updates it (e.g. when the call connects). */
-        fun start(context: Context, title: String, name: String, since: Long?) {
+        fun start(context: Context, title: String, name: String, since: Long?, video: Boolean) {
             try {
                 ContextCompat.startForegroundService(
                     context,
                     Intent(context, CallService::class.java)
                         .putExtra(EXTRA_TITLE, title)
                         .putExtra(EXTRA_NAME, name)
-                        .putExtra(EXTRA_SINCE, since ?: 0L),
+                        .putExtra(EXTRA_SINCE, since ?: 0L)
+                        .putExtra(EXTRA_VIDEO, video),
                 )
             } catch (e: Exception) {
                 Log.w("Sotto", "Call service not started: $e")

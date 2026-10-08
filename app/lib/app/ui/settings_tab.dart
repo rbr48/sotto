@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../android/android_integration.dart';
 import '../../call/call_controller.dart';
@@ -282,6 +283,25 @@ class SettingsTab extends StatelessWidget {
               'connection and recent call states, without personal data.',
             ),
             onTap: () => showDiagnosticReport(context, app),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.privacy_tip_outlined),
+            title: const Text('Privacy policy'),
+            subtitle: const Text('What the server and the app process.'),
+            onTap: () => launchUrl(
+              app.server.web.resolve('privacy.html'),
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.gavel_outlined),
+            title: const Text('Terms of use'),
+            onTap: () => launchUrl(
+              app.server.web.resolve('terms.html'),
+              mode: LaunchMode.externalApplication,
+            ),
           ),
         ]),
         _Section('Updates', [

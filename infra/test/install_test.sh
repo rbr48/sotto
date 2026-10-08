@@ -231,6 +231,20 @@ installer install --domain calls.example.org --yes >/dev/null 2>&1 && status=0 |
 check 'an old Compose is fine without --behind-proxy' test "$status" = 0
 rm -rf "$WORK"
 
+# Operator details for the privacy policy and terms.
+setup
+installer install --domain calls.example.org --yes \
+  --operator 'Izhaan Intellect' --contact 'privacy@izhaanintellect.fun' >/dev/null 2>&1
+check 'saves the operator' has "$WORK/infra/.env" 'SOTTO_OPERATOR=Izhaan Intellect'
+check 'saves the contact' has "$WORK/infra/.env" 'SOTTO_CONTACT=privacy@izhaanintellect.fun'
+installer install --domain calls.example.org --yes >/dev/null 2>&1
+check 'reinstall keeps the operator' has "$WORK/infra/.env" 'SOTTO_OPERATOR=Izhaan Intellect'
+out=$(installer install --domain calls.example.org --yes --operator '<script>' 2>&1) && status=0 || status=$?
+check 'refuses markup in the operator name' test "$status" != 0
+out=$(installer install --domain calls.example.org --yes --behind-proxy 8185 2>&1) || true
+check 'the printed proxy config turns access logs off' grep -q 'access_log off;' <<<"$out"
+rm -rf "$WORK"
+
 if [[ $FAILED == 1 ]]; then
   echo 'install.sh tests FAILED'
   exit 1

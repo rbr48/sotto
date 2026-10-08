@@ -42,7 +42,7 @@ class AndroidIntegration extends ChangeNotifier {
   bool _wasActive = false;
 
   /// What the ongoing-call service last showed (to update it only on change).
-  (String, String, DateTime?)? _callService;
+  (String, String, DateTime?, bool)? _callService;
   StreamSubscription<String>? _actions;
   final _callSubscriptions = <StreamSubscription<Object?>>[];
 
@@ -170,6 +170,8 @@ class AndroidIntegration extends ChangeNotifier {
       call.video ? 'Video call' : 'Voice call',
       app.desktopPrefs.showNames && !app.lock.locked ? calls.peerName : 'Sotto',
       calls.connectedAt,
+      // The camera too, while this device sends video.
+      calls.sendingVideo,
     );
     if (shown == _callService) return;
     _callService = shown;
@@ -178,6 +180,7 @@ class AndroidIntegration extends ChangeNotifier {
         title: shown.$1,
         name: shown.$2,
         since: shown.$3,
+        video: shown.$4,
       ),
     );
   }
