@@ -245,11 +245,12 @@ class SettingsTab extends StatelessWidget {
               title: const Text('Remember me on this browser'),
               subtitle: Text(
                 app.rememberedInBrowser
-                    ? 'Your links, contacts and history stay in this '
-                          'browser, encrypted. Turn off to delete them here.'
-                    : 'Off: everything is gone when you close or reload '
-                          'this tab, and your links stop working. Turn on '
-                          'only on your own computer.',
+                    ? 'Your links, contacts and history are kept in this '
+                          'browser, on this computer only (encrypted, never '
+                          'on our servers). Turn off to delete them here.'
+                    : 'Off: this browser forgets everything when you close '
+                          'or reload the tab, and your links stop working. '
+                          'Turn on only on your own computer.',
               ),
             ),
           if (calls.ownId case final id?)

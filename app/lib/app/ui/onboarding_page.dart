@@ -88,11 +88,15 @@ class _OnboardingPageState extends State<OnboardingPage> {
                     color: theme.colorScheme.secondaryContainer,
                     child: const ListTile(
                       leading: Icon(Icons.public),
-                      title: Text('Browser session'),
+                      title: Text('This browser forgets you'),
                       subtitle: Text(
-                        'Nothing is kept after you close or reload this tab, '
-                        'unless you choose "Remember me on this browser". '
-                        'The Sotto app keeps your contacts and history.',
+                        'This browser forgets everything when you close or '
+                        'reload the tab. Turn on Remember me to keep your '
+                        'contacts here, or install the Sotto app.\n'
+                        'Where it is kept: with Remember me, only in this '
+                        'browser on this computer; with the app, only on '
+                        'your phone or computer. Always encrypted, never on '
+                        'our servers.',
                       ),
                     ),
                   ),
@@ -233,8 +237,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
         onChanged: (v) => setState(() => _remember = v),
         title: const Text('Remember me on this browser'),
         subtitle: const Text(
-          'Keeps your links, contacts and history when you reload or come '
-          'back. Only on your own computer, not a shared one.',
+          'Keeps your links, contacts and history in this browser, on this '
+          'computer only (encrypted, never on our servers). Use it only on '
+          'your own computer, not a shared one.',
         ),
       ),
     if (app.persistent || _remember)
