@@ -190,6 +190,8 @@ jobs:
     name: Windows Release (installer, ZIP)
     needs: version
     runs-on: windows-latest
+    outputs:
+      signed: ${{ steps.signing.outputs.enabled }}
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
@@ -200,6 +202,46 @@ jobs:
       - name: Build Windows Release
         working-directory: app
         run: flutter build windows --release
+      # Code signing through SignPath (free for open-source projects; see
+      # docs/CODE_SIGNING.md). It runs once the SIGNPATH_ORGANIZATION_ID
+      # variable and the SIGNPATH_API_TOKEN secret are set; until then the
+      # builds stay unsigned, as before.
+      - name: Code signing configured?
+        id: signing
+        shell: bash
+        env:
+          ORG: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: |
+          if [ -n "$ORG" ] && [ -n "$TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::SignPath is not set up: the Windows builds are not code-signed."
+          fi
+      - name: Upload the app for signing
+        if: steps.signing.outputs.enabled == 'true'
+        id: unsigned-app
+        uses: actions/upload-artifact@v6
+        with:
+          name: unsigned-windows-app
+          path: app/build/windows/x64/runner/Release/
+      - name: Sign sotto.exe and its libraries
+        if: steps.signing.outputs.enabled == 'true'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'sotto' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY || 'release-signing' }}
+          artifact-configuration-slug: windows-app
+          github-artifact-id: ${{ steps.unsigned-app.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-app
+      - name: Use the signed app
+        if: steps.signing.outputs.enabled == 'true'
+        shell: pwsh
+        run: Copy-Item -Path signed-app/* -Destination app/build/windows/x64/runner/Release -Recurse -Force
       - name: Package Windows ZIP
         shell: pwsh
         run: |
@@ -210,6 +252,29 @@ jobs:
         env:
           TAG: ${{ needs.version.outputs.tag }}
         run: ./packaging/windows/build-installer.ps1 -Version $env:TAG.TrimStart('v')
+      - name: Upload the installer for signing
+        if: steps.signing.outputs.enabled == 'true'
+        id: unsigned-installer
+        uses: actions/upload-artifact@v6
+        with:
+          name: unsigned-windows-installer
+          path: dist/sotto-windows-x64-setup.exe
+      - name: Sign the installer
+        if: steps.signing.outputs.enabled == 'true'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'sotto' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY || 'release-signing' }}
+          artifact-configuration-slug: windows-installer
+          github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-installer
+      - name: Use the signed installer
+        if: steps.signing.outputs.enabled == 'true'
+        shell: pwsh
+        run: Copy-Item -Path signed-installer/sotto-windows-x64-setup.exe -Destination dist/ -Force
       - uses: actions/upload-artifact@v6
         with:
           name: release-windows
@@ -234,13 +299,19 @@ jobs:
             sotto-linux-x86_64.AppImage sotto-linux-amd64.deb sotto-linux-x64.tar.gz > SHA256SUMS.txt
           cat SHA256SUMS.txt
       - name: Release notes header
+        env:
+          WINDOWS_SIGNED: ${{ needs.build-windows.outputs.signed }}
         run: |
           {
             echo "### Verify your download"
             echo
             echo "- Android signing certificate (SHA-256): \`$(cat dist/android-cert-sha256.txt)\`"
             echo "- File checksums: \`SHA256SUMS.txt\`"
-            echo "- The Windows and Linux builds are not code-signed yet: Windows SmartScreen may warn about an unknown publisher."
+            if [ "$WINDOWS_SIGNED" = "true" ]; then
+              echo "- The Windows installer and sotto.exe are code-signed. Linux builds are checked with SHA256SUMS.txt."
+            else
+              echo "- The Windows and Linux builds are not code-signed yet: Windows SmartScreen may warn about an unknown publisher."
+            fi
             echo
           } > notes.md
       - name: Create or update GitHub Release
