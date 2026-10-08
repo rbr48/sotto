@@ -47,7 +47,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
           cache-dependency-path: server/package-lock.json
       - run: npm ci
@@ -112,7 +112,7 @@ jobs:
         run: flutter build web --no-web-resources-cdn --dart-define=SOTTO_RELAY_URL=ws://localhost:8080/relay
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
       - name: Start TURN, relay and web server
         run: |
           sudo apt-get update && sudo apt-get install -y coturn

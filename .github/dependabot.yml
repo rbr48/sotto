@@ -14,6 +14,11 @@ updates:
     directory: /app
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
+    ignore:
+      # 0.6+ is built on nativeapi (dart:ffi), which does not compile for
+      # the web app; moving to it needs the tray code kept out of web builds.
+      - dependency-name: tray_manager
+        versions: ['>=0.6.0']
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
