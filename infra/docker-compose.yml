@@ -81,6 +81,7 @@ services:
       - /var/lib/coturn
       - /tmp
     cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
     security_opt: ['no-new-privileges:true']
     # coturn logs every allocation (IP addresses); discard all of it.
     logging:
