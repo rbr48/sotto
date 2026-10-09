@@ -75,8 +75,8 @@ bool voiceNameMatches(String mime, String name) {
 }
 
 /// Whether a PCM WAV format is one a voice note may have: mono, 16 bits and
-/// 8000 to 48000 Hz. The recorder checks its own output against this, and the
-/// receiver checks the file it gets.
+/// 8000 to 48000 Hz. The recorder checks the format the platform captures
+/// against this, and the receiver checks the file it gets.
 bool isVoiceWavFormat({
   required int sampleRate,
   required int channels,

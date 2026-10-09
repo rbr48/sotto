@@ -131,6 +131,63 @@ void main() {
     );
   });
 
+  test('a voice note keeps its voice flag across a reload', () async {
+    await store.add(
+      ChatMessage(
+        id: _id(7),
+        contactId: 'bob',
+        outgoing: false,
+        ts: 1700000000007,
+        text: 'voice-7.m4a',
+        state: ChatState.received,
+        fileId: _id(7),
+        fileName: 'voice-7.m4a',
+        fileMime: 'audio/mp4',
+        fileStatus: 'completed',
+        voiceNote: true,
+      ),
+    );
+    await store.add(
+      ChatMessage(
+        id: _id(8),
+        contactId: 'bob',
+        outgoing: false,
+        ts: 1700000000008,
+        text: 'song.m4a',
+        state: ChatState.received,
+        fileId: _id(8),
+        fileName: 'song.m4a',
+        fileMime: 'audio/mp4',
+        fileStatus: 'completed',
+      ),
+    );
+
+    final reloaded = await ChatStore(secrets).messages('bob');
+
+    expect(reloaded.firstWhere((m) => m.id == _id(7)).voiceNote, isTrue);
+    expect(reloaded.firstWhere((m) => m.id == _id(8)).voiceNote, isFalse);
+  });
+
+  test('a message stored before the voice flag existed is not a voice note', () async {
+    await secrets.write(
+      ChatStore.storageKey,
+      '{"bob":[{"id":"${_id(1)}","out":false,"ts":1,"text":"a.m4a","state":"received","fileName":"a.m4a","fileMime":"audio/mp4"}]}',
+    );
+    final loaded = await store.messages('bob');
+    expect(loaded.single.voiceNote, isFalse);
+  });
+
+  test('a voice flag that is not a yes or no is reported, not guessed at', () async {
+    await secrets.write(
+      ChatStore.storageKey,
+      '{"bob":[{"id":"${_id(1)}","out":true,"ts":1,"text":"x","state":"delivered","voiceNote":"yes"}]}',
+    );
+    await expectLater(
+      store.messages('bob'),
+      throwsA(isA<ChatStoreException>()),
+    );
+  });
+
   test('single message can be deleted', () async {
     await store.add(_message(1));
     await store.add(_message(2));

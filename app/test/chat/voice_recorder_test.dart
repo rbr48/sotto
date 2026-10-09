@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -129,7 +128,8 @@ class _FakeRecord extends RecordPlatform {
   ) async => true;
 
   @override
-  Future<List<InputDevice>> listInputDevices(String recorderId) async => const [];
+  Future<List<InputDevice>> listInputDevices(String recorderId) async =>
+      const [];
 
   @override
   Stream<RecordState> onStateChanged(String recorderId) =>
@@ -180,74 +180,86 @@ void main() {
   VoiceRecorder recorder() => VoiceRecorder(files: files, onLimit: () {});
 
   group('starting', () {
-    test('a refused microphone is a permission failure, and nothing starts', () async {
-      record.permission = false;
-      final voice = recorder();
+    test(
+      'a refused microphone is a permission failure, and nothing starts',
+      () async {
+        record.permission = false;
+        final voice = recorder();
 
-      await expectLater(
-        voice.start(),
-        throwsA(
-          isA<VoiceRecordException>().having(
-            (e) => e.failure,
-            'failure',
-            VoiceFailure.permission,
+        await expectLater(
+          voice.start(),
+          throwsA(
+            isA<VoiceRecordException>().having(
+              (e) => e.failure,
+              'failure',
+              VoiceFailure.permission,
+            ),
           ),
-        ),
-      );
-      expect(record.calls, isNot(contains('start')));
-      await voice.dispose();
-    });
+        );
+        expect(record.calls, isNot(contains('start')));
+        await voice.dispose();
+      },
+    );
 
-    test('a cancel while the microphone prompt is open starts nothing', () async {
-      record.permissionPrompt = Completer<bool>();
-      final voice = recorder();
+    test(
+      'a cancel while the microphone prompt is open starts nothing',
+      () async {
+        record.permissionPrompt = Completer<bool>();
+        final voice = recorder();
 
-      final starting = voice.start();
-      await voice.cancel();
-      record.permissionPrompt!.complete(true);
-      await starting;
+        final starting = voice.start();
+        await voice.cancel();
+        record.permissionPrompt!.complete(true);
+        await starting;
 
-      expect(voice.isRecording, isFalse);
-      expect(record.calls, isNot(contains('start')));
-      expect(record.calls, isNot(contains('startStream')));
-      await voice.dispose();
-    });
+        expect(voice.isRecording, isFalse);
+        expect(record.calls, isNot(contains('start')));
+        expect(record.calls, isNot(contains('startStream')));
+        await voice.dispose();
+      },
+    );
 
-    test('a dispose while the microphone prompt is open starts nothing', () async {
-      record.permissionPrompt = Completer<bool>();
-      final voice = recorder();
+    test(
+      'a dispose while the microphone prompt is open starts nothing',
+      () async {
+        record.permissionPrompt = Completer<bool>();
+        final voice = recorder();
 
-      final starting = voice.start();
-      final disposed = voice.dispose();
-      record.permissionPrompt!.complete(true);
-      await starting;
-      await disposed;
+        final starting = voice.start();
+        final disposed = voice.dispose();
+        record.permissionPrompt!.complete(true);
+        await starting;
+        await disposed;
 
-      expect(voice.isRecording, isFalse);
-      expect(record.calls, isNot(contains('start')));
-      expect(record.calls, isNot(contains('startStream')));
-    });
+        expect(voice.isRecording, isFalse);
+        expect(record.calls, isNot(contains('start')));
+        expect(record.calls, isNot(contains('startStream')));
+      },
+    );
 
-    test('on Windows, a start error is not blamed on the privacy setting', () async {
-      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
-      record.startError = PlatformException(
-        code: 'no-device',
-        message: 'no input device',
-      );
-      final voice = recorder();
+    test(
+      'on Windows, a start error is not blamed on the privacy setting',
+      () async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+        record.startError = PlatformException(
+          code: 'no-device',
+          message: 'no input device',
+        );
+        final voice = recorder();
 
-      await expectLater(
-        voice.start(),
-        throwsA(
-          isA<VoiceRecordException>().having(
-            (e) => e.failure,
-            'failure',
-            VoiceFailure.unavailable,
+        await expectLater(
+          voice.start(),
+          throwsA(
+            isA<VoiceRecordException>().having(
+              (e) => e.failure,
+              'failure',
+              VoiceFailure.unavailable,
+            ),
           ),
-        ),
-      );
-      await voice.dispose();
-    });
+        );
+        await voice.dispose();
+      },
+    );
 
     test('a platform that adjusts the capture to a format the receiver refuses records nothing', () async {
       // The stream route, which is the Linux route.
@@ -294,54 +306,63 @@ void main() {
       await voice.dispose();
     });
 
-    test('a recording that stops cleanly is read back, and its file deleted', () async {
-      debugDefaultTargetPlatformOverride = TargetPlatform.android;
-      final voice = recorder();
-      await voice.start();
-      final path = record.path!;
+    test(
+      'a recording that stops cleanly is read back, and its file deleted',
+      () async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        final voice = recorder();
+        await voice.start();
+        final path = record.path!;
 
-      final note = await voice.stop();
+        final note = await voice.stop();
 
-      expect(note.mime, 'audio/mp4');
-      expect(note.extension, 'm4a');
-      expect(note.bytes.length, 1000);
-      expect(File(path).existsSync(), isFalse);
-      await voice.dispose();
-    });
+        expect(note.mime, 'audio/mp4');
+        expect(note.extension, 'm4a');
+        expect(note.bytes.length, 1000);
+        expect(File(path).existsSync(), isFalse);
+        await voice.dispose();
+      },
+    );
 
-    test('on Windows, a silent recording is a microphone problem, and deleted', () async {
-      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
-      record.level = -160;
-      final voice = recorder();
-      await voice.start();
-      final path = record.path!;
+    test(
+      'on Windows, a silent recording is a microphone problem, and deleted',
+      () async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+        record.level = -160;
+        final voice = recorder();
+        await voice.start();
+        final path = record.path!;
 
-      await expectLater(
-        voice.stop(),
-        throwsA(
-          isA<VoiceRecordException>().having(
-            (e) => e.failure,
-            'failure',
-            VoiceFailure.micPrivacy,
+        await expectLater(
+          voice.stop(),
+          throwsA(
+            isA<VoiceRecordException>().having(
+              (e) => e.failure,
+              'failure',
+              VoiceFailure.micPrivacy,
+            ),
           ),
-        ),
-      );
-      expect(File(path).existsSync(), isFalse);
-      await voice.dispose();
-    });
+        );
+        expect(File(path).existsSync(), isFalse);
+        await voice.dispose();
+      },
+    );
 
-    test('on Windows, a short recording with speech in it is not judged silent', () async {
-      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
-      record.level = -6;
-      final voice = recorder();
-      await voice.start();
+    test(
+      'on Windows, a short recording with speech in it is not judged silent',
+      () async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+        record.level = -6;
+        final voice = recorder();
+        await voice.start();
 
-      // Stopped before the first level poll: the level is read at the stop.
-      final note = await voice.stop();
+        // Stopped before the first level poll: the level is read at the stop.
+        final note = await voice.stop();
 
-      expect(note.bytes.length, 1000);
-      await voice.dispose();
-    });
+        expect(note.bytes.length, 1000);
+        await voice.dispose();
+      },
+    );
 
     test('a stream recording is a WAV file of the audio it captured', () async {
       debugDefaultTargetPlatformOverride = TargetPlatform.linux;

@@ -631,29 +631,32 @@ void main() {
   });
 
   group('voice notes and plain audio', () {
-    test('a plain audio file is an ordinary file, not a refused voice note', () async {
-      final (a, b) = _pair();
-      final alice = _Side('alice', 'bob', a, clock: clock)..start();
-      final bob = _Side('bob', 'alice', b, clock: clock)..start();
-      await _settle();
+    test(
+      'a plain audio file is an ordinary file, not a refused voice note',
+      () async {
+        final (a, b) = _pair();
+        final alice = _Side('alice', 'bob', a, clock: clock)..start();
+        final bob = _Side('bob', 'alice', b, clock: clock)..start();
+        await _settle();
 
-      final message = await alice.session.offerFile(
-        name: 'song.mp3',
-        bytes: Uint8List.fromList(List.filled(1000, 1)),
-        mime: 'audio/mpeg',
-      );
-      await _settle();
+        final message = await alice.session.offerFile(
+          name: 'song.mp3',
+          bytes: Uint8List.fromList(List.filled(1000, 1)),
+          mime: 'audio/mpeg',
+        );
+        await _settle();
 
-      expect(message.voiceNote, isFalse);
-      final received = await bob.store.find('alice', message.id);
-      expect(received?.fileStatus, 'offered');
-      expect(received?.voiceNote, isFalse);
-      expect(bob.ofType<FileOfferReceived>(), hasLength(1));
-      expect(
-        b.sentFrames,
-        isNot(contains(ChatFrames.encode(FileDeclineFrame(id: message.id)))),
-      );
-    });
+        expect(message.voiceNote, isFalse);
+        final received = await bob.store.find('alice', message.id);
+        expect(received?.fileStatus, 'offered');
+        expect(received?.voiceNote, isFalse);
+        expect(bob.ofType<FileOfferReceived>(), hasLength(1));
+        expect(
+          b.sentFrames,
+          isNot(contains(ChatFrames.encode(FileDeclineFrame(id: message.id)))),
+        );
+      },
+    );
 
     test('a plain audio file of 20 MiB is sent up to the file limit', () async {
       final (a, b) = _pair();
@@ -711,86 +714,98 @@ void main() {
       );
     });
 
-    test('a voice note from a contact downloads at once, without a tap', () async {
-      final (a, b) = _pair();
-      final alice = _Side('alice', 'bob', a, clock: clock)..start();
-      final bob = _Side('bob', 'alice', b, clock: clock)..start();
-      await _settle();
+    test(
+      'a voice note from a contact downloads at once, without a tap',
+      () async {
+        final (a, b) = _pair();
+        final alice = _Side('alice', 'bob', a, clock: clock)..start();
+        final bob = _Side('bob', 'alice', b, clock: clock)..start();
+        await _settle();
 
-      final message = await alice.session.offerFile(
-        name: 'voice-1.m4a',
-        bytes: _m4a(2000),
-        mime: 'audio/mp4',
-        voice: true,
-      );
-      await _settle();
+        final message = await alice.session.offerFile(
+          name: 'voice-1.m4a',
+          bytes: _m4a(2000),
+          mime: 'audio/mp4',
+          voice: true,
+        );
+        await _settle();
 
-      expect(message.voiceNote, isTrue);
-      expect(bob.ofType<FileOfferReceived>(), hasLength(1));
-      expect(
-        b.sentFrames,
-        contains(ChatFrames.encode(FileAcceptFrame(id: message.id))),
-      );
-      final received = await bob.store.find('alice', message.id);
-      expect(received?.voiceNote, isTrue);
-      expect(received?.fileStatus, 'completed');
-      expect(bob.store.hasVoice(received!), isTrue);
-    });
+        expect(message.voiceNote, isTrue);
+        expect(bob.ofType<FileOfferReceived>(), hasLength(1));
+        expect(
+          b.sentFrames,
+          contains(ChatFrames.encode(FileAcceptFrame(id: message.id))),
+        );
+        final received = await bob.store.find('alice', message.id);
+        expect(received?.voiceNote, isTrue);
+        expect(received?.fileStatus, 'completed');
+        expect(bob.store.hasVoice(received!), isTrue);
+      },
+    );
 
-    test('a voice offer named for another type is declined by the receiver', () async {
-      final (a, b) = _pair();
-      _Side('alice', 'bob', a, clock: clock).start();
-      final bob = _Side('bob', 'alice', b, clock: clock)..start();
-      await _settle();
+    test(
+      'a voice offer named for another type is declined by the receiver',
+      () async {
+        final (a, b) = _pair();
+        _Side('alice', 'bob', a, clock: clock).start();
+        final bob = _Side('bob', 'alice', b, clock: clock)..start();
+        await _settle();
 
-      // A peer that does not check its own names sends one anyway.
-      final id = _id(61);
-      a.send(
-        ChatFrames.encode(
-          FileOfferFrame(
-            id: id,
-            name: 'song.mp3',
-            size: 100,
-            mime: 'audio/mp4',
-            sha256: _digest,
-            chunks: 1,
-            voice: true,
+        // A peer that does not check its own names sends one anyway.
+        final id = _id(61);
+        a.send(
+          ChatFrames.encode(
+            FileOfferFrame(
+              id: id,
+              name: 'song.mp3',
+              size: 100,
+              mime: 'audio/mp4',
+              sha256: _digest,
+              chunks: 1,
+              voice: true,
+            ),
           ),
-        ),
-      );
-      await _settle();
+        );
+        await _settle();
 
-      expect((await bob.store.find('alice', id))?.fileStatus, 'declined');
-      expect(bob.ofType<FileOfferReceived>(), isEmpty);
-      expect(b.sentFrames, contains(ChatFrames.encode(FileDeclineFrame(id: id))));
-    });
+        expect((await bob.store.find('alice', id))?.fileStatus, 'declined');
+        expect(bob.ofType<FileOfferReceived>(), isEmpty);
+        expect(
+          b.sentFrames,
+          contains(ChatFrames.encode(FileDeclineFrame(id: id))),
+        );
+      },
+    );
 
-    test('a voice offer over its type cap is declined by the receiver', () async {
-      final (a, b) = _pair();
-      _Side('alice', 'bob', a, clock: clock).start();
-      final bob = _Side('bob', 'alice', b, clock: clock)..start();
-      await _settle();
+    test(
+      'a voice offer over its type cap is declined by the receiver',
+      () async {
+        final (a, b) = _pair();
+        _Side('alice', 'bob', a, clock: clock).start();
+        final bob = _Side('bob', 'alice', b, clock: clock)..start();
+        await _settle();
 
-      final id = _id(62);
-      final size = maxVoiceAacBytes + 1;
-      a.send(
-        ChatFrames.encode(
-          FileOfferFrame(
-            id: id,
-            name: 'voice-62.m4a',
-            size: size,
-            mime: 'audio/mp4',
-            sha256: _digest,
-            chunks: (size + fileChunkSize - 1) ~/ fileChunkSize,
-            voice: true,
+        final id = _id(62);
+        final size = maxVoiceAacBytes + 1;
+        a.send(
+          ChatFrames.encode(
+            FileOfferFrame(
+              id: id,
+              name: 'voice-62.m4a',
+              size: size,
+              mime: 'audio/mp4',
+              sha256: _digest,
+              chunks: (size + fileChunkSize - 1) ~/ fileChunkSize,
+              voice: true,
+            ),
           ),
-        ),
-      );
-      await _settle();
+        );
+        await _settle();
 
-      expect((await bob.store.find('alice', id))?.fileStatus, 'declined');
-      expect(bob.ofType<FileOfferReceived>(), isEmpty);
-    });
+        expect((await bob.store.find('alice', id))?.fileStatus, 'declined');
+        expect(bob.ofType<FileOfferReceived>(), isEmpty);
+      },
+    );
   });
 
   test('an offer of a blocked type is declined, and nothing is kept', () async {

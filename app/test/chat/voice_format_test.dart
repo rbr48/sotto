@@ -177,10 +177,7 @@ void main() {
         voiceOfferRefused(mime: 'audio/mp4', size: maxVoiceAacBytes + 1),
         isTrue,
       );
-      expect(
-        voiceOfferRefused(mime: 'audio/mp4', size: maxVoiceBytes),
-        isTrue,
-      );
+      expect(voiceOfferRefused(mime: 'audio/mp4', size: maxVoiceBytes), isTrue);
       expect(
         voiceOfferRefused(mime: 'audio/wav', size: maxVoiceWavBytes),
         isFalse,

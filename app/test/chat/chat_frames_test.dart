@@ -267,8 +267,7 @@ void main() {
       );
       final encodedVoice = ChatFrames.encode(voice);
       expect((jsonDecode(encodedVoice) as Map)['kind'], 'voice');
-      final decodedVoice =
-          ChatFrames.decode(encodedVoice) as FileOfferFrame;
+      final decodedVoice = ChatFrames.decode(encodedVoice) as FileOfferFrame;
       expect(decodedVoice.voice, isTrue);
 
       final plain = FileOfferFrame(
@@ -288,9 +287,9 @@ void main() {
     });
 
     test('an offer with no kind is a plain file, even when it is audio', () {
-      final offer =
-          ChatFrames.decode(_offer({'mime': 'audio/mp4', 'name': 'song.m4a'}))
-              as FileOfferFrame;
+      final offer = ChatFrames.decode(
+        _offer({'mime': 'audio/mp4', 'name': 'song.m4a'}),
+      ) as FileOfferFrame;
       expect(offer.voice, isFalse);
     });
 

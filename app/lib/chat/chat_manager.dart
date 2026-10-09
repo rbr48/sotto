@@ -343,11 +343,11 @@ class ChatManager {
         !live!.session!.isEnded &&
         live.session!.isReady) {
       return live.session!.offerFile(
-          name: name,
-          bytes: bytes,
-          mime: mime,
-          voice: voice,
-        );
+        name: name,
+        bytes: bytes,
+        mime: mime,
+        voice: voice,
+      );
     }
     // Wait up to 10 seconds for session to become ready
     final deadline = clock().add(const Duration(seconds: 10));
