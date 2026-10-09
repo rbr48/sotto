@@ -1,0 +1,6 @@
+Sotto 0.2.0
+- Text messages with your contacts. They go straight between your devices, end to end encrypted
+- If a contact is offline, the message is marked "Not sent", with a Retry button
+- Notifications for new messages on Android and desktop (names only if you allow them)
+- With "Ring even when Sotto is closed" (Android) or "Keep running in the tray" (desktop), messages arrive as calls do
+- The Retry button is easier to see on message bubbles
