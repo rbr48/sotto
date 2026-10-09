@@ -14,7 +14,7 @@ Sotto is a privacy-first calling and messaging app for professionals and their c
 
 - Clients join from **Chrome, Edge, Firefox or Safari** with a link: no app, no account
 - **End-to-end encrypted** 1:1 calls, and **text messages** between contacts
-- **No user data on the server**: the relay keeps nothing on disk and holds undelivered messages in memory for up to 60 seconds
+- **No user data kept on the server**: nothing is written to disk, and undelivered messages wait in memory for up to 60 seconds
 - **Self-host** with one command, or use the hosted beta at `call.sottocall.com`
 - Planned, not yet built: consent-based recording on the professional's own device
 
@@ -36,13 +36,13 @@ The name comes from *sotto voce*: speaking quietly so that only the listener hea
 |---|---|---|
 | Android | [`sotto-android.apk`](https://github.com/rbr48/sotto/releases/latest/download/sotto-android.apk) | Install the APK directly. Google Play and F-Droid: see [`docs/APP_STORES.md`](docs/APP_STORES.md). |
 | Windows | [`sotto-windows-x64-setup.exe`](https://github.com/rbr48/sotto/releases/latest/download/sotto-windows-x64-setup.exe), or the [portable zip](https://github.com/rbr48/sotto/releases/latest/download/sotto-windows-x64.zip) | Not code-signed yet, so SmartScreen may warn about an unknown publisher: choose *More info*, then *Run anyway*. |
-| Linux | [AppImage](https://github.com/rbr48/sotto/releases/latest/download/sotto-linux-x86_64.AppImage), [.deb](https://github.com/rbr48/sotto/releases/latest/download/sotto-linux-amd64.deb) or [tar.gz](https://github.com/rbr48/sotto/releases/latest/download/sotto-linux-x64.tar.gz) | The AppImage and .deb run on Ubuntu 22.04 or newer, and Debian 12 or newer. The app needs a keyring (GNOME Keyring or KWallet) to keep its keys. |
+| Linux | [AppImage](https://github.com/rbr48/sotto/releases/latest/download/sotto-linux-x86_64.AppImage), [.deb](https://github.com/rbr48/sotto/releases/latest/download/sotto-linux-amd64.deb) or [tar.gz](https://github.com/rbr48/sotto/releases/latest/download/sotto-linux-x64.tar.gz) | The AppImage and .deb are built on Ubuntu 22.04, the oldest release supported; Ubuntu 22.04 or newer and Debian 12 or newer are expected to run them. The app needs a keyring (GNOME Keyring or KWallet) to keep its keys. |
 | Browser | A guest link, or [`call.sottocall.com`](https://call.sottocall.com/) | Chrome, Edge, Firefox or Safari. Guests keep nothing after the tab closes. |
 
 - There is no iPhone or Mac app yet. Those devices join through Safari.
-- On Windows, and on Linux desktops with a system tray (KDE, Ubuntu, XFCE; plain GNOME has none), Sotto can keep running in the tray, so calls still ring while the window is closed. Turn this on in Settings → Desktop.
-- On Android, calls and messages can ring while the app is closed, if *Ring even when Sotto is closed* is on (Settings → Calls while Sotto is closed).
-- Every release lists SHA-256 checksums (`SHA256SUMS.txt`), and the Android release notes give the signing certificate's fingerprint. See [Releases and signed builds](docs/RELEASES.md) for how to check them.
+- On Windows, and on Linux desktops with a system tray (KDE and Ubuntu, for example; plain GNOME has none), Sotto keeps running in the tray, so calls still ring while the window is closed. It is on by default; to turn it off, see Settings → Desktop.
+- On Android, with *Ring even when Sotto is closed* on (Settings → Calls while Sotto is closed), calls ring and messages and waiting guests show a notification while the app is closed. This is not yet verified on Pixel, Samsung or Xiaomi phones with battery savers on, and some Android makers stop background services.
+- Every release includes `SHA256SUMS.txt`, with each file's SHA-256 checksum, and the Android release notes give the signing certificate's fingerprint. See [Building and publishing releases](docs/RELEASES.md) for the certificate check.
 
 ## Try it
 
@@ -137,7 +137,7 @@ CI also runs the end-to-end browser tests, the crypto test-vector check, the ins
 - [Protocol: identities, envelopes and chat](docs/PROTOCOL.md)
 - [Threat model](docs/THREAT_MODEL.md)
 - [Network test matrix](docs/NETWORK_TESTING.md)
-- [Releases and signed builds](docs/RELEASES.md)
+- [Building and publishing releases](docs/RELEASES.md)
 - [Code signing (SignPath) setup](docs/CODE_SIGNING.md)
 - [Google Play and F-Droid](docs/APP_STORES.md)
 - [Translating Sotto](docs/TRANSLATING.md)
