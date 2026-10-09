@@ -108,6 +108,9 @@ class ChatManager {
   /// does not time out.
   void viewing(String? contact) => _viewing = contact;
 
+  /// Whether the chat with [contact] is the one open on screen.
+  bool isViewing(String contact) => _viewing == contact;
+
   /// Whether a chat with [contact] is open, or being opened.
   bool isActive(String contact) =>
       _activeFor(contact) != null || _signalling.isOpening(contact);

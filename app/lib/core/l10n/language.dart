@@ -1,5 +1,9 @@
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'app_localizations.dart';
 
 /// The language the person picked. [system] follows the device.
 ///
@@ -46,6 +50,19 @@ Future<void> loadAppLanguage() async {
   } catch (_) {
     // Keep the device's language.
   }
+}
+
+/// The words for notices, which are shown outside the widgets: the language
+/// the person chose, or the device's when they chose [AppLanguage.system].
+/// English if that is not one of the app's languages.
+AppLocalizations localizationsForNotices() {
+  final locale = appLanguage.value.locale ?? PlatformDispatcher.instance.locale;
+  final supported = AppLanguage.supported.any(
+    (language) => language.languageCode == locale.languageCode,
+  );
+  return lookupAppLocalizations(
+    supported ? locale : AppLanguage.supported.first,
+  );
 }
 
 /// Changes the language now and remembers it.

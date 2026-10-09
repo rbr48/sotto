@@ -109,4 +109,15 @@ class AppLocalizationsBn extends AppLocalizations {
 
   @override
   String get chatDismiss => 'ঠিক আছে';
+
+  @override
+  String get chatNoticeAnonymousTitle => 'নতুন বার্তা';
+
+  @override
+  String chatNoticeNamedTitle(String name) {
+    return '$name-এর কাছ থেকে নতুন বার্তা';
+  }
+
+  @override
+  String get chatNoticeBody => 'পড়তে Sotto খুলুন।';
 }

@@ -51,6 +51,11 @@ abstract interface class AndroidPlatform {
   Future<void> showKnock({required String title, required String body});
   Future<void> cancelKnock();
 
+  /// A message from a contact, while the app is in the background: only a
+  /// title and a short line, never the text.
+  Future<void> showMessage({required String title, required String body});
+  Future<void> cancelMessage();
+
   /// The call ended: the app stops showing over the lock screen.
   Future<void> callFinished();
 
@@ -133,6 +138,13 @@ class MethodChannelAndroid implements AndroidPlatform {
 
   @override
   Future<void> cancelKnock() => _call('cancelKnock');
+
+  @override
+  Future<void> showMessage({required String title, required String body}) =>
+      _call('showMessage', {'title': title, 'body': body});
+
+  @override
+  Future<void> cancelMessage() => _call('cancelMessage');
 
   @override
   Future<void> callFinished() => _call('callFinished');

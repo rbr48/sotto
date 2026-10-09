@@ -30,5 +30,8 @@
   "chatFailDeclined": "তারা আপনার কাছ থেকে বার্তা নিতে পারেন না।",
   "chatFailNoRelay": "আইপি ঠিকানা লুকানো চালু আছে, কিন্তু এই সার্ভারে চ্যাটের জন্য রিলে নেই। বন্ধ করুন, অথবা সার্ভার পরিচালককে একটি যোগ করতে বলুন।",
   "chatEnded": "চ্যাট শেষ হয়েছে।",
-  "chatDismiss": "ঠিক আছে"
+  "chatDismiss": "ঠিক আছে",
+  "chatNoticeAnonymousTitle": "নতুন বার্তা",
+  "chatNoticeNamedTitle": "{name}-এর কাছ থেকে নতুন বার্তা",
+  "chatNoticeBody": "পড়তে Sotto খুলুন।"
 }

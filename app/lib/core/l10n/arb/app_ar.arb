@@ -30,5 +30,8 @@
   "chatFailDeclined": "لا يمكنهم استقبال الرسائل منك.",
   "chatFailNoRelay": "خيار إخفاء عنوان IP مُفعّل، لكن هذا الخادم لا يملك مُرحِّلاً للمحادثات. أوقفه، أو اطلب من المشغّل إضافة واحد.",
   "chatEnded": "انتهت المحادثة.",
-  "chatDismiss": "حسناً"
+  "chatDismiss": "حسناً",
+  "chatNoticeAnonymousTitle": "رسالة جديدة",
+  "chatNoticeNamedTitle": "رسالة جديدة من {name}",
+  "chatNoticeBody": "افتح Sotto لقراءتها."
 }

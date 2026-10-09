@@ -25,8 +25,10 @@ import 'media_engine.dart';
 import 'screen_awake.dart';
 import 'video_adapter.dart';
 import 'webrtc_media_engine.dart';
+import '../chat/chat_arrival.dart';
 import '../chat/chat_manager.dart';
 import '../chat/chat_rtc.dart';
+import '../chat/chat_session.dart';
 import '../chat/chat_store.dart';
 
 /// Everything the call screens need: the relay connection, the current
@@ -211,6 +213,11 @@ class CallController extends ChangeNotifier {
   /// Calls that just started ringing here (for desktop notifications).
   Stream<CallState> get incomingCalls => _incomingCalls.stream;
 
+  final _chatArrivals = StreamController<ChatArrival>.broadcast();
+
+  /// Messages that just arrived from contacts (for notifications).
+  Stream<ChatArrival> get newChatMessages => _chatArrivals.stream;
+
   /// "Hide my IP address": calls only use the TURN relay, so the other
   /// person never sees this device's IP address.
   bool get hideIp => _hideIp;
@@ -376,7 +383,7 @@ class CallController extends ChangeNotifier {
         identity: identity,
       );
       if (contacts != null) {
-        _chat = ChatManager(
+        final chat = _chat = ChatManager(
           myId: identity.id,
           store: ChatStore(_settings),
           isContact: _isContactId,
@@ -386,6 +393,7 @@ class CallController extends ChangeNotifier {
           createRtc: WebRtcChatRtc.create,
           clock: DateTime.now,
         );
+        _subscriptions.add(chat.events.listen(_onChatEvent));
       }
       _profiles = ProfileExchange(
         sodium: sodium,
@@ -587,6 +595,28 @@ class CallController extends ChangeNotifier {
 
   bool _isContactId(String id) =>
       contacts?.contacts.any((contact) => contact.identity.id == id) ?? false;
+
+  /// The name of a contact, as this device has it ("" if it is not one).
+  String _contactName(String id) {
+    for (final contact in contacts?.contacts ?? const <Contact>[]) {
+      if (contact.identity.id == id) return contact.name;
+    }
+    return '';
+  }
+
+  /// A message from a contact was stored: tell the notifications who sent it
+  /// and whether that chat is on screen. The text never leaves the chat.
+  void _onChatEvent(ChatManagerEvent event) {
+    if (event case ChatUpdate(:final contact, event: MessageReceived())) {
+      if (_chatArrivals.isClosed) return;
+      _chatArrivals.add(
+        ChatArrival(
+          senderName: _contactName(contact),
+          viewing: _chat?.isViewing(contact) ?? false,
+        ),
+      );
+    }
+  }
 
   void _rememberChatSender(PublicIdentity sender) {
     _chatSenders.remove(sender.id);
@@ -916,6 +946,7 @@ class CallController extends ChangeNotifier {
     _callSounds?.dispose();
     unawaited(_newGuests.close());
     unawaited(_incomingCalls.close());
+    unawaited(_chatArrivals.close());
     _manager?.dispose();
     _host?.dispose();
     _visit?.dispose();

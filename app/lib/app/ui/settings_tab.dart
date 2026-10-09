@@ -153,8 +153,9 @@ class SettingsTab extends StatelessWidget {
               contentPadding: EdgeInsets.zero,
               title: const Text('Show names in notifications'),
               subtitle: const Text(
-                'Off: notifications only say that someone is waiting or '
-                'calling. The system may keep notifications in its history.',
+                'Off: notifications only say that someone is waiting, calling '
+                'or has written to you. The system may keep notifications in '
+                'its history.',
               ),
               value: app.desktopPrefs.showNames,
               onChanged: app.desktopPrefs.notifications

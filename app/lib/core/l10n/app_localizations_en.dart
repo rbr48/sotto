@@ -109,4 +109,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get chatDismiss => 'OK';
+
+  @override
+  String get chatNoticeAnonymousTitle => 'New message';
+
+  @override
+  String chatNoticeNamedTitle(String name) {
+    return 'New message from $name';
+  }
+
+  @override
+  String get chatNoticeBody => 'Open Sotto to read it.';
 }

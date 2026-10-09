@@ -8,6 +8,8 @@ import 'package:window_manager/window_manager.dart';
 
 import '../app/app_controller.dart';
 import '../call/call_controller.dart';
+import '../chat/chat_arrival.dart';
+import '../core/l10n/language.dart';
 import 'autostart.dart';
 import 'notices.dart';
 import 'single_instance.dart';
@@ -141,8 +143,26 @@ class DesktopIntegration with TrayListener, WindowListener {
             ),
           ),
         ),
+      )
+      ..add(
+        calls.newChatMessages.listen(
+          (arrival) => _notify(_chatNotice(arrival)),
+        ),
       );
   }
+
+  /// A message from a contact arrived: a notice unless the chat is open in
+  /// front of the person (see [NoticeRules.chatMessage]).
+  Notice? _chatNotice(ChatArrival arrival) => NoticeRules.chatWords(
+    kind: NoticeRules.chatMessage(
+      prefs: app.desktopPrefs,
+      inFront: inFront,
+      viewing: arrival.viewing,
+      locked: app.lock.locked,
+    ),
+    senderName: arrival.senderName,
+    l10n: localizationsForNotices(),
+  );
 
   Future<void> _applyPreventClose() async {
     try {

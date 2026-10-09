@@ -38,5 +38,16 @@
   "chatFailDeclined": "They cannot receive messages from you.",
   "chatFailNoRelay": "Hide my IP address is on, but this server has no relay for chats. Turn it off, or ask the operator to add one.",
   "chatEnded": "The chat has ended.",
-  "chatDismiss": "OK"
+  "chatDismiss": "OK",
+  "chatNoticeAnonymousTitle": "New message",
+  "chatNoticeNamedTitle": "New message from {name}",
+  "@chatNoticeNamedTitle": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Meera Rao"
+      }
+    }
+  },
+  "chatNoticeBody": "Open Sotto to read it."
 }

@@ -498,4 +498,17 @@ void main() {
     expect(received.map((m) => m.text), ['retry me']);
     expect(await aliceStore.messages('bob'), hasLength(1));
   });
+
+  test('the chat on screen is known, and only that one', () async {
+    final alice = device('alice', contacts: {'bob', 'carol'});
+    expect(alice.isViewing('bob'), isFalse);
+
+    alice.viewing('bob');
+    expect(alice.isViewing('bob'), isTrue);
+    expect(alice.isViewing('carol'), isFalse);
+
+    alice.viewing(null);
+    expect(alice.isViewing('bob'), isFalse);
+    await alice.dispose();
+  });
 }

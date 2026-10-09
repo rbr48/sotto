@@ -285,6 +285,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'OK'**
   String get chatDismiss;
+
+  /// No description provided for @chatNoticeAnonymousTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'New message'**
+  String get chatNoticeAnonymousTitle;
+
+  /// No description provided for @chatNoticeNamedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'New message from {name}'**
+  String chatNoticeNamedTitle(String name);
+
+  /// No description provided for @chatNoticeBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Open Sotto to read it.'**
+  String get chatNoticeBody;
 }
 
 class _AppLocalizationsDelegate
