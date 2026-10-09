@@ -74,11 +74,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get chatEmptyHint =>
-      'No messages yet. Messages go directly to them while you are both online.';
+      'No messages yet. Messages are end-to-end encrypted and reach them even when their app is in the background.';
 
   @override
   String get chatDirectNote =>
-      'Messages go directly between your devices while you are both online.';
+      'Messages are end-to-end encrypted. They go directly between your devices, or sealed through the relay, which holds them for at most a minute and cannot read them.';
 
   @override
   String get chatRelayNote =>

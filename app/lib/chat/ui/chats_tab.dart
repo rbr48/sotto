@@ -307,8 +307,9 @@ class _ChatsTabState extends State<ChatsTab> {
                 icon: Icons.chat_bubble_outline,
                 title: 'No conversations yet',
                 message:
-                    'Messages go directly between your devices while you are '
-                    'both online. Nothing is stored on any server.',
+                    'Messages are end-to-end encrypted. They go directly '
+                    'between your devices, or sealed through the relay, which '
+                    'holds them for at most a minute and cannot read them.',
               ),
             )
           else if (list.isEmpty)

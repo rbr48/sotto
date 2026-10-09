@@ -223,13 +223,13 @@ abstract class AppLocalizations {
   /// No description provided for @chatEmptyHint.
   ///
   /// In en, this message translates to:
-  /// **'No messages yet. Messages go directly to them while you are both online.'**
+  /// **'No messages yet. Messages are end-to-end encrypted and reach them even when their app is in the background.'**
   String get chatEmptyHint;
 
   /// No description provided for @chatDirectNote.
   ///
   /// In en, this message translates to:
-  /// **'Messages go directly between your devices while you are both online.'**
+  /// **'Messages are end-to-end encrypted. They go directly between your devices, or sealed through the relay, which holds them for at most a minute and cannot read them.'**
   String get chatDirectNote;
 
   /// No description provided for @chatRelayNote.

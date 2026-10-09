@@ -147,7 +147,7 @@ void main() {
     await pumpPage(tester);
     expect(
       find.text(
-        'No messages yet. Messages go directly to them while you are both online.',
+        'No messages yet. Messages are end-to-end encrypted and reach them even when their app is in the background.',
       ),
       findsOneWidget,
     );

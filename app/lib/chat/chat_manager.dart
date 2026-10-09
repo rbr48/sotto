@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import '../diagnostics/event_log.dart';
 import 'chat_frames.dart';
 import 'chat_rtc.dart';
 import 'chat_session.dart';
@@ -46,7 +47,9 @@ class ChatManager {
     String Function()? newId,
     this.connectTimeout = const Duration(seconds: 30),
     this.readReceiptsEnabled = _readReceiptsAlwaysOn,
+    void Function(String event)? log,
   }) : _newId = newId ?? ChatFrames.newId,
+       _log = log ?? EventLog.instance.add,
        _signalling = ChatSignalling(
          myId: myId,
          isContact: isContact,
@@ -55,6 +58,21 @@ class ChatManager {
 
   final String myId;
   final ChatStore store;
+
+  /// Writes a line to the diagnostic log. Lines name states and reasons only:
+  /// never a contact, an id or any text (see [EventLog]).
+  final void Function(String event) _log;
+
+  /// A text message sent through the relay, sealed like every envelope, when
+  /// no direct chat is ready. The relay keeps it in memory for at most a
+  /// minute; the sender sends it again on the next check while it is queued.
+  static const relayText = 'chat.text';
+
+  /// The receiver's answer to [relayText]: the message is stored.
+  static const relayTextAck = 'chat.text.ack';
+
+  /// At most this many queued messages go through the relay per check.
+  static const maxRelayPerFlush = 20;
 
   /// Whether a Sotto ID is a contact. Only contacts can open a chat.
   final bool Function(String contactId) isContact;
@@ -207,6 +225,7 @@ class ChatManager {
       }
     }
     await store.add(message);
+    _sendThroughRelay(message);
     return message;
   }
 
@@ -233,12 +252,14 @@ class ChatManager {
     } else if (live != null) {
       await store.setState(contact, messageId, ChatState.sending);
       live.resend.add(again);
+      _sendThroughRelay(again);
     } else {
       await store.setState(contact, messageId, ChatState.sending);
       (_waiting[contact] ??= []).add(again);
       if (!_signalling.isOpening(contact)) {
         _perform(_signalling.open(contact, clock()));
       }
+      _sendThroughRelay(again);
     }
   }
 
@@ -318,9 +339,100 @@ class ChatManager {
       }
       return;
     }
+    // No direct chat is ready: the texts also go through the relay, so they
+    // reach a device whose app is in the background.
+    for (final msg in queued.take(maxRelayPerFlush)) {
+      _sendThroughRelay(msg);
+    }
     // A chat being opened sends the queue itself once its channel is open.
     if (live != null || _signalling.isOpening(contact)) return;
     _perform(_signalling.open(contact, clock()));
+  }
+
+  /// Sends a text message through the relay. Files need the direct chat.
+  void _sendThroughRelay(ChatMessage message) {
+    if (_disposed || message.isAttachment || !message.outgoing) return;
+    send(message.contactId, relayText, {
+      'id': message.id,
+      'ts': message.ts,
+      'text': message.text,
+    }, null);
+    _log('chat: text sent through the relay');
+  }
+
+  /// A text that came through the relay: stored once, always acknowledged.
+  Future<void> _onRelayText(String from, Map<String, dynamic> body) async {
+    if (!isContact(from)) {
+      _log('chat: relay text from someone not in contacts dropped');
+      return;
+    }
+    final id = body['id'];
+    final ts = body['ts'];
+    final raw = body['text'];
+    if (!ChatFrames.isId(id) || ts is! int || raw is! String) {
+      _log('chat: malformed relay text dropped');
+      return;
+    }
+    final text = ChatFrames.cleanText(raw);
+    if (text.isEmpty || text.runes.length > maxTextChars) {
+      _log('chat: relay text of a bad length dropped');
+      return;
+    }
+    final messageId = id as String;
+    if (!await store.contains(from, messageId)) {
+      final message = ChatMessage(
+        id: messageId,
+        contactId: from,
+        outgoing: false,
+        ts: ts,
+        text: text,
+        state: ChatState.received,
+        read: false,
+        arrivedAt: clock().millisecondsSinceEpoch,
+      );
+      await store.add(message);
+      _emit(ChatUpdate(from, MessageReceived(message)));
+      _log('chat: text received through the relay');
+    }
+    send(from, relayTextAck, {'id': messageId}, null);
+  }
+
+  /// The other device stored a text sent through the relay.
+  Future<void> _onRelayAck(String from, Map<String, dynamic> body) async {
+    final id = body['id'];
+    if (!ChatFrames.isId(id)) return;
+    final messageId = id as String;
+    final message = await store.find(from, messageId);
+    if (message == null || !message.outgoing) return;
+    // Taken off every list, so a chat that fails later cannot mark it not sent.
+    _waiting[from]?.removeWhere((m) => m.id == messageId);
+    for (final live in _live.values) {
+      if (live.contact == from) {
+        live.resend.removeWhere((m) => m.id == messageId);
+      }
+    }
+    if (message.state == ChatState.delivered ||
+        message.state == ChatState.read) {
+      return;
+    }
+    await store.setState(from, messageId, ChatState.delivered);
+    _emit(ChatUpdate(from, MessageDelivered(messageId)));
+    _log('chat: relay text acknowledged');
+  }
+
+  /// Marks a message not sent, unless it already got through (for example
+  /// through the relay while the direct chat was still failing).
+  Future<bool> _markNotSent(String contact, String id, String reason) async {
+    // The message may still be on its way into the store; the store applies
+    // writes in order, so only a state that is known to be final is kept.
+    final current = await store.find(contact, id);
+    if (current != null &&
+        (current.state == ChatState.delivered ||
+            current.state == ChatState.read)) {
+      return false;
+    }
+    await store.setState(contact, id, ChatState.notSent, reason: reason);
+    return true;
   }
 
   /// Attempts to flush queued messages across all contacts.
@@ -440,6 +552,15 @@ class ChatManager {
   }) {
     if (_disposed) return;
     _ensureTicker();
+    if (type == relayText) {
+      unawaited(_onRelayText(from, body));
+      return;
+    }
+    if (type == relayTextAck) {
+      unawaited(_onRelayAck(from, body));
+      return;
+    }
+    if (type == 'chat.open') _log('chat: a contact is opening a chat');
     _perform(
       _signalling.handle(
         from: from,
@@ -507,8 +628,10 @@ class ChatManager {
         case SendEnvelope(:final to, :final type, :final body, :final callId):
           send(to, type, body, callId);
         case SessionReady():
+          _log('chat: chat accepted, connecting');
           _startSession(action);
         case OpenFailed(:final contact, :final reason):
+          _log('chat: opening failed ($reason)');
           unawaited(_openFailed(contact, reason));
         case DropSession(:final sessionId):
           final live = _live[sessionId];
@@ -595,7 +718,8 @@ class ChatManager {
         _signalSent(live);
       }
     } catch (_) {
-      // The error can name addresses, so it is not logged.
+      // The error can name addresses, so only the step is logged.
+      _log('chat: could not set up the connection');
       await _end(live, 'failed');
     }
   }
@@ -632,15 +756,11 @@ class ChatManager {
       // The messages that were waiting for this chat are not sent. Queued
       // messages stay queued for the next attempt.
       for (final message in waiting) {
-        await store.setState(
-          live.contact,
-          message.id,
-          ChatState.notSent,
-          reason: 'failed',
-        );
+        await _markNotSent(live.contact, message.id, 'failed');
       }
       return;
     }
+    _log('chat: direct chat connected');
     unawaited(session.start(resend: [...waiting, ...queued]));
     // Read receipts for what this device has read are sent (again) with each
     // chat, so the other side learns of reads that happened while no chat
@@ -732,13 +852,9 @@ class ChatManager {
     // Taken at once, so the messages are settled before any other step runs.
     final waiting = _waiting.remove(contact) ?? const <ChatMessage>[];
     for (final message in waiting) {
-      await store.setState(
-        contact,
-        message.id,
-        ChatState.notSent,
-        reason: reason,
-      );
-      _emit(ChatUpdate(contact, MessageNotSent(message.id)));
+      if (await _markNotSent(contact, message.id, reason)) {
+        _emit(ChatUpdate(contact, MessageNotSent(message.id)));
+      }
     }
     _emit(ChatOpenFailure(contact, reason));
   }
@@ -750,14 +866,11 @@ class ChatManager {
     live.ended = true;
     live.timer?.cancel();
     _live.remove(live.sessionId);
+    _log('chat: chat ended ($reason)');
     for (final message in live.resend) {
-      await store.setState(
-        live.contact,
-        message.id,
-        ChatState.notSent,
-        reason: reason,
-      );
-      _emit(ChatUpdate(live.contact, MessageNotSent(message.id)));
+      if (await _markNotSent(live.contact, message.id, reason)) {
+        _emit(ChatUpdate(live.contact, MessageNotSent(message.id)));
+      }
     }
     live.resend.clear();
     // A chat that never got a session still has to say why it failed (for

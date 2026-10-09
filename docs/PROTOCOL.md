@@ -256,6 +256,8 @@ Envelope types. `callId` is the session id: 16 random bytes.
 | `chat.offer` / `chat.answer` | offerer ↔ winning device | `{"tag", "sdp"}` |
 | `chat.ice` | either, with the winning device | `{"tag", "candidate", "sdpMid", "sdpMLineIndex"}` |
 | `chat.close` | either | `{}` |
+| `chat.text` | sender → contact | `{"id", "ts", "text"}`: a text message, when no direct chat is ready |
+| `chat.text.ack` | contact → sender | `{"id"}`: the text is stored |
 
 - Only contacts can open a chat. Others get `chat.decline` with `not-contact`.
 - Every logged-in device of the contact answers `chat.open` with its own tag.
@@ -268,6 +270,16 @@ Envelope types. `callId` is the session id: 16 random bytes.
   Sotto ID keeps its own invitation; the other side answers it.
 - An open with no answer after 20 seconds fails. An answering device that
   hears nothing decisive after 20 seconds drops its session.
+- Texts through the relay. When no direct chat is ready, a text message also
+  goes as a `chat.text` envelope, sealed to the contact like every envelope, so
+  it reaches a device whose app runs in the background (the relay connection
+  is kept by the Android service and desktop tray mode). The relay holds it in
+  memory for at most 60 seconds and cannot read it. Every device of the
+  contact that is connected stores it; a device stores a message id once and
+  answers each copy with `chat.text.ack`, which marks it delivered. A message
+  that still waits is sent again on the next check (every 30 seconds) while the
+  sender's app runs, up to 20 per check. Files and voice notes need the direct
+  chat. Texts from anyone who is not a contact are dropped without an answer.
 
 Data-channel frames: UTF-8 JSON, at most 16 KiB each. Text is at most 4,000
 characters after cleaning: control characters (except line breaks and tabs)

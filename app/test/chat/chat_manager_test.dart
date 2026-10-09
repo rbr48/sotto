@@ -148,6 +148,10 @@ class _Network {
   final rtcs = <String, List<_FakeRtc>>{};
   final sent = <({String from, String to, String type})>[];
 
+  /// Whether texts sent through the relay arrive. Tests of a failing direct
+  /// chat turn this off, so the message really cannot get through.
+  bool relayText = true;
+
   void deliver(
     String from,
     String to,
@@ -156,6 +160,7 @@ class _Network {
     String? callId,
   ) {
     sent.add((from: from, to: to, type: type));
+    if (!relayText && type == ChatManager.relayText) return;
     for (final device in managers[to] ?? const <ChatManager>[]) {
       scheduleMicrotask(
         () => device.handle(
@@ -312,11 +317,12 @@ void main() {
 
       // One connection was made on Bob's side, not two.
       expect(net.rtcs['bob'], hasLength(1));
-      // The message landed on exactly one of Bob's devices.
+      // The direct chat reached one device; the relay copy reached both, and
+      // neither stored it twice.
       final onFirst = await firstStore.messages('alice');
       final onSecond = await secondStore.messages('alice');
-      expect(onFirst.length + onSecond.length, 1);
-      expect((onFirst + onSecond).single.text, 'to both of you');
+      expect(onFirst.map((m) => m.text), ['to both of you']);
+      expect(onSecond.map((m) => m.text), ['to both of you']);
       expect(
         (await aliceStore.find('bob', message.id))!.state,
         ChatState.delivered,
@@ -408,6 +414,7 @@ void main() {
   test(
     'a connection that cannot be set up marks the message not sent',
     () async {
+      net.relayText = false;
       final store = ChatStore(MemorySecretStore());
       final alice = device(
         'alice',
@@ -427,6 +434,7 @@ void main() {
   test(
     'a connection that never opens times out, and its message is not sent',
     () async {
+      net.relayText = false;
       final store = ChatStore(MemorySecretStore());
       final alice = device(
         'alice',
@@ -488,6 +496,7 @@ void main() {
   });
 
   test('when another device wins the answer, messages waiting for this device fail', () async {
+    net.relayText = false;
     final store = ChatStore(MemorySecretStore());
     final sent =
         <
@@ -511,7 +520,7 @@ void main() {
 
     // This device opens a chat, and the contact opens one at the same moment.
     final message = await manager.sendText('aaa', 'queued');
-    final ours = sent.single.callId!;
+    final ours = sent.firstWhere((s) => s.type == 'chat.open').callId!;
     final theirs = ChatFrames.newId();
     manager.handle(
       from: 'aaa',
@@ -537,6 +546,7 @@ void main() {
   });
 
   test('Hide my IP address with no relay server fails at once, and never connects directly', () async {
+    net.relayText = false;
     final store = ChatStore(MemorySecretStore());
     final alice = device(
       'alice',
@@ -734,5 +744,133 @@ void main() {
     await _settle();
 
     expect((await aliceStore.find('bob', first.id))!.state, ChatState.read);
+  });
+
+  group('texts through the relay', () {
+    test('a text reaches a device whose direct chat cannot connect', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final bobStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      // Bob's app is in the background: its direct chat never opens.
+      device('bob', contacts: {'alice'}, store: bobStore, neverOpens: true);
+      final bobEvents = <ChatManagerEvent>[];
+      final sub = net.managers['bob']!.single.events.listen(bobEvents.add);
+
+      final message = await alice.sendText('bob', 'are you free later?');
+      await _settle();
+
+      final got = await bobStore.messages('alice');
+      expect(got.map((m) => m.text), ['are you free later?']);
+      expect(got.single.outgoing, isFalse);
+      expect(got.single.arrivedAt, now.millisecondsSinceEpoch);
+      expect(
+        bobEvents.whereType<ChatUpdate>().map((u) => u.event),
+        contains(isA<MessageReceived>()),
+      );
+      expect(
+        (await aliceStore.find('bob', message.id))!.state,
+        ChatState.delivered,
+      );
+      await sub.cancel();
+    });
+
+    test(
+      'a delivered text stays delivered when the direct chat later fails',
+      () async {
+        final aliceStore = ChatStore(MemorySecretStore());
+        final alice = device(
+          'alice',
+          contacts: {'bob'},
+          store: aliceStore,
+          neverOpens: true,
+        );
+        device('bob', contacts: {'alice'}, neverOpens: true);
+
+        final message = await alice.sendText('bob', 'hello');
+        await _settle();
+        // The direct chat times out after the relay copy was acknowledged.
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        await _settle();
+
+        expect(
+          (await aliceStore.find('bob', message.id))!.state,
+          ChatState.delivered,
+        );
+      },
+    );
+
+    test(
+      'a text that arrives twice is stored once and acknowledged each time',
+      () async {
+        final bobStore = ChatStore(MemorySecretStore());
+        device('bob', contacts: {'alice'}, store: bobStore);
+        final body = {'id': 'AAAAAAAAAAAAAAAAAAAAAA', 'ts': 1, 'text': 'once'};
+        net.deliver('alice', 'bob', ChatManager.relayText, body, null);
+        net.deliver('alice', 'bob', ChatManager.relayText, body, null);
+        await _settle();
+
+        expect((await bobStore.messages('alice')).map((m) => m.text), ['once']);
+        expect(
+          net.sent.where(
+            (s) => s.from == 'bob' && s.type == ChatManager.relayTextAck,
+          ),
+          hasLength(2),
+        );
+      },
+    );
+
+    test(
+      'a text from someone who is not a contact is dropped unanswered',
+      () async {
+        final bobStore = ChatStore(MemorySecretStore());
+        device('bob', contacts: {'alice'}, store: bobStore);
+        net.deliver('eve', 'bob', ChatManager.relayText, {
+          'id': 'AAAAAAAAAAAAAAAAAAAAAA',
+          'ts': 1,
+          'text': 'hi',
+        }, null);
+        await _settle();
+
+        expect(await bobStore.messages('eve'), isEmpty);
+        expect(net.sent.where((s) => s.from == 'bob'), isEmpty);
+      },
+    );
+
+    test('malformed relay texts are dropped', () async {
+      final bobStore = ChatStore(MemorySecretStore());
+      device('bob', contacts: {'alice'}, store: bobStore);
+      for (final body in <Map<String, Object?>>[
+        {'id': 'short', 'ts': 1, 'text': 'x'},
+        {'id': 'AAAAAAAAAAAAAAAAAAAAAA', 'ts': 'soon', 'text': 'x'},
+        {'id': 'AAAAAAAAAAAAAAAAAAAAAA', 'ts': 1, 'text': '   '},
+        {'id': 'AAAAAAAAAAAAAAAAAAAAAA', 'ts': 1, 'text': 'x' * 5000},
+      ]) {
+        net.deliver('alice', 'bob', ChatManager.relayText, body, null);
+      }
+      await _settle();
+
+      expect(await bobStore.messages('alice'), isEmpty);
+    });
+
+    test('a queued file is never sent through the relay', () async {
+      final store = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: store);
+      await store.add(
+        const ChatMessage(
+          id: 'AAAAAAAAAAAAAAAAAAAAAA',
+          contactId: 'bob',
+          outgoing: true,
+          ts: 1,
+          text: '',
+          state: ChatState.queued,
+          fileName: 'notes.txt',
+          fileSize: 3,
+        ),
+      );
+      await alice.flushOutbox('bob');
+      await _settle();
+
+      expect(net.sent.where((s) => s.type == ChatManager.relayText), isEmpty);
+    });
   });
 }

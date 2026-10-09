@@ -28,8 +28,8 @@
       }
     }
   },
-  "chatEmptyHint": "No messages yet. Messages go directly to them while you are both online.",
-  "chatDirectNote": "Messages go directly between your devices while you are both online.",
+  "chatEmptyHint": "No messages yet. Messages are end-to-end encrypted and reach them even when their app is in the background.",
+  "chatDirectNote": "Messages are end-to-end encrypted. They go directly between your devices, or sealed through the relay, which holds them for at most a minute and cannot read them.",
   "chatRelayNote": "Hide my IP is on, so messages go through the Sotto server instead of directly between your devices.",
   "chatEmptyHintRelay": "No messages yet. Hide my IP is on, so messages go through the Sotto server.",
   "chatDeleteMenu": "Delete chat",

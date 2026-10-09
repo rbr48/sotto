@@ -316,13 +316,13 @@ void main() {
       await _unmount(tester, chat);
     });
 
-    testWidgets('the footer says messages go directly, and nothing more', (
+    testWidgets('the footer says how messages travel, and nothing more', (
       tester,
     ) async {
       await _pump(tester, chat);
       expect(
         find.text(
-          'Messages go directly between your devices while you are both online.',
+          'Messages are end-to-end encrypted. They go directly between your devices, or sealed through the relay, which holds them for at most a minute and cannot read them.',
         ),
         findsOneWidget,
       );
