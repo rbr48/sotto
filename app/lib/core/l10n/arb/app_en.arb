@@ -49,5 +49,21 @@
       }
     }
   },
-  "chatNoticeBody": "Open Sotto to read it."
+  "chatNoticeBody": "Open Sotto to read it.",
+  "chatCopy": "Copy text",
+  "chatCopied": "Copied to clipboard",
+  "chatDeleteMessage": "Delete message",
+  "chatDeleteMessageTitle": "Delete this message?",
+  "chatDeleteMessageBody": "This message will be removed from this device. The other person keeps their copy.",
+  "chatOpenLinkTitle": "Open external link?",
+  "chatOpenLinkBody": "Do you want to open {url} in your browser?",
+  "@chatOpenLinkBody": {
+    "placeholders": {
+      "url": {
+        "type": "String",
+        "example": "https://sottocall.com"
+      }
+    }
+  },
+  "chatOpenLink": "Open"
 }

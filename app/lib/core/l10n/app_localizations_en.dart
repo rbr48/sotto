@@ -120,4 +120,31 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get chatNoticeBody => 'Open Sotto to read it.';
+
+  @override
+  String get chatCopy => 'Copy text';
+
+  @override
+  String get chatCopied => 'Copied to clipboard';
+
+  @override
+  String get chatDeleteMessage => 'Delete message';
+
+  @override
+  String get chatDeleteMessageTitle => 'Delete this message?';
+
+  @override
+  String get chatDeleteMessageBody =>
+      'This message will be removed from this device. The other person keeps their copy.';
+
+  @override
+  String get chatOpenLinkTitle => 'Open external link?';
+
+  @override
+  String chatOpenLinkBody(String url) {
+    return 'Do you want to open $url in your browser?';
+  }
+
+  @override
+  String get chatOpenLink => 'Open';
 }

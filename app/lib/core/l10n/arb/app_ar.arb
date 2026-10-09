@@ -33,5 +33,13 @@
   "chatDismiss": "حسناً",
   "chatNoticeAnonymousTitle": "رسالة جديدة",
   "chatNoticeNamedTitle": "رسالة جديدة من {name}",
-  "chatNoticeBody": "افتح Sotto لقراءتها."
+  "chatNoticeBody": "افتح Sotto لقراءتها.",
+  "chatCopy": "نسخ النص",
+  "chatCopied": "تم النسخ إلى الحافظة",
+  "chatDeleteMessage": "حذف الرسالة",
+  "chatDeleteMessageTitle": "حذف هذه الرسالة؟",
+  "chatDeleteMessageBody": "ستتم إزالة هذه الرسالة من هذا الجهاز. يحتفظ الطرف الآخر بنسخته.",
+  "chatOpenLinkTitle": "فتح رابط خارجي؟",
+  "chatOpenLinkBody": "هل تريد فتح {url} في متصفحك؟",
+  "chatOpenLink": "فتح"
 }

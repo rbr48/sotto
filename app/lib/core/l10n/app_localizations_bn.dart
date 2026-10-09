@@ -120,4 +120,31 @@ class AppLocalizationsBn extends AppLocalizations {
 
   @override
   String get chatNoticeBody => 'পড়তে Sotto খুলুন।';
+
+  @override
+  String get chatCopy => 'লেখা কপি করুন';
+
+  @override
+  String get chatCopied => 'ক্লিপবোর্ডে কপি করা হয়েছে';
+
+  @override
+  String get chatDeleteMessage => 'বার্তা মুছুন';
+
+  @override
+  String get chatDeleteMessageTitle => 'এই বার্তাটি মুছবেন?';
+
+  @override
+  String get chatDeleteMessageBody =>
+      'বার্তাটি এই ডিভাইস থেকে মুছে ফেলা হবে। অপর পক্ষ তাদের কপি সংরক্ষণ করবে।';
+
+  @override
+  String get chatOpenLinkTitle => 'বাহ্যিক লিঙ্ক খুলবেন?';
+
+  @override
+  String chatOpenLinkBody(String url) {
+    return 'আপনি কি আপনার ব্রাউজারে $url লিঙ্কটি খুলতে চান?';
+  }
+
+  @override
+  String get chatOpenLink => 'খুলুন';
 }

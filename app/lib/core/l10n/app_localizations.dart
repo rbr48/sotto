@@ -303,6 +303,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Open Sotto to read it.'**
   String get chatNoticeBody;
+
+  /// No description provided for @chatCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy text'**
+  String get chatCopy;
+
+  /// No description provided for @chatCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Copied to clipboard'**
+  String get chatCopied;
+
+  /// No description provided for @chatDeleteMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete message'**
+  String get chatDeleteMessage;
+
+  /// No description provided for @chatDeleteMessageTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete this message?'**
+  String get chatDeleteMessageTitle;
+
+  /// No description provided for @chatDeleteMessageBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This message will be removed from this device. The other person keeps their copy.'**
+  String get chatDeleteMessageBody;
+
+  /// No description provided for @chatOpenLinkTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Open external link?'**
+  String get chatOpenLinkTitle;
+
+  /// No description provided for @chatOpenLinkBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Do you want to open {url} in your browser?'**
+  String chatOpenLinkBody(String url);
+
+  /// No description provided for @chatOpenLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get chatOpenLink;
 }
 
 class _AppLocalizationsDelegate

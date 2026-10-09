@@ -243,4 +243,67 @@ void main() {
       }
     },
   );
+
+  testWidgets('opening chat page marks unread messages as read', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      await store.add(
+        ChatMessage(
+          id: ChatFrames.newId(),
+          contactId: 'bob',
+          outgoing: false,
+          ts: 1700000000000,
+          text: 'Unread message',
+          state: ChatState.received,
+          read: false,
+        ),
+      );
+      expect(await store.unreadCount('bob'), 1);
+    });
+
+    await pumpPage(tester);
+
+    await tester.runAsync(() async {
+      expect(await store.unreadCount('bob'), 0);
+    });
+  });
+
+  testWidgets('bubble long press displays action sheet and allows deletion', (
+    tester,
+  ) async {
+    final msg = _message(
+      'Message to delete',
+      outgoing: true,
+      state: ChatState.delivered,
+    );
+    await tester.runAsync(() => store.add(msg));
+
+    await pumpPage(tester);
+    expect(find.text('Message to delete'), findsOneWidget);
+
+    // Long press on the bubble
+    await tester.longPress(find.text('Message to delete'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Copy text'), findsOneWidget);
+    expect(find.text('Delete message'), findsOneWidget);
+
+    // Tap Delete message
+    await tester.tap(find.text('Delete message'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Delete this message?'), findsOneWidget);
+
+    // Confirm deletion
+    await tester.tap(find.text('Delete'));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Message to delete'), findsNothing);
+    final remaining = await tester.runAsync(() => store.messages('bob'));
+    expect(remaining, isEmpty);
+  });
 }

@@ -1,6 +1,9 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/l10n/app_localizations.dart';
 import '../../core/ui_kit.dart';
@@ -48,6 +51,7 @@ class _ChatPageState extends State<ChatPage> {
     super.initState();
     widget.chat.viewing(widget.contactId);
     _events = widget.chat.events.listen(_onEvent);
+    unawaited(widget.chat.store.markAsRead(widget.contactId));
     unawaited(_load());
   }
 
@@ -69,6 +73,7 @@ class _ChatPageState extends State<ChatPage> {
     switch (event) {
       case ChatUpdate(:final contact, :final event)
           when contact == widget.contactId:
+        unawaited(widget.chat.store.markAsRead(widget.contactId));
         // An ordinary end (bye, closed, idle) needs no explanation.
         if (event is SessionEnded && !_ordinaryEnd(event.reason)) {
           setState(() => _problem = event.reason);
@@ -109,6 +114,82 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _retry(ChatMessage message) async {
     await widget.chat.retry(widget.contactId, message.id);
+    await _load();
+  }
+
+  Future<void> _handleUrlTap(String url) async {
+    var target = url;
+    if (target.startsWith('www.')) {
+      target = 'https://$target';
+    }
+    final uri = Uri.tryParse(target);
+    if (uri == null) return;
+
+    if (uri.scheme == 'mailto') {
+      try {
+        await launchUrl(uri);
+      } catch (_) {}
+      return;
+    }
+
+    final l10n = AppLocalizations.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(l10n.chatOpenLinkTitle),
+        content: Text(l10n.chatOpenLinkBody(url)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(l10n.chatCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(l10n.chatOpenLink),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } catch (_) {}
+    }
+  }
+
+  void _copyMessage(ChatMessage message) {
+    unawaited(Clipboard.setData(ClipboardData(text: message.text)));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(AppLocalizations.of(context).chatCopied),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _deleteMessage(ChatMessage message) async {
+    final l10n = AppLocalizations.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(l10n.chatDeleteMessageTitle),
+        content: Text(l10n.chatDeleteMessageBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(l10n.chatCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(l10n.chatDelete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await widget.chat.store.deleteMessage(widget.contactId, message.id);
     await _load();
   }
 
@@ -170,13 +251,18 @@ class _ChatPageState extends State<ChatPage> {
                   : ListView.builder(
                       reverse: true,
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                      itemCount: _messages.length,
-                      itemBuilder: (context, index) => _Bubble(
-                        message: _messages[_messages.length - 1 - index],
-                        contactName: widget.name,
-                        l10n: l10n,
-                        onRetry: _retry,
-                      ),
+                      itemBuilder: (context, index) {
+                        final message = _messages[_messages.length - 1 - index];
+                        return _Bubble(
+                          message: message,
+                          contactName: widget.name,
+                          l10n: l10n,
+                          onRetry: _retry,
+                          onTapUrl: _handleUrlTap,
+                          onCopy: () => _copyMessage(message),
+                          onDelete: () => _deleteMessage(message),
+                        );
+                      },
                     ),
             ),
             Padding(
@@ -265,6 +351,9 @@ class _Bubble extends StatelessWidget {
     required this.contactName,
     required this.l10n,
     required this.onRetry,
+    required this.onTapUrl,
+    required this.onCopy,
+    required this.onDelete,
   });
 
   final ChatMessage message;
@@ -273,6 +362,87 @@ class _Bubble extends StatelessWidget {
   final String contactName;
   final AppLocalizations l10n;
   final Future<void> Function(ChatMessage message) onRetry;
+  final void Function(String url) onTapUrl;
+  final VoidCallback onCopy;
+  final VoidCallback onDelete;
+
+  void _showContextMenu(BuildContext context, Offset position) async {
+    final selected = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy,
+        position.dx,
+        position.dy,
+      ),
+      items: [
+        PopupMenuItem(
+          value: 'copy',
+          child: Row(
+            children: [
+              const Icon(Icons.copy, size: 18),
+              const SizedBox(width: 8),
+              Text(l10n.chatCopy),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: 'delete',
+          child: Row(
+            children: [
+              Icon(
+                Icons.delete_outline,
+                size: 18,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                l10n.chatDeleteMessage,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+    if (selected == 'copy') onCopy();
+    if (selected == 'delete') onDelete();
+  }
+
+  void _showActionSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.copy),
+              title: Text(l10n.chatCopy),
+              onTap: () {
+                Navigator.of(context).pop();
+                onCopy();
+              },
+            ),
+            ListTile(
+              leading: Icon(
+                Icons.delete_outline,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              title: Text(
+                l10n.chatDeleteMessage,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+              onTap: () {
+                Navigator.of(context).pop();
+                onDelete();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -281,61 +451,79 @@ class _Bubble extends StatelessWidget {
     final notSent = outgoing && message.state == ChatState.notSent;
     final background = outgoing ? scheme.primary : scheme.surfaceContainerHigh;
     final foreground = outgoing ? scheme.onPrimary : scheme.onSurface;
+    final linkColor = outgoing ? scheme.onPrimary : scheme.primary;
+
     return Align(
       alignment: outgoing
           ? AlignmentDirectional.centerEnd
           : AlignmentDirectional.centerStart,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.sizeOf(context).width * 0.78,
-        ),
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
-        decoration: BoxDecoration(
-          color: background,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: Text(message.text, style: TextStyle(color: foreground)),
-            ),
-            if (outgoing) ...[
-              const SizedBox(height: 4),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    _statusIcon(message.state),
-                    size: 14,
-                    color: foreground.withValues(alpha: 0.8),
+      child: GestureDetector(
+        onSecondaryTapUp: (details) =>
+            _showContextMenu(context, details.globalPosition),
+        onLongPress: () => _showActionSheet(context),
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.sizeOf(context).width * 0.78,
+          ),
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: _LinkifiedText(
+                  text: message.text,
+                  style: TextStyle(color: foreground),
+                  linkStyle: TextStyle(
+                    color: linkColor,
+                    decoration: TextDecoration.underline,
+                    fontWeight: FontWeight.w600,
                   ),
-                  const SizedBox(width: 4),
-                  // Long names wrap here, so the Retry button stays on the bubble.
-                  Flexible(
-                    child: Text(
-                      _statusText(message),
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: foreground.withValues(alpha: 0.8),
+                  onTapUrl: onTapUrl,
+                ),
+              ),
+              if (outgoing) ...[
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _statusIcon(message.state),
+                      size: 14,
+                      color: foreground.withValues(alpha: 0.8),
+                    ),
+                    const SizedBox(width: 4),
+                    // Long names wrap here, so the Retry button stays on the bubble.
+                    Flexible(
+                      child: Text(
+                        _statusText(message),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: foreground.withValues(alpha: 0.8),
+                        ),
                       ),
                     ),
-                  ),
-                  if (notSent)
-                    TextButton(
-                      // The label takes the bubble's text colour, because the
-                      // theme default is the bubble colour itself.
-                      style: TextButton.styleFrom(foregroundColor: foreground),
-                      onPressed: () => onRetry(message),
-                      child: Text(l10n.chatRetry),
-                    ),
-                ],
-              ),
+                    if (notSent)
+                      TextButton(
+                        // The label takes the bubble's text colour, because the
+                        // theme default is the bubble colour itself.
+                        style: TextButton.styleFrom(
+                          foregroundColor: foreground,
+                        ),
+                        onPressed: () => onRetry(message),
+                        child: Text(l10n.chatRetry),
+                      ),
+                  ],
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -358,4 +546,102 @@ class _Bubble extends StatelessWidget {
     ChatState.notSent => l10n.chatStatusNotSent,
     ChatState.received => '',
   };
+}
+
+class _LinkifiedText extends StatefulWidget {
+  const _LinkifiedText({
+    required this.text,
+    required this.style,
+    required this.linkStyle,
+    required this.onTapUrl,
+  });
+
+  final String text;
+  final TextStyle style;
+  final TextStyle linkStyle;
+  final void Function(String url) onTapUrl;
+
+  @override
+  State<_LinkifiedText> createState() => _LinkifiedTextState();
+}
+
+class _LinkifiedTextState extends State<_LinkifiedText> {
+  static final _urlRegex = RegExp(
+    r'(https?:\/\/[^\s<>"{}|\\^`]+|mailto:[^\s<>"{}|\\^`]+|www\.[^\s<>"{}|\\^`]+)',
+    caseSensitive: false,
+  );
+  static final _trailingPunctuation = RegExp(r'[.,;:)!?]+$');
+
+  final _recognizers = <TapGestureRecognizer>[];
+
+  @override
+  void dispose() {
+    _clearRecognizers();
+    super.dispose();
+  }
+
+  void _clearRecognizers() {
+    for (final r in _recognizers) {
+      r.dispose();
+    }
+    _recognizers.clear();
+  }
+
+  List<InlineSpan> _buildSpans() {
+    _clearRecognizers();
+    final matches = _urlRegex.allMatches(widget.text).toList();
+    if (matches.isEmpty) {
+      return [TextSpan(text: widget.text, style: widget.style)];
+    }
+
+    final spans = <InlineSpan>[];
+    var lastIndex = 0;
+
+    for (final match in matches) {
+      if (match.start > lastIndex) {
+        spans.add(
+          TextSpan(
+            text: widget.text.substring(lastIndex, match.start),
+            style: widget.style,
+          ),
+        );
+      }
+
+      var rawUrl = match.group(0)!;
+      var punctuation = '';
+      final pMatch = _trailingPunctuation.firstMatch(rawUrl);
+      if (pMatch != null) {
+        punctuation = rawUrl.substring(pMatch.start);
+        rawUrl = rawUrl.substring(0, pMatch.start);
+      }
+
+      final url = rawUrl;
+      final recognizer = TapGestureRecognizer()
+        ..onTap = () => widget.onTapUrl(url);
+      _recognizers.add(recognizer);
+
+      spans.add(
+        TextSpan(text: url, style: widget.linkStyle, recognizer: recognizer),
+      );
+
+      if (punctuation.isNotEmpty) {
+        spans.add(TextSpan(text: punctuation, style: widget.style));
+      }
+
+      lastIndex = match.end;
+    }
+
+    if (lastIndex < widget.text.length) {
+      spans.add(
+        TextSpan(text: widget.text.substring(lastIndex), style: widget.style),
+      );
+    }
+
+    return spans;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Text.rich(TextSpan(children: _buildSpans()));
+  }
 }

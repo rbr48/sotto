@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import '../crypto/identity_store.dart';
@@ -16,6 +17,7 @@ class ChatMessage {
     required this.text,
     required this.state,
     this.reason,
+    this.read = true,
   });
 
   /// 16 random bytes, unpadded base64url. The same on both devices.
@@ -36,6 +38,10 @@ class ChatMessage {
   /// Set only while [state] is [ChatState.notSent].
   final String? reason;
 
+  /// Whether the message has been viewed. Outgoing messages are always true.
+  /// Incoming messages start false until the chat is opened.
+  final bool read;
+
   /// The same message in another state. A reason is kept only when given.
   ChatMessage withState(ChatState next, {String? reason}) => ChatMessage(
     id: id,
@@ -45,6 +51,27 @@ class ChatMessage {
     text: text,
     state: next,
     reason: reason,
+    read: read,
+  );
+
+  ChatMessage copyWith({
+    String? id,
+    String? contactId,
+    bool? outgoing,
+    int? ts,
+    String? text,
+    ChatState? state,
+    String? reason,
+    bool? read,
+  }) => ChatMessage(
+    id: id ?? this.id,
+    contactId: contactId ?? this.contactId,
+    outgoing: outgoing ?? this.outgoing,
+    ts: ts ?? this.ts,
+    text: text ?? this.text,
+    state: state ?? this.state,
+    reason: reason ?? this.reason,
+    read: read ?? this.read,
   );
 
   Map<String, Object?> toJson() => {
@@ -54,6 +81,7 @@ class ChatMessage {
     'text': text,
     'state': state.name,
     'reason': reason,
+    'read': read,
   };
 
   static ChatMessage fromJson(String contactId, Map<String, dynamic> json) {
@@ -63,12 +91,14 @@ class ChatMessage {
     final ts = json['ts'];
     final text = json['text'];
     final reason = json['reason'];
+    final read = json['read'];
     if (id is! String ||
         outgoing is! bool ||
         ts is! int ||
         text is! String ||
         state.isEmpty ||
-        (reason != null && reason is! String)) {
+        (reason != null && reason is! String) ||
+        (read != null && read is! bool)) {
       throw const ChatStoreException('unreadable');
     }
     return ChatMessage(
@@ -79,6 +109,7 @@ class ChatMessage {
       text: text,
       state: state.first,
       reason: reason as String?,
+      read: read is bool ? read : outgoing,
     );
   }
 }
@@ -102,6 +133,10 @@ class ChatStore {
   static const storageKey = 'sotto.chats.v1';
 
   final SecretStore _store;
+  final _changes = StreamController<void>.broadcast();
+
+  /// Emits whenever messages are added, updated, read, or deleted.
+  Stream<void> get changes => _changes.stream;
 
   /// Loaded on first use. Contact ID → messages, oldest first.
   Map<String, List<ChatMessage>>? _chats;
@@ -195,11 +230,69 @@ class ChatStore {
     if (chats.remove(contactId) != null) await _save(chats);
   });
 
-  Future<void> _save(Map<String, List<ChatMessage>> chats) => _store.write(
-    storageKey,
-    jsonEncode({
-      for (final entry in chats.entries)
-        entry.key: [for (final m in entry.value) m.toJson()],
-    }),
-  );
+  /// Deletes a single message with [id] in the chat with [contactId].
+  Future<void> deleteMessage(String contactId, String id) => _inOrder(() async {
+    final chats = await _load();
+    final list = chats[contactId];
+    if (list == null) return;
+    final index = list.indexWhere((m) => m.id == id);
+    if (index >= 0) {
+      list.removeAt(index);
+      await _save(chats);
+    }
+  });
+
+  /// Marks all incoming messages from [contactId] as read.
+  Future<void> markAsRead(String contactId) => _inOrder(() async {
+    final chats = await _load();
+    final list = chats[contactId];
+    if (list == null) return;
+    var changed = false;
+    for (var i = 0; i < list.length; i++) {
+      final message = list[i];
+      if (!message.outgoing && !message.read) {
+        list[i] = message.copyWith(read: true);
+        changed = true;
+      }
+    }
+    if (changed) {
+      await _save(chats);
+    }
+  });
+
+  /// The number of unread incoming messages across all chats.
+  Future<int> totalUnreadCount() async {
+    final chats = await _load();
+    var count = 0;
+    for (final list in chats.values) {
+      for (final message in list) {
+        if (!message.outgoing && !message.read) count++;
+      }
+    }
+    return count;
+  }
+
+  /// The number of unread incoming messages with [contactId].
+  Future<int> unreadCount(String contactId) async {
+    final list = (await _load())[contactId];
+    if (list == null) return 0;
+    var count = 0;
+    for (final message in list) {
+      if (!message.outgoing && !message.read) count++;
+    }
+    return count;
+  }
+
+  Future<void> _save(Map<String, List<ChatMessage>> chats) async {
+    await _store.write(
+      storageKey,
+      jsonEncode({
+        for (final entry in chats.entries)
+          entry.key: [for (final m in entry.value) m.toJson()],
+      }),
+    );
+    if (!_changes.isClosed) {
+      _changes.add(null);
+    }
+  }
 }

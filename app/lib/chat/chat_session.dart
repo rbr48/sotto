@@ -240,6 +240,7 @@ class ChatSession {
             ts: ts,
             text: text,
             state: ChatState.received,
+            read: false,
           );
           await store.add(message);
           _events.add(MessageReceived(message));

@@ -120,4 +120,31 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get chatNoticeBody => 'افتح Sotto لقراءتها.';
+
+  @override
+  String get chatCopy => 'نسخ النص';
+
+  @override
+  String get chatCopied => 'تم النسخ إلى الحافظة';
+
+  @override
+  String get chatDeleteMessage => 'حذف الرسالة';
+
+  @override
+  String get chatDeleteMessageTitle => 'حذف هذه الرسالة؟';
+
+  @override
+  String get chatDeleteMessageBody =>
+      'ستتم إزالة هذه الرسالة من هذا الجهاز. يحتفظ الطرف الآخر بنسخته.';
+
+  @override
+  String get chatOpenLinkTitle => 'فتح رابط خارجي؟';
+
+  @override
+  String chatOpenLinkBody(String url) {
+    return 'هل تريد فتح $url في متصفحك؟';
+  }
+
+  @override
+  String get chatOpenLink => 'فتح';
 }

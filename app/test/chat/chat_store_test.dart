@@ -123,11 +123,83 @@ void main() {
   test('a stored message with an unknown state is reported', () async {
     await secrets.write(
       ChatStore.storageKey,
-      '{"bob":[{"id":"${_id(1)}","out":true,"ts":1,"text":"x","state":"read"}]}',
+      '{"bob":[{"id":"${_id(1)}","out":true,"ts":1,"text":"x","state":"unknown"}]}',
     );
     await expectLater(
       store.messages('bob'),
       throwsA(isA<ChatStoreException>()),
     );
+  });
+
+  test('single message can be deleted', () async {
+    await store.add(_message(1));
+    await store.add(_message(2));
+    expect(await store.messages('bob'), hasLength(2));
+
+    await store.deleteMessage('bob', _id(1));
+    final bob = await store.messages('bob');
+    expect(bob.map((m) => m.id), [_id(2)]);
+  });
+
+  test('unread counts and markAsRead work as expected', () async {
+    expect(await store.totalUnreadCount(), 0);
+
+    // Incoming messages start unread by default when read is false
+    final m1 = ChatMessage(
+      id: _id(1),
+      contactId: 'bob',
+      outgoing: false,
+      ts: 1000,
+      text: 'hello',
+      state: ChatState.received,
+      read: false,
+    );
+    final m2 = ChatMessage(
+      id: _id(2),
+      contactId: 'bob',
+      outgoing: false,
+      ts: 2000,
+      text: 'how are you?',
+      state: ChatState.received,
+      read: false,
+    );
+    final m3 = ChatMessage(
+      id: _id(3),
+      contactId: 'carol',
+      outgoing: false,
+      ts: 3000,
+      text: 'hi from carol',
+      state: ChatState.received,
+      read: false,
+    );
+
+    await store.add(m1);
+    await store.add(m2);
+    await store.add(m3);
+
+    expect(await store.totalUnreadCount(), 3);
+    expect(await store.unreadCount('bob'), 2);
+    expect(await store.unreadCount('carol'), 1);
+
+    await store.markAsRead('bob');
+    expect(await store.totalUnreadCount(), 1);
+    expect(await store.unreadCount('bob'), 0);
+    expect(await store.unreadCount('carol'), 1);
+
+    // Outgoing messages don't add to unread count
+    await store.add(_message(4, outgoing: true));
+    expect(await store.totalUnreadCount(), 1);
+  });
+
+  test('changes stream notifies on store modifications', () async {
+    var changeNotified = false;
+    final sub = store.changes.listen((_) {
+      changeNotified = true;
+    });
+
+    await store.add(_message(1));
+    expect(changeNotified, isTrue);
+
+    await sub.cancel();
   });
 }

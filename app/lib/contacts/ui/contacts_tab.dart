@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../app/app_controller.dart';
 import '../../call/call_controller.dart';
+import '../../chat/chat_manager.dart';
 import '../../chat/ui/chat_page.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/test_hooks.dart';
@@ -88,20 +91,10 @@ class ContactsTab extends StatelessWidget {
                         trailing: Wrap(
                           children: [
                             if (calls.chat case final chat?)
-                              IconButton(
-                                tooltip:
-                                    '${AppLocalizations.of(context).chatMessage}: '
-                                    '${contact.name}',
-                                icon: const Icon(Icons.chat_bubble_outline),
-                                onPressed: () => Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => ChatPage(
-                                      chat: chat,
-                                      contactId: contact.identity.id,
-                                      name: contact.name,
-                                    ),
-                                  ),
-                                ),
+                              _ContactChatButton(
+                                chat: chat,
+                                contactId: contact.identity.id,
+                                contactName: contact.name,
                               ),
                             IconButton(
                               tooltip: 'Voice call ${contact.name}',
@@ -205,6 +198,76 @@ class ShareContactDialog extends StatelessWidget {
           child: const Text('Done'),
         ),
       ],
+    );
+  }
+}
+
+class _ContactChatButton extends StatefulWidget {
+  const _ContactChatButton({
+    required this.chat,
+    required this.contactId,
+    required this.contactName,
+  });
+
+  final ChatManager chat;
+  final String contactId;
+  final String contactName;
+
+  @override
+  State<_ContactChatButton> createState() => _ContactChatButtonState();
+}
+
+class _ContactChatButtonState extends State<_ContactChatButton> {
+  int _unreadCount = 0;
+  StreamSubscription<void>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = widget.chat.store.changes.listen((_) => _refresh());
+    unawaited(_refresh());
+  }
+
+  @override
+  void didUpdateWidget(_ContactChatButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.chat != widget.chat ||
+        oldWidget.contactId != widget.contactId) {
+      _sub?.cancel();
+      _sub = widget.chat.store.changes.listen((_) => _refresh());
+      unawaited(_refresh());
+    }
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    final count = await widget.chat.store.unreadCount(widget.contactId);
+    if (mounted) setState(() => _unreadCount = count);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final iconWidget = const Icon(Icons.chat_bubble_outline);
+    return IconButton(
+      tooltip:
+          '${AppLocalizations.of(context).chatMessage}: ${widget.contactName}',
+      icon: _unreadCount > 0
+          ? Badge(label: Text('$_unreadCount'), child: iconWidget)
+          : iconWidget,
+      onPressed: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ChatPage(
+            chat: widget.chat,
+            contactId: widget.contactId,
+            name: widget.contactName,
+          ),
+        ),
+      ),
     );
   }
 }

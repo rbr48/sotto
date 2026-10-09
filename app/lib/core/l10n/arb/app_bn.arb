@@ -33,5 +33,13 @@
   "chatDismiss": "ঠিক আছে",
   "chatNoticeAnonymousTitle": "নতুন বার্তা",
   "chatNoticeNamedTitle": "{name}-এর কাছ থেকে নতুন বার্তা",
-  "chatNoticeBody": "পড়তে Sotto খুলুন।"
+  "chatNoticeBody": "পড়তে Sotto খুলুন।",
+  "chatCopy": "লেখা কপি করুন",
+  "chatCopied": "ক্লিপবোর্ডে কপি করা হয়েছে",
+  "chatDeleteMessage": "বার্তা মুছুন",
+  "chatDeleteMessageTitle": "এই বার্তাটি মুছবেন?",
+  "chatDeleteMessageBody": "বার্তাটি এই ডিভাইস থেকে মুছে ফেলা হবে। অপর পক্ষ তাদের কপি সংরক্ষণ করবে।",
+  "chatOpenLinkTitle": "বাহ্যিক লিঙ্ক খুলবেন?",
+  "chatOpenLinkBody": "আপনি কি আপনার ব্রাউজারে {url} লিঙ্কটি খুলতে চান?",
+  "chatOpenLink": "খুলুন"
 }

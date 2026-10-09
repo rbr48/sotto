@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -33,6 +35,8 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _tab = 0;
+  int _unreadChatCount = 0;
+  StreamSubscription<void>? _storeSub;
 
   static const _destinations = [
     (Icons.home_outlined, Icons.home),
@@ -44,6 +48,53 @@ class _HomeShellState extends State<HomeShell> {
   /// Tab labels in the current language.
   static String _label(AppLocalizations l10n, int i) =>
       [l10n.navHome, l10n.navContacts, l10n.navHistory, l10n.navSettings][i];
+
+  @override
+  void initState() {
+    super.initState();
+    widget.calls.addListener(_onCallsChanged);
+    _initChatListener();
+  }
+
+  @override
+  void didUpdateWidget(HomeShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.calls != widget.calls) {
+      oldWidget.calls.removeListener(_onCallsChanged);
+      widget.calls.addListener(_onCallsChanged);
+      _storeSub?.cancel();
+      _storeSub = null;
+      _initChatListener();
+    }
+  }
+
+  void _onCallsChanged() {
+    if (_storeSub == null && widget.calls.chat != null) {
+      _initChatListener();
+    }
+  }
+
+  void _initChatListener() {
+    final chat = widget.calls.chat;
+    if (chat != null && _storeSub == null) {
+      _storeSub = chat.store.changes.listen((_) => _refreshUnreadCount());
+      unawaited(_refreshUnreadCount());
+    }
+  }
+
+  Future<void> _refreshUnreadCount() async {
+    final chat = widget.calls.chat;
+    if (chat == null) return;
+    final count = await chat.store.totalUnreadCount();
+    if (mounted) setState(() => _unreadChatCount = count);
+  }
+
+  @override
+  void dispose() {
+    widget.calls.removeListener(_onCallsChanged);
+    _storeSub?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -69,9 +120,13 @@ class _HomeShellState extends State<HomeShell> {
     Widget icon(int index, bool selected) {
       final (outlined, filled) = _destinations[index];
       final widget = Icon(selected ? filled : outlined);
-      return index == 0 && waiting > 0
-          ? Badge(label: Text('$waiting'), child: widget)
-          : widget;
+      if (index == 0 && waiting > 0) {
+        return Badge(label: Text('$waiting'), child: widget);
+      }
+      if (index == 1 && _unreadChatCount > 0) {
+        return Badge(label: Text('$_unreadChatCount'), child: widget);
+      }
+      return widget;
     }
 
     final narrow = MediaQuery.sizeOf(context).width < 600;
