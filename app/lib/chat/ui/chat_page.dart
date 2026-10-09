@@ -318,6 +318,9 @@ class _Bubble extends StatelessWidget {
                   ),
                   if (notSent)
                     TextButton(
+                      // The label takes the bubble's text colour, because the
+                      // theme default is the bubble colour itself.
+                      style: TextButton.styleFrom(foregroundColor: foreground),
                       onPressed: () => onRetry(message),
                       child: Text(l10n.chatRetry),
                     ),

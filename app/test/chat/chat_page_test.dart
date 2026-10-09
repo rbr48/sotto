@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sotto/chat/chat_frames.dart';
@@ -6,6 +8,7 @@ import 'package:sotto/chat/chat_store.dart';
 import 'package:sotto/chat/ui/chat_page.dart';
 import 'package:sotto/core/l10n/app_localizations.dart';
 import 'package:sotto/core/l10n/language.dart';
+import 'package:sotto/core/theme.dart';
 import 'package:sotto/crypto/identity_store.dart';
 
 ChatMessage _message(
@@ -20,6 +23,23 @@ ChatMessage _message(
   text: text,
   state: state,
 );
+
+/// WCAG 2.x relative luminance of an opaque colour.
+double _luminance(Color color) {
+  double linear(double channel) => channel <= 0.03928
+      ? channel / 12.92
+      : math.pow((channel + 0.055) / 1.055, 2.4).toDouble();
+  return 0.2126 * linear(color.r) +
+      0.7152 * linear(color.g) +
+      0.0722 * linear(color.b);
+}
+
+/// WCAG 2.x contrast ratio between two opaque colours, from 1 to 21.
+double _contrastRatio(Color a, Color b) {
+  final lighter = math.max(_luminance(a), _luminance(b));
+  final darker = math.min(_luminance(a), _luminance(b));
+  return (lighter + 0.05) / (darker + 0.05);
+}
 
 void main() {
   late ChatStore store;
@@ -44,9 +64,10 @@ void main() {
     await chat.dispose();
   });
 
-  Future<void> pumpPage(WidgetTester tester) async {
+  Future<void> pumpPage(WidgetTester tester, {ThemeData? theme}) async {
     await tester.pumpWidget(
       MaterialApp(
+        theme: theme,
         locale: AppLanguage.english.locale,
         supportedLocales: AppLanguage.supported,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -116,4 +137,33 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.runAsync(chat.dispose);
   });
+
+  testWidgets(
+    'Retry is readable on an unsent message in light and dark themes',
+    (tester) async {
+      await tester.runAsync(() async {
+        await store.add(
+          _message('Lost in transit', outgoing: true, state: ChatState.notSent),
+        );
+      });
+
+      for (final theme in [SottoTheme.light(), SottoTheme.dark()]) {
+        await pumpPage(tester, theme: theme);
+        final scheme = theme.colorScheme;
+
+        final button = tester.widget<TextButton>(
+          find.widgetWithText(TextButton, 'Retry'),
+        );
+        final label = button.style?.foregroundColor?.resolve({});
+        expect(label, isNotNull, reason: 'the Retry label has no colour');
+        expect(label, scheme.onPrimary);
+        expect(
+          _contrastRatio(label!, scheme.primary),
+          greaterThanOrEqualTo(4.5),
+        );
+
+        await tester.pumpWidget(const SizedBox());
+      }
+    },
+  );
 }
