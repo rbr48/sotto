@@ -151,16 +151,31 @@ void main() {
         await pumpPage(tester, theme: theme);
         final scheme = theme.colorScheme;
 
-        final button = tester.widget<TextButton>(
-          find.widgetWithText(TextButton, 'Retry'),
-        );
-        final label = button.style?.foregroundColor?.resolve({});
+        // What is painted, not what the button is configured with: the label's
+        // text colour, and the fill of the bubble behind it (its nearest
+        // Container with a BoxDecoration).
+        final label = DefaultTextStyle.of(tester.element(find.text('Retry')))
+            .style
+            .color;
+        final background = tester
+            .widgetList<Container>(
+              find.ancestor(
+                of: find.text('Lost in transit'),
+                matching: find.byType(Container),
+              ),
+            )
+            .map((container) => container.decoration)
+            .whereType<BoxDecoration>()
+            .first
+            .color;
         expect(label, isNotNull, reason: 'the Retry label has no colour');
         expect(label, scheme.onPrimary);
         expect(
-          _contrastRatio(label!, scheme.primary),
-          greaterThanOrEqualTo(4.5),
+          background,
+          scheme.primary,
+          reason: 'the bubble is not the primary colour',
         );
+        expect(_contrastRatio(label!, background!), greaterThanOrEqualTo(4.5));
 
         await tester.pumpWidget(const SizedBox());
       }
