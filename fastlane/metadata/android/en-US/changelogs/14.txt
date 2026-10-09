@@ -1,0 +1,7 @@
+Interactive WhatsApp-style emoji keyboard with categories and backspace
+Fix system back button exiting app instead of returning to previous screen or closing panels
+Enable Android 13/14+ predictive back gesture navigation
+Reliable media, document & file sharing with auto-accept and offline outbox queuing
+Fix file saving to Downloads on Android 10+ using MediaStore
+Direct preview and open for images, videos, audio, and PDF documents
+Stabilize WebRTC data channel for private relay connections

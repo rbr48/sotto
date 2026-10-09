@@ -61,7 +61,11 @@ Future<List<({String name, Object error})>> sendPickedFiles({
       // No size check here: offerFile removes an image's metadata first, and
       // the limit applies to what is sent. It refuses a file over the limit.
       final bytes = await file.read();
-      await offer(file.name, bytes, file.mime ?? 'application/octet-stream');
+      var mime = file.mime;
+      if (mime == null || mime.isEmpty || mime == 'application/octet-stream') {
+        mime = ChatFrames.detectMimeType(file.name, bytes);
+      }
+      await offer(file.name, bytes, mime);
       await onSent?.call();
     } catch (e) {
       skipped.add((name: file.name, error: e));
@@ -170,8 +174,10 @@ class ChatPage extends StatefulWidget {
 
 class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   final _input = TextEditingController();
+  final _inputFocusNode = FocusNode();
   final _scrollController = ScrollController();
   final _searchController = TextEditingController();
+  bool _showEmoji = false;
 
   StreamSubscription<ChatManagerEvent>? _events;
   List<ChatMessage> _messages = const [];
@@ -230,11 +236,18 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     widget.chat.viewing(widget.contactId);
     _events = widget.chat.events.listen(_onEvent);
     _input.addListener(_onInputChanged);
+    _inputFocusNode.addListener(_onInputFocusChanged);
     _scrollController.addListener(_onScroll);
     unawaited(_markAndSendRead());
     unawaited(_sweepThenLoad());
     unawaited(_loadRetention());
     _armMidnight();
+  }
+
+  void _onInputFocusChanged() {
+    if (_inputFocusNode.hasFocus && _showEmoji) {
+      setState(() => _showEmoji = false);
+    }
   }
 
   /// Schedules a redraw for the next local midnight, by the injected clock.
@@ -350,6 +363,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     widget.chat.viewing(null);
     unawaited(_events?.cancel());
     _input.dispose();
+    _inputFocusNode.dispose();
     super.dispose();
   }
 
@@ -423,6 +437,69 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     'not-contact' || 'declined' => l10n.chatFailDeclined,
     _ => l10n.chatFailConnection,
   };
+
+  void _toggleEmojiPicker() {
+    if (_showEmoji) {
+      setState(() => _showEmoji = false);
+      _inputFocusNode.requestFocus();
+    } else {
+      _inputFocusNode.unfocus();
+      setState(() => _showEmoji = true);
+    }
+  }
+
+  void _onEmojiSelected(String emoji) {
+    final text = _input.text;
+    final selection = _input.selection;
+    final start = selection.start;
+    final end = selection.end;
+    if (selection.isValid && start >= 0) {
+      final newText = text.replaceRange(start, end, emoji);
+      final newPos = start + emoji.length;
+      _input.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: newPos),
+      );
+    } else {
+      final newText = text + emoji;
+      _input.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: newText.length),
+      );
+    }
+  }
+
+  void _onEmojiBackspace() {
+    final text = _input.text;
+    final selection = _input.selection;
+    if (text.isEmpty) return;
+    if (selection.isValid && selection.start > 0) {
+      if (selection.start != selection.end) {
+        final newText = text.replaceRange(selection.start, selection.end, '');
+        _input.value = TextEditingValue(
+          text: newText,
+          selection: TextSelection.collapsed(offset: selection.start),
+        );
+      } else {
+        final beforeChars = text.substring(0, selection.start).characters;
+        if (beforeChars.isNotEmpty) {
+          final dropped = beforeChars.skipLast(1).toString();
+          final after = text.substring(selection.start);
+          _input.value = TextEditingValue(
+            text: dropped + after,
+            selection: TextSelection.collapsed(offset: dropped.length),
+          );
+        }
+      }
+    } else {
+      final chars = text.characters;
+      final dropped = chars.skipLast(1).toString();
+      _input.value = TextEditingValue(
+        text: dropped,
+        selection: TextSelection.collapsed(offset: dropped.length),
+      );
+    }
+  }
 
   Future<void> _send() async {
     final text = _input.text;
@@ -659,8 +736,27 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           picked = await openFiles(
             acceptedTypeGroups: const [
               XTypeGroup(
-                label: 'media',
-                mimeTypes: ['image/*', 'video/*'],
+                label: 'Images and Videos',
+                mimeTypes: [
+                  'image/jpeg',
+                  'image/png',
+                  'image/webp',
+                  'image/gif',
+                  'video/mp4',
+                  'video/quicktime',
+                  'video/x-matroska',
+                ],
+                extensions: [
+                  'jpg',
+                  'jpeg',
+                  'png',
+                  'webp',
+                  'gif',
+                  'mp4',
+                  'mov',
+                  'mkv',
+                  'webm',
+                ],
               ),
             ],
           );
@@ -672,8 +768,49 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           picked = await openFiles(
             acceptedTypeGroups: const [
               XTypeGroup(
-                label: 'audio',
-                mimeTypes: ['audio/*'],
+                label: 'Audio',
+                mimeTypes: [
+                  'audio/mpeg',
+                  'audio/mp4',
+                  'audio/wav',
+                  'audio/ogg',
+                  'audio/aac',
+                  'audio/opus',
+                ],
+                extensions: ['mp3', 'm4a', 'wav', 'ogg', 'aac', 'opus', 'flac'],
+              ),
+            ],
+          );
+        } catch (_) {
+          picked = await openFiles();
+        }
+      } else if (kind == _AttachmentKind.document) {
+        try {
+          picked = await openFiles(
+            acceptedTypeGroups: const [
+              XTypeGroup(
+                label: 'Documents',
+                mimeTypes: [
+                  'application/pdf',
+                  'text/plain',
+                  'application/msword',
+                  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                  'application/vnd.ms-excel',
+                  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                  'application/zip',
+                ],
+                extensions: [
+                  'pdf',
+                  'txt',
+                  'doc',
+                  'docx',
+                  'xls',
+                  'xlsx',
+                  'ppt',
+                  'pptx',
+                  'zip',
+                  'csv',
+                ],
               ),
             ],
           );
@@ -790,10 +927,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       final copy = await widget.chat.store.openCopy(message);
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
         try {
+          final mime = message.fileMime ??
+              ChatFrames.detectMimeType(message.fileName ?? copy.path);
           const channel = MethodChannel('sotto/android');
           final ok = await channel.invokeMethod<bool>('openFile', {
             'path': copy.path,
-            'mime': message.fileMime ?? '*/*',
+            'mime': mime,
           });
           if (ok == true) return;
         } catch (_) {}
@@ -814,10 +953,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         String? savedPath;
         try {
           final copy = await widget.chat.store.openCopy(message);
+          final mime = message.fileMime ?? ChatFrames.detectMimeType(fileName);
           const channel = MethodChannel('sotto/android');
           savedPath = await channel.invokeMethod<String>('saveToDownloads', {
             'path': copy.path,
             'name': fileName,
+            'mime': mime,
           });
         } catch (_) {}
 
@@ -1078,7 +1219,24 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
               )
               .toList();
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_showEmoji && !_isSearching,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (_showEmoji) {
+          setState(() => _showEmoji = false);
+          return;
+        }
+        if (_isSearching) {
+          setState(() {
+            _isSearching = false;
+            _searchQuery = '';
+            _searchController.clear();
+          });
+          return;
+        }
+      },
+      child: Scaffold(
       backgroundColor: tokens.body,
       appBar: AppBar(
         titleSpacing: 0,
@@ -1314,7 +1472,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                 onDismiss: () => setState(() => _problem = null),
               ),
             Expanded(
-              child: _messages.isEmpty
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: () {
+                  if (_showEmoji) setState(() => _showEmoji = false);
+                },
+                child: _messages.isEmpty
                   ? _scrollableEmpty(
                       EmptyState(
                         icon: Icons.chat_bubble_outline,
@@ -1402,6 +1565,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                         );
                       },
                     ),
+              ),
             ),
             if (_peerIsTyping)
               Align(
@@ -1483,21 +1647,29 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
-                                IconButton(
-                                  tooltip: 'Emoji',
+                                 IconButton(
+                                  tooltip: _showEmoji ? 'Keyboard' : 'Emoji',
                                   style: IconButton.styleFrom(
                                     minimumSize: const Size(40, 48),
                                   ),
                                   icon: Icon(
-                                    Icons.emoji_emotions_outlined,
+                                    _showEmoji
+                                        ? Icons.keyboard_alt_outlined
+                                        : Icons.emoji_emotions_outlined,
                                     color: tokens.attachIcon,
                                     size: 24,
                                   ),
-                                  onPressed: () {},
+                                  onPressed: _toggleEmojiPicker,
                                 ),
                                 Expanded(
                                   child: TextField(
                                     controller: _input,
+                                    focusNode: _inputFocusNode,
+                                    onTap: () {
+                                      if (_showEmoji) {
+                                        setState(() => _showEmoji = false);
+                                      }
+                                    },
                                     minLines: 1,
                                     maxLines: 5,
                                     maxLength: maxTextChars,
@@ -1588,11 +1760,18 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                 ],
               ),
             ),
+            if (_showEmoji)
+              _EmojiPickerPanel(
+                tokens: tokens,
+                onEmojiSelected: _onEmojiSelected,
+                onBackspace: _onEmojiBackspace,
+              ),
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }
 
 /// Names the day of the messages below it.
@@ -2932,5 +3111,240 @@ class _LinkifiedTextState extends State<_LinkifiedText> {
   @override
   Widget build(BuildContext context) {
     return Text.rich(TextSpan(children: _buildSpans()));
+  }
+}
+
+class _EmojiPickerPanel extends StatefulWidget {
+  const _EmojiPickerPanel({
+    required this.tokens,
+    required this.onEmojiSelected,
+    required this.onBackspace,
+  });
+
+  final ChatTokens tokens;
+  final ValueChanged<String> onEmojiSelected;
+  final VoidCallback onBackspace;
+
+  @override
+  State<_EmojiPickerPanel> createState() => _EmojiPickerPanelState();
+}
+
+class _EmojiPickerPanelState extends State<_EmojiPickerPanel>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+
+  static const _categories = [
+    (
+      icon: Icons.sentiment_satisfied_alt_outlined,
+      label: 'Smileys',
+      emojis: [
+        '😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊',
+        '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '😋', '😛', '😜', '🤪',
+        '😝', '🤑', '🤗', '🤭', '🤫', '🤔', '🤐', '🤨', '😐', '😑', '😶', '😏',
+        '😒', '🙄', '😬', '🤥', '😌', '😔', '😪', '🤤', '😴', '😷', '🤒', '🤕',
+        '🤢', '🤮', '🤧', '🥵', '🥶', '🥴', '😵', '🤯', '🤠', '🥳', '🥸', '😎',
+        '🤓', '🧐', '😕', '😟', '🙁', '☹️', '😮', '😯', '😲', '😳', '🥺', '😦',
+        '😧', '😨', '😰', '😥', '😢', '😭', '😱', '😖', '😣', '😞', '😓', '😩',
+        '😫', '🥱', '😤', '😡', '😠', '🤬', '💀', '💩', '🤡', '👻', '👽', '🤖',
+      ],
+    ),
+    (
+      icon: Icons.front_hand_outlined,
+      label: 'People',
+      emojis: [
+        '👋', '🤚', '🖐️', '✋', '🖖', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️',
+        '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝', '🙏',
+        '✍️', '💅', '🤳', '💪', '🦾', '🦿', '🦵', '🦶', '👂', '🦻', '👃', '🧠',
+        '🫀', '🫁', '🦷', '🦴', '👀', '👁️', '👅', '👄', '👶', '🧒', '👦', '👧',
+        '🧑', '👱', '👨', '🧔', '👩', '🧓', '👴', '👵', '🙍', '🙎', '🙅', '🙆',
+        '💁', '🙋', '🧏', '🙇', '🤦', '🤷', '🧑‍⚕️', '🧑‍🎓', '🧑‍🏫', '🧑‍⚖️', '🧑‍🌾', '🧑‍🍳',
+      ],
+    ),
+    (
+      icon: Icons.pets_outlined,
+      label: 'Animals',
+      emojis: [
+        '🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮',
+        '🐷', '🐽', '🐸', '🐵', '🙈', '🙉', '🙊', '🐒', '🐔', '🐧', '🐦', '🐤',
+        '🐣', '🐥', '🦆', '🦅', '🦉', '🦇', '🐺', '🐗', '🐴', '🦄', '🐝', '🐛',
+        '🦋', '🐌', '🐞', '🐜', '🦟', '🐢', '🐍', '🦎', '🐙', '🦑', '🦐', '🦞',
+        '🦀', '🐡', '🐠', '🐟', '🐬', '🐳', '🐋', '🦈', '🐊', '🐅', '🐆', '🦓',
+        '🐘', '🦛', '🦏', '🐪', '🐫', '🦒', '🦘', '🌲', '🌳', '🌴', '🌵', '🌱',
+        '🌿', '🍀', '🍁', '🍂', '🍃', '🌸', '💮', '🌹', '🌺', '🌻', '🌼', '🌷',
+      ],
+    ),
+    (
+      icon: Icons.fastfood_outlined,
+      label: 'Food',
+      emojis: [
+        '🍏', '🍎', '🍐', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🫐', '🍈', '🍒',
+        '🍑', '🥭', '🍍', '🥥', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌶️',
+        '🌽', '🥕', '🧄', '🧅', '🥔', '🍠', '🥐', '🍞', '🥖', '🥨', '🧀', '🥚',
+        '🍳', '🧈', '🥞', '🧇', '🥓', '🥩', '🍗', '🍖', '🌭', '🍔', '🍟', '🍕',
+        '🥪', '🥙', '🌮', '🌯', '🥗', '🥘', '🥫', '🍝', '🍜', '🍲', '🍛', '🍣',
+        '🍱', '🥟', '🍤', '🍙', '🍚', '🍢', '🍡', '🍧', '🍨', '🍦', '🍰', '🎂',
+        '🍮', '🍭', '🍬', '🍫', '🍿', '🍩', '🍪', '🌰', '🥜', '🥛', '☕', '🫖',
+      ],
+    ),
+    (
+      icon: Icons.sports_soccer_outlined,
+      label: 'Activities',
+      emojis: [
+        '⚽', '🏀', '🏈', '⚾', '🥎', '🎾', '🏐', '🏉', '🥏', '🎱', '🪀', '🏓',
+        '🏸', '🏒', '🏑', '🏏', '🥅', '⛳', '🪁', '🏹', '🎣', '🥊', '🥋', '🛹',
+        '🛼', '🛷', '⛸️', '🎿', '🏂', '🏋️', '🤼', '🤸', '⛹️', '🤺', '🏄', '🏊',
+        '🤽', '🚣', '🧗', '🚵', '🚴', '🏆', '🥇', '🥈', '🥉', '🏅', '🎖️', '🎗️',
+        '🎫', '🎟️', '🎪', '🎭', '🎨', '🎬', '🎤', '🎧', '🎼', '🎵', '🎶', '🥁',
+        '🎷', '🎺', '🎸', '🎻', '🎲', '♟️', '🎯', '🎳', '🎮', '🎰', '🧩', '🃏',
+      ],
+    ),
+    (
+      icon: Icons.directions_car_outlined,
+      label: 'Travel',
+      emojis: [
+        '🚗', '🚕', '🚙', '🚌', '🚎', '🏎️', '🚓', '🚑', '🚒', '🚐', '🚚', '🚛',
+        '🚜', '🛴', '🚲', '🛵', '🏍️', '🛺', '🚨', '🚔', '🚍', '🚘', '🚖', '🚡',
+        '🚠', '🚟', '🚃', '🚋', '🚞', '🚝', '🚄', '🚅', '🚈', '🚂', '🚆', '🚇',
+        '🚊', '🚉', '✈️', '🛫', '🛬', '💺', '🛰️', '🚀', '🛸', '🚁', '🛶', '⛵',
+        '🚤', '🛳️', '⛴️', '🚢', '⚓', '⛽', '🚧', '🚥', '🚦', '🛑', '🗼', '🗽',
+        '⛪', '🕌', '🛕', '🕍', '⛩️', '🕋', '⛲', '⛺', '🌁', '🌃', '🏙️', '🌄',
+      ],
+    ),
+    (
+      icon: Icons.lightbulb_outlined,
+      label: 'Objects',
+      emojis: [
+        '⌚', '📱', '📲', '💻', '⌨️', '🖥️', '🖨️', '🖱️', '🕹️', '💾', '💿', '📀',
+        '📷', '📸', '📹', '🎥', '📽️', '📞', '☎️', '📟', '📠', '📺', '📻', '🎙️',
+        '⏱️', '⏲️', '⏰', '🕰️', '⌛', '⏳', '📡', '🔋', '🔌', '💡', '🔦', '🕯️',
+        '🧯', '💸', '💵', '💴', '💶', '💷', '🪙', '💰', '💳', '💎', '⚖️', '🧰',
+        '🔧', '🔨', '⚒️', '🛠️', '⛏️', '🪓', '🔩', '⚙️', '🧲', '🔫', '💣', '🔪',
+        '🛡️', '🔮', '📿', '💈', '🔬', '🔭', '🩺', '💊', '💉', '🩹', '🧬', '🔑',
+      ],
+    ),
+    (
+      icon: Icons.favorite_outline,
+      label: 'Symbols',
+      emojis: [
+        '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❤️‍🔥', '❤️‍🩹',
+        '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '☮️', '✝️', '☪️', '🕉️',
+        '☸️', '✡️', '🔯', '🕎', '☯️', '☦️', '🛐', '⛎', '♈', '♉', '♊', '♋',
+        '♌', '♍', '♎', '♏', '♐', '♑', '♒', '♓', '🆔', '⚛️', '🉑', '📴',
+        '📳', '🈶', '🈚', '🈸', '🈺', '🈷️', '✴️', '📶', '🈹', '🈲', '🔞', '🔟',
+        '🔤', '🔢', '🔣', '🔲', '🔳', '🔴', '🟠', '🟡', '🟢', '🔵', '🟣', '⚫',
+        '⚪', '🟥', '🟧', '🟨', '🟩', '🟦', '🟪', '⬛', '⬜', '🔶', '🔷', '🔸',
+        '🔹', '🔺', '🔻', '💠', '🔘', '🏁', '🚩', '🎌', '🏴', '🏳️', '✨', '⭐',
+        '🌟', '💫', '⚡', '☄️', '💥', '🔥', '🎉', '🎊', '🎈', '🎁', '💯', '✅',
+      ],
+    ),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: _categories.length, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 270,
+      decoration: BoxDecoration(
+        color: widget.tokens.footer,
+        border: Border(
+          top: BorderSide(color: widget.tokens.divider),
+        ),
+      ),
+      child: Column(
+        children: [
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                for (final cat in _categories)
+                  GridView.builder(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 8,
+                    ),
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 46,
+                          mainAxisSpacing: 4,
+                          crossAxisSpacing: 4,
+                          childAspectRatio: 1.0,
+                        ),
+                    itemCount: cat.emojis.length,
+                    itemBuilder: (context, index) {
+                      final emoji = cat.emojis[index];
+                      return Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () => widget.onEmojiSelected(emoji),
+                          child: Center(
+                            child: Text(
+                              emoji,
+                              style: const TextStyle(fontSize: 26),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+              ],
+            ),
+          ),
+          Container(
+            height: 44,
+            decoration: BoxDecoration(
+              color: widget.tokens.footer,
+              border: Border(
+                top: BorderSide(
+                  color: widget.tokens.divider.withValues(alpha: 0.5),
+                ),
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TabBar(
+                    controller: _tabController,
+                    isScrollable: true,
+                    tabAlignment: TabAlignment.start,
+                    indicatorColor: widget.tokens.sendFill,
+                    indicatorSize: TabBarIndicatorSize.label,
+                    labelColor: widget.tokens.sendFill,
+                    unselectedLabelColor: widget.tokens.attachIcon,
+                    dividerColor: Colors.transparent,
+                    padding: EdgeInsets.zero,
+                    labelPadding: const EdgeInsets.symmetric(horizontal: 10),
+                    tabs: [
+                      for (final cat in _categories)
+                        Tab(icon: Icon(cat.icon, size: 22)),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Backspace',
+                  icon: Icon(
+                    Icons.backspace_outlined,
+                    color: widget.tokens.attachIcon,
+                    size: 22,
+                  ),
+                  onPressed: widget.onBackspace,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

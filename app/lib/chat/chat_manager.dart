@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
+
 import '../diagnostics/event_log.dart';
 import 'chat_frames.dart';
 import 'chat_rtc.dart';
 import 'chat_session.dart';
 import 'chat_signalling.dart';
 import 'chat_store.dart';
+import 'image_metadata.dart';
 
 /// Something that happened in chats, for the screens to show.
 sealed class ChatManagerEvent {
@@ -340,7 +343,11 @@ class ChatManager {
     if (session != null && !session.isEnded && session.isReady) {
       for (final msg in queued) {
         await store.setState(contact, msg.id, ChatState.sending);
-        session.resend(msg.withState(ChatState.sending));
+        if (msg.isAttachment) {
+          unawaited(session.offerStoredFile(msg));
+        } else {
+          session.resend(msg.withState(ChatState.sending));
+        }
       }
       return;
     }
@@ -475,8 +482,8 @@ class ChatManager {
         voice: voice,
       );
     }
-    // Wait up to 10 seconds for session to become ready
-    final deadline = clock().add(const Duration(seconds: 10));
+    // Wait up to 5 seconds for session to become ready
+    final deadline = clock().add(const Duration(seconds: 5));
     while (clock().isBefore(deadline)) {
       await Future<void>.delayed(const Duration(milliseconds: 200));
       live = _activeFor(contact);
@@ -491,7 +498,48 @@ class ChatManager {
         );
       }
     }
-    throw StateError('Peer is offline or connection could not be established.');
+    // Peer is offline or session not yet connected: save file locally and queue it
+    final cleanedName = ChatFrames.cleanFileName(name);
+    if (ChatFrames.isBlockedFileType(name) ||
+        ChatFrames.isBlockedFileType(cleanedName)) {
+      throw ArgumentError('Blocked file type: $name');
+    }
+    Uint8List clean;
+    try {
+      clean = ImageMetadata.clean(bytes, mime);
+    } catch (_) {
+      clean = bytes;
+    }
+    if (clean.isEmpty) throw ArgumentError('File is empty');
+    if (clean.length > maxFileSizeNative) {
+      throw ArgumentError('File exceeds max size limit');
+    }
+    final hash = sha256.convert(clean).toString();
+    final id = _newId();
+    final files = store.files;
+    final kept = files == null ? null : await files.save(clean);
+    final queuedMsg = ChatMessage(
+      id: id,
+      contactId: contact,
+      outgoing: true,
+      ts: clock().millisecondsSinceEpoch,
+      text: cleanedName,
+      state: ChatState.queued,
+      fileId: id,
+      fileName: cleanedName,
+      fileSize: clean.length,
+      fileMime: mime,
+      fileSha256: hash,
+      fileStatus: 'offered',
+      filePath: kept?.name,
+      fileKey: kept?.key,
+      voiceNote: voice,
+    );
+    await store.add(queuedMsg);
+    if (voice && kept == null) {
+      await store.keepVoice(queuedMsg, clean);
+    }
+    return queuedMsg;
   }
 
   /// Accepts an offered file.

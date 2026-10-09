@@ -12,6 +12,9 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.media.MediaScannerConnection
 import android.os.Environment
+import android.content.ContentValues
+import android.provider.MediaStore
+import android.webkit.MimeTypeMap
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import io.flutter.embedding.engine.FlutterEngine
@@ -127,9 +130,14 @@ object Bridge {
             }
             "openFile" -> {
                 val path = args["path"] as? String ?: return@handle false
-                val mime = args["mime"] as? String ?: "*/*"
+                var mime = (args["mime"] as? String)?.takeIf { it.isNotBlank() } ?: "*/*"
                 val file = File(path)
                 if (!file.exists()) return@handle false
+                if (mime == "*/*" || mime == "application/octet-stream") {
+                    val ext = file.extension.lowercase()
+                    val inferred = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+                    if (inferred != null) mime = inferred
+                }
                 val uri = FileProvider.getUriForFile(
                     app,
                     "${app.packageName}.fileprovider",
@@ -140,27 +148,67 @@ object Bridge {
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
+                val resInfoList = app.packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+                for (resolveInfo in resInfoList) {
+                    val packageName = resolveInfo.activityInfo.packageName
+                    app.grantUriPermission(packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
                 open(intent)
                 true
             }
             "saveToDownloads" -> {
                 val path = args["path"] as? String ?: return@handle null
                 val fileName = (args["name"] as? String)?.takeIf { it.isNotBlank() } ?: File(path).name
+                var mime = (args["mime"] as? String)?.takeIf { it.isNotBlank() } ?: "*/*"
                 val src = File(path)
                 if (!src.exists()) return@handle null
-                val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                if (!downloadDir.exists()) downloadDir.mkdirs()
-                var dest = File(downloadDir, fileName)
-                var count = 1
-                val base = fileName.substringBeforeLast(".")
-                val ext = if (fileName.contains(".")) ".${fileName.substringAfterLast(".")}" else ""
-                while (dest.exists()) {
-                    dest = File(downloadDir, "$base ($count)$ext")
-                    count++
+                if (mime == "*/*" || mime == "application/octet-stream") {
+                    val ext = src.extension.lowercase()
+                    val inferred = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+                    if (inferred != null) mime = inferred
                 }
-                src.copyTo(dest, overwrite = true)
-                MediaScannerConnection.scanFile(app, arrayOf(dest.absolutePath), null, null)
-                dest.absolutePath
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    try {
+                        val values = ContentValues().apply {
+                            put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                            put(MediaStore.Downloads.MIME_TYPE, mime)
+                            put(MediaStore.Downloads.IS_PENDING, 1)
+                        }
+                        val resolver = app.contentResolver
+                        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                        if (uri != null) {
+                            resolver.openOutputStream(uri)?.use { out ->
+                                src.inputStream().use { input -> input.copyTo(out) }
+                            }
+                            values.clear()
+                            values.put(MediaStore.Downloads.IS_PENDING, 0)
+                            resolver.update(uri, values, null, null)
+                            return@handle fileName
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+
+                try {
+                    val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                    if (!downloadDir.exists()) downloadDir.mkdirs()
+                    var dest = File(downloadDir, fileName)
+                    var count = 1
+                    val base = fileName.substringBeforeLast(".")
+                    val ext = if (fileName.contains(".")) ".${fileName.substringAfterLast(".")}" else ""
+                    while (dest.exists()) {
+                        dest = File(downloadDir, "$base ($count)$ext")
+                        count++
+                    }
+                    src.copyTo(dest, overwrite = true)
+                    MediaScannerConnection.scanFile(app, arrayOf(dest.absolutePath), null, null)
+                    dest.absolutePath
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    null
+                }
             }
             else -> throw IllegalArgumentException("unknown method $method")
         }

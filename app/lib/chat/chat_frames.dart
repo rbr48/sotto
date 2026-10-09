@@ -636,4 +636,96 @@ abstract final class ChatFrames {
     if (!isId(value)) throw const ChatFrameException('malformed');
     return value as String;
   }
+
+  /// Detects MIME type from filename extension and/or file magic bytes.
+  static String detectMimeType(String name, [Uint8List? bytes]) {
+    if (bytes != null && bytes.length >= 4) {
+      if (bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF) {
+        return 'image/jpeg';
+      }
+      if (bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) {
+        return 'image/png';
+      }
+      if (bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46) {
+        return 'image/gif';
+      }
+      if (bytes[0] == 0x25 && bytes[1] == 0x50 && bytes[2] == 0x44 && bytes[3] == 0x46) {
+        return 'application/pdf';
+      }
+      if (bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46) {
+        if (bytes.length >= 12) {
+          final form = String.fromCharCodes(bytes.sublist(8, 12));
+          if (form == 'WEBP') return 'image/webp';
+          if (form == 'WAVE') return 'audio/wav';
+        }
+      }
+    }
+    final dot = name.lastIndexOf('.');
+    if (dot >= 0) {
+      final ext = name.substring(dot + 1).toLowerCase();
+      switch (ext) {
+        case 'jpg':
+        case 'jpeg':
+          return 'image/jpeg';
+        case 'png':
+          return 'image/png';
+        case 'webp':
+          return 'image/webp';
+        case 'gif':
+          return 'image/gif';
+        case 'svg':
+          return 'image/svg+xml';
+        case 'pdf':
+          return 'application/pdf';
+        case 'mp4':
+          return 'video/mp4';
+        case 'm4v':
+        case 'mov':
+          return 'video/quicktime';
+        case 'mkv':
+          return 'video/x-matroska';
+        case 'webm':
+          return 'video/webm';
+        case 'mp3':
+          return 'audio/mpeg';
+        case 'm4a':
+        case 'aac':
+          return 'audio/mp4';
+        case 'wav':
+          return 'audio/wav';
+        case 'ogg':
+        case 'oga':
+          return 'audio/ogg';
+        case 'opus':
+          return 'audio/opus';
+        case 'txt':
+          return 'text/plain';
+        case 'csv':
+          return 'text/csv';
+        case 'html':
+        case 'htm':
+          return 'text/html';
+        case 'json':
+          return 'application/json';
+        case 'zip':
+          return 'application/zip';
+        case 'tar':
+        case 'gz':
+          return 'application/gzip';
+        case 'doc':
+          return 'application/msword';
+        case 'docx':
+          return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        case 'xls':
+          return 'application/vnd.ms-excel';
+        case 'xlsx':
+          return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        case 'ppt':
+          return 'application/vnd.ms-powerpoint';
+        case 'pptx':
+          return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+      }
+    }
+    return 'application/octet-stream';
+  }
 }

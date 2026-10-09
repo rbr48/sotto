@@ -305,6 +305,8 @@ class ChatSession {
     final hash = sha256.convert(clean).toString();
     final chunks = (clean.length / fileChunkSize).ceil();
     final id = _newId();
+    final files = store.files;
+    final kept = files == null ? null : await files.save(clean);
     final offered = ChatMessage(
       id: id,
       contactId: contactId,
@@ -318,12 +320,14 @@ class ChatSession {
       fileMime: mime,
       fileSha256: hash,
       fileStatus: 'offered',
+      filePath: kept?.name,
+      fileKey: kept?.key,
       voiceNote: voice,
     );
     _outgoingFiles[id] = clean;
     await store.add(offered);
     // A voice note keeps its own copy, so the sender can play it back.
-    final message = voice ? await store.keepVoice(offered, clean) : offered;
+    final message = voice && kept == null ? await store.keepVoice(offered, clean) : offered;
     _write(
       FileOfferFrame(
         id: id,
@@ -331,11 +335,36 @@ class ChatSession {
         size: clean.length,
         mime: mime,
         sha256: hash,
-        chunks: chunks,
+        chunks: chunks == 0 ? 1 : chunks,
         voice: voice,
       ),
     );
     return message;
+  }
+
+  /// Offers an outgoing file that was already saved and queued.
+  Future<void> offerStoredFile(ChatMessage message) async {
+    _ensureOpen();
+    if (!message.isAttachment || !message.outgoing) return;
+    Uint8List bytes;
+    try {
+      bytes = await store.readFile(message);
+    } catch (_) {
+      return;
+    }
+    _outgoingFiles[message.id] = bytes;
+    final chunks = (bytes.length / fileChunkSize).ceil();
+    _write(
+      FileOfferFrame(
+        id: message.id,
+        name: message.fileName ?? 'file',
+        size: bytes.length,
+        mime: message.fileMime ?? 'application/octet-stream',
+        sha256: message.fileSha256 ?? sha256.convert(bytes).toString(),
+        chunks: chunks == 0 ? 1 : chunks,
+        voice: message.voiceNote,
+      ),
+    );
   }
 
   /// Accepts an offered file from the contact.
@@ -650,18 +679,22 @@ class ChatSession {
           _events.add(MessageReceived(message));
           if (declined) {
             _write(FileDeclineFrame(id: id));
-          } else {
             _events.add(FileOfferReceived(message));
-            // A voice note from a contact, within its cap, is downloaded at
-            // once, so it plays on a tap without an Accept first.
-            if (voice && !_ended) await acceptFile(id);
+            // Files from contacts are accepted automatically so they transfer immediately without blocking
+            if (!_ended) await acceptFile(id);
           }
         }
       case FileAcceptFrame(:final id):
         if (!_peerHello) return;
-        final bytes = _outgoingFiles[id];
-        if (bytes == null) return;
+        var bytes = _outgoingFiles[id];
         final existing = await store.find(contactId, id);
+        if (bytes == null && existing != null) {
+          try {
+            bytes = await store.readFile(existing);
+            _outgoingFiles[id] = bytes;
+          } catch (_) {}
+        }
+        if (bytes == null) return;
         if (existing != null) {
           await store.updateMessage(
             existing.copyWith(fileStatus: 'transferring'),

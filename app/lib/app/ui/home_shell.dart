@@ -149,7 +149,15 @@ class _HomeShellState extends State<HomeShell> {
     final name = app.profile?.name ?? '';
     final practice = app.profile?.practice ?? '';
 
-    return Scaffold(
+    return PopScope(
+      canPop: _tab == 0,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (_tab != 0) {
+          setState(() => _tab = 0);
+        }
+      },
+      child: Scaffold(
       appBar: AppBar(
         toolbarHeight: 64,
         titleSpacing: 4,
@@ -282,7 +290,8 @@ class _HomeShellState extends State<HomeShell> {
                   ),
               ],
             ),
-    );
+    ),
+  );
   }
 
   Widget _constrained(Widget child) => Align(

@@ -62,9 +62,9 @@ class WebRtcChatRtc implements ChatRtc {
       });
     };
     _pc.onConnectionState = (state) {
+      if (_closed) return;
       switch (state) {
         case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
-        case RTCPeerConnectionState.RTCPeerConnectionStateClosed:
           _fail();
         default:
           break;
@@ -140,13 +140,17 @@ class WebRtcChatRtc implements ChatRtc {
       _heldCandidates.add(candidate);
       return;
     }
-    await _pc.addCandidate(
-      RTCIceCandidate(
-        candidate['candidate'] as String?,
-        candidate['sdpMid'] as String?,
-        candidate['sdpMLineIndex'] as int?,
-      ),
-    );
+    try {
+      await _pc.addCandidate(
+        RTCIceCandidate(
+          candidate['candidate'] as String?,
+          candidate['sdpMid'] as String?,
+          candidate['sdpMLineIndex'] as int?,
+        ),
+      );
+    } catch (_) {
+      // Ignored: candidate was invalid, duplicate, or stale
+    }
   }
 
   Future<void> _remoteWasSet() async {
@@ -161,11 +165,14 @@ class WebRtcChatRtc implements ChatRtc {
   void _attach(RTCDataChannel channel) {
     _transport.attach(channel, onBroken: _fail);
     channel.onDataChannelState = (state) {
+      if (_closed) return;
       switch (state) {
         case RTCDataChannelState.RTCDataChannelOpen:
           if (!_opened.isCompleted) _opened.complete();
         case RTCDataChannelState.RTCDataChannelClosed:
-          _fail();
+          if (_opened.isCompleted) {
+            _fail();
+          }
         default:
           break;
       }
