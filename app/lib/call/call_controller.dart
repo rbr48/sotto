@@ -960,6 +960,14 @@ class CallController extends ChangeNotifier {
     await _manager!.call(peer, video: video);
   }
 
+  /// Calls a contact by contact ID (or recent chat sender) with voice or video.
+  Future<void> callContactId(String id, {bool video = true}) async {
+    final identity = _contactIdentity(id) ?? _chatSenders[id];
+    if (identity != null) {
+      await callPeer(identity, video: video);
+    }
+  }
+
   Future<void> accept() async => _manager?.accept();
   Future<void> decline() async => _manager?.decline();
   Future<void> hangUp() async => _manager?.hangUp();

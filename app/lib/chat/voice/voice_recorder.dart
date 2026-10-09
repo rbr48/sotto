@@ -142,7 +142,14 @@ class VoiceRecorder {
         final store = files;
         if (!kIsWeb && store == null) throw StateError('no file store');
         _path = kIsWeb ? null : (await store!.recordingFile('m4a')).path;
-        await recorder.start(_aacConfig, path: _path ?? '');
+        try {
+          await recorder.start(_aacConfig, path: _path ?? '');
+        } catch (_) {
+          // If AAC file route fails (common on Android hardware codecs requiring 44.1kHz),
+          // fall back to the universally supported PCM stream route.
+          _fileRoute = false;
+          await _startPcm(recorder);
+        }
       } else {
         await _startPcm(recorder);
       }

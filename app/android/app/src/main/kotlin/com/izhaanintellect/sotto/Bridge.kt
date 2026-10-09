@@ -10,9 +10,13 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import android.media.MediaScannerConnection
+import android.os.Environment
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 
 /**
  * The `sotto/android` channel between the Dart app and Android: the
@@ -120,6 +124,43 @@ object Bridge {
             "callFinished" -> {
                 (activity as? MainActivity)?.leaveLockScreen()
                 null
+            }
+            "openFile" -> {
+                val path = args["path"] as? String ?: return@handle false
+                val mime = args["mime"] as? String ?: "*/*"
+                val file = File(path)
+                if (!file.exists()) return@handle false
+                val uri = FileProvider.getUriForFile(
+                    app,
+                    "${app.packageName}.fileprovider",
+                    file
+                )
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, mime)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                open(intent)
+                true
+            }
+            "saveToDownloads" -> {
+                val path = args["path"] as? String ?: return@handle null
+                val fileName = (args["name"] as? String)?.takeIf { it.isNotBlank() } ?: File(path).name
+                val src = File(path)
+                if (!src.exists()) return@handle null
+                val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                if (!downloadDir.exists()) downloadDir.mkdirs()
+                var dest = File(downloadDir, fileName)
+                var count = 1
+                val base = fileName.substringBeforeLast(".")
+                val ext = if (fileName.contains(".")) ".${fileName.substringAfterLast(".")}" else ""
+                while (dest.exists()) {
+                    dest = File(downloadDir, "$base ($count)$ext")
+                    count++
+                }
+                src.copyTo(dest, overwrite = true)
+                MediaScannerConnection.scanFile(app, arrayOf(dest.absolutePath), null, null)
+                dest.absolutePath
             }
             else -> throw IllegalArgumentException("unknown method $method")
         }

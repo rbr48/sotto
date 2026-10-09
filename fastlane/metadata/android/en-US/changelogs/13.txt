@@ -1,0 +1,6 @@
+WhatsApp-grade chat experience with premium skin & high contrast UI
+Dedicated voice and video call buttons directly in the chat header
+In-chat media previews and full-screen viewer with zoom and save
+Native Android FileProvider for opening media (images, video, audio, PDF)
+Direct Save to Downloads folder for received files on Android
+Universal PCM WAV voice recording fallback for maximum device compatibility

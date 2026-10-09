@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:audioplayers/audioplayers.dart' show PlayerState;
+import 'package:flutter/foundation.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -648,11 +650,39 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _attachFile() async {
+  Future<void> _attachFile({_AttachmentKind? kind}) async {
     final l10n = AppLocalizations.of(context);
-    final List<XFile> picked;
+    List<XFile> picked = const [];
     try {
-      picked = await openFiles();
+      if (kind == _AttachmentKind.gallery) {
+        try {
+          picked = await openFiles(
+            acceptedTypeGroups: const [
+              XTypeGroup(
+                label: 'media',
+                mimeTypes: ['image/*', 'video/*'],
+              ),
+            ],
+          );
+        } catch (_) {
+          picked = await openFiles();
+        }
+      } else if (kind == _AttachmentKind.audio) {
+        try {
+          picked = await openFiles(
+            acceptedTypeGroups: const [
+              XTypeGroup(
+                label: 'audio',
+                mimeTypes: ['audio/*'],
+              ),
+            ],
+          );
+        } catch (_) {
+          picked = await openFiles();
+        }
+      } else {
+        picked = await openFiles();
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -692,6 +722,54 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         .showSnackBar(SnackBar(content: Text(notes.join('\n'))));
   }
 
+  void _showAttachmentMenu(AppLocalizations l10n) {
+    final tokens = ChatTokens.of(context);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: tokens.header,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _AttachmentOption(
+                icon: Icons.photo_library,
+                color: const Color(0xFFAC44CF),
+                label: 'Gallery',
+                onTap: () {
+                  Navigator.pop(context);
+                  _attachFile(kind: _AttachmentKind.gallery);
+                },
+              ),
+              _AttachmentOption(
+                icon: Icons.insert_drive_file,
+                color: const Color(0xFF5F66CD),
+                label: 'Document',
+                onTap: () {
+                  Navigator.pop(context);
+                  _attachFile(kind: _AttachmentKind.document);
+                },
+              ),
+              _AttachmentOption(
+                icon: Icons.headphones,
+                color: const Color(0xFFF33D73),
+                label: 'Audio',
+                onTap: () {
+                  Navigator.pop(context);
+                  _attachFile(kind: _AttachmentKind.audio);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _acceptFile(ChatMessage message) async {
     final fileId = message.fileId ?? message.id;
     await widget.chat.acceptFile(widget.contactId, fileId);
@@ -710,6 +788,16 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final failed = AppLocalizations.of(context).chatFileOpenFailed;
     try {
       final copy = await widget.chat.store.openCopy(message);
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+        try {
+          const channel = MethodChannel('sotto/android');
+          final ok = await channel.invokeMethod<bool>('openFile', {
+            'path': copy.path,
+            'mime': message.fileMime ?? '*/*',
+          });
+          if (ok == true) return;
+        } catch (_) {}
+      }
       await launchUrl(Uri.file(copy.path));
     } catch (e) {
       _showFileError(e, failed);
@@ -720,11 +808,50 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final failed = AppLocalizations.of(context).chatFileSaveFailed;
     try {
       final bytes = await widget.chat.store.readFile(message);
-      final location = await getSaveLocation(suggestedName: message.fileName);
+      final fileName = message.fileName ?? 'file';
+
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+        String? savedPath;
+        try {
+          final copy = await widget.chat.store.openCopy(message);
+          const channel = MethodChannel('sotto/android');
+          savedPath = await channel.invokeMethod<String>('saveToDownloads', {
+            'path': copy.path,
+            'name': fileName,
+          });
+        } catch (_) {}
+
+        if (savedPath == null) {
+          try {
+            final downloadDir = Directory('/storage/emulated/0/Download');
+            if (await downloadDir.exists()) {
+              final target = File('${downloadDir.path}/$fileName');
+              await target.writeAsBytes(bytes);
+              savedPath = target.path;
+            }
+          } catch (_) {}
+        }
+
+        if (savedPath != null) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Saved to Downloads: $fileName'),
+              action: SnackBarAction(
+                label: AppLocalizations.of(context).chatFileOpen,
+                onPressed: () => _openFile(message),
+              ),
+            ),
+          );
+          return;
+        }
+      }
+
+      final location = await getSaveLocation(suggestedName: fileName);
       if (location == null) return;
       await XFile.fromData(
         bytes,
-        name: message.fileName,
+        name: fileName,
         mimeType: message.fileMime,
       ).saveTo(location.path);
       if (!mounted) return;
@@ -919,11 +1046,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     return l10n.chatRetentionMinutes(math.max(1, d.inMinutes));
   }
 
-  /// The message field's border: none, with the field's rounded shape.
-  static OutlineInputBorder _noFieldBorder() => OutlineInputBorder(
-    borderRadius: BorderRadius.circular(22),
-    borderSide: BorderSide.none,
-  );
+
 
   /// An empty state that scrolls when the space is too short for it, so a
   /// large text size cannot run it into the composer.
@@ -982,31 +1105,62 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                 children: [
                   InitialsAvatar(name: widget.name, radius: 18),
                   const SizedBox(width: 10),
-                  Flexible(
-                    child: Text(
-                      widget.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: textTheme.titleMedium?.copyWith(
-                        color: tokens.headerTitle,
-                      ),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                widget.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: textTheme.titleMedium?.copyWith(
+                                  color: tokens.headerTitle,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            if (widget.verified) ...[
+                              const SizedBox(width: 4),
+                              Semantics(
+                                label: l10n.chatVerifiedTooltip,
+                                child: Tooltip(
+                                  message: l10n.chatVerifiedTooltip,
+                                  excludeFromSemantics: true,
+                                  child: Icon(
+                                    Icons.verified,
+                                    size: 16,
+                                    color: tokens.verifiedIcon,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        Text(
+                          _peerIsTyping
+                              ? l10n.chatTyping(widget.name)
+                              : (widget.verified
+                                  ? 'verified contact'
+                                  : (widget.chat.hideIp()
+                                      ? 'relayed'
+                                      : 'online')),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: textTheme.bodySmall?.copyWith(
+                            color: _peerIsTyping
+                                ? tokens.verifiedIcon
+                                : tokens.headerSubtitle,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  if (widget.verified) ...[
-                    const SizedBox(width: 4),
-                    Semantics(
-                      label: l10n.chatVerifiedTooltip,
-                      child: Tooltip(
-                        message: l10n.chatVerifiedTooltip,
-                        excludeFromSemantics: true,
-                        child: Icon(
-                          Icons.verified,
-                          size: 18,
-                          color: tokens.verifiedIcon,
-                        ),
-                      ),
-                    ),
-                  ],
                 ],
               ),
         leading: _isSearching
@@ -1033,7 +1187,33 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
               ),
           ] else ...[
             IconButton(
-              style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+              style: IconButton.styleFrom(minimumSize: const Size(44, 48)),
+              icon: const Icon(Icons.videocam),
+              tooltip: 'Video call ${widget.name}',
+              onPressed: _callActive || widget.calls == null
+                  ? null
+                  : () => unawaited(
+                      widget.calls?.callContactId(
+                        widget.contactId,
+                        video: true,
+                      ),
+                    ),
+            ),
+            IconButton(
+              style: IconButton.styleFrom(minimumSize: const Size(44, 48)),
+              icon: const Icon(Icons.call),
+              tooltip: 'Voice call ${widget.name}',
+              onPressed: _callActive || widget.calls == null
+                  ? null
+                  : () => unawaited(
+                      widget.calls?.callContactId(
+                        widget.contactId,
+                        video: false,
+                      ),
+                    ),
+            ),
+            IconButton(
+              style: IconButton.styleFrom(minimumSize: const Size(44, 48)),
               icon: const Icon(Icons.search),
               tooltip: l10n.chatSearch,
               onPressed: () => setState(() => _isSearching = true),
@@ -1281,64 +1461,98 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                     _recordingRow(l10n, tokens, textTheme)
                   else
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        IconButton(
-                          tooltip: l10n.chatAttachFile,
-                          style: IconButton.styleFrom(
-                            minimumSize: const Size(48, 48),
-                          ),
-                          icon: Icon(
-                            Icons.attach_file,
-                            color: tokens.attachIcon,
-                          ),
-                          onPressed: _attachFile,
-                        ),
-                        const SizedBox(width: 4),
                         Expanded(
-                          child: TextField(
-                            controller: _input,
-                            minLines: 1,
-                            maxLines: 5,
-                            maxLength: maxTextChars,
-                            buildCounter: (
-                              _, {
-                              required currentLength,
-                              required isFocused,
-                              maxLength,
-                            }) => null,
-                            style: textTheme.bodyLarge?.copyWith(
-                              color: tokens.fieldText,
-                              fontSize: 15,
-                            ),
-                            textInputAction: TextInputAction.send,
-                            onSubmitted: (_) => _send(),
-                            decoration: InputDecoration(
-                              hintText: l10n.chatWriteHint,
-                              hintStyle: textTheme.bodyLarge?.copyWith(
-                                color: tokens.fieldHint,
-                                fontSize: 15,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: tokens.fieldFill,
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(
+                                color: tokens.divider,
+                                width: 0.8,
                               ),
-                              filled: true,
-                              fillColor: tokens.fieldFill,
-                              contentPadding:
-                                  const EdgeInsetsDirectional.fromSTEB(
-                                    16,
-                                    12,
-                                    16,
-                                    12,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.04),
+                                  blurRadius: 4,
+                                  offset: const Offset(0, 1),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                IconButton(
+                                  tooltip: 'Emoji',
+                                  style: IconButton.styleFrom(
+                                    minimumSize: const Size(40, 48),
                                   ),
-                              border: _noFieldBorder(),
-                              enabledBorder: _noFieldBorder(),
-                              disabledBorder: _noFieldBorder(),
-                              focusedBorder: _noFieldBorder(),
-                              errorBorder: _noFieldBorder(),
-                              focusedErrorBorder: _noFieldBorder(),
+                                  icon: Icon(
+                                    Icons.emoji_emotions_outlined,
+                                    color: tokens.attachIcon,
+                                    size: 24,
+                                  ),
+                                  onPressed: () {},
+                                ),
+                                Expanded(
+                                  child: TextField(
+                                    controller: _input,
+                                    minLines: 1,
+                                    maxLines: 5,
+                                    maxLength: maxTextChars,
+                                    buildCounter: (
+                                      _, {
+                                      required currentLength,
+                                      required isFocused,
+                                      maxLength,
+                                    }) => null,
+                                    style: textTheme.bodyLarge?.copyWith(
+                                      color: tokens.fieldText,
+                                      fontSize: 15,
+                                    ),
+                                    textInputAction: TextInputAction.send,
+                                    onSubmitted: (_) => _send(),
+                                    decoration: InputDecoration(
+                                      hintText: l10n.chatWriteHint,
+                                      hintStyle: textTheme.bodyLarge?.copyWith(
+                                        color: tokens.fieldHint,
+                                        fontSize: 15,
+                                      ),
+                                      border: InputBorder.none,
+                                      enabledBorder: InputBorder.none,
+                                      disabledBorder: InputBorder.none,
+                                      focusedBorder: InputBorder.none,
+                                      contentPadding:
+                                          const EdgeInsetsDirectional.fromSTEB(
+                                            0,
+                                            12,
+                                            8,
+                                            12,
+                                          ),
+                                    ),
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: l10n.chatAttachFile,
+                                  style: IconButton.styleFrom(
+                                    minimumSize: const Size(40, 48),
+                                  ),
+                                  icon: Transform.rotate(
+                                    angle: -0.5,
+                                    child: Icon(
+                                      Icons.attach_file,
+                                      color: tokens.attachIcon,
+                                      size: 24,
+                                    ),
+                                  ),
+                                  onPressed: () => _showAttachmentMenu(l10n),
+                                ),
+                              ],
                             ),
                           ),
                         ),
                         const SizedBox(width: 8),
-                        // With text in the field, the button sends it. Without,
-                        // it starts a voice message.
                         ValueListenableBuilder<TextEditingValue>(
                           valueListenable: _input,
                           builder: (context, value, _) {
@@ -1346,6 +1560,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                               backgroundColor: tokens.sendFill,
                               foregroundColor: tokens.sendIcon,
                               minimumSize: const Size(48, 48),
+                              elevation: 2,
                             );
                             if (value.text.trim().isEmpty) {
                               final blocked = _callActive || _voiceBusy;
@@ -1354,7 +1569,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                                     ? l10n.chatVoiceInCall
                                     : l10n.chatVoiceMessage,
                                 style: style,
-                                icon: const Icon(Icons.mic),
+                                icon: const Icon(Icons.mic, size: 22),
                                 onPressed: blocked
                                     ? null
                                     : () => unawaited(_startVoiceRecording()),
@@ -1363,7 +1578,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                             return IconButton.filled(
                               tooltip: l10n.chatSend,
                               style: style,
-                              icon: const Icon(Icons.send),
+                              icon: const Icon(Icons.send, size: 20),
                               onPressed: _send,
                             );
                           },
@@ -1602,7 +1817,7 @@ class _Bubble extends StatelessWidget {
     if (message.isAttachment) {
       if (message.fileStatus != 'completed') return null;
       return (
-        icon: Icons.done,
+        icon: Icons.done_all,
         iconColor: tokens.sentSecondary,
         labelColor: tokens.sentSecondary,
         label: l10n.chatStatusDelivered,
@@ -1622,14 +1837,14 @@ class _Bubble extends StatelessWidget {
         label: l10n.chatStatusQueued,
       ),
       ChatState.delivered => (
-        icon: Icons.done,
+        icon: Icons.done_all,
         iconColor: tokens.sentSecondary,
         labelColor: tokens.sentSecondary,
         label: l10n.chatStatusDelivered,
       ),
       ChatState.read => (
         icon: Icons.done_all,
-        iconColor: tokens.sentText,
+        iconColor: const Color(0xFF53BDEB),
         labelColor: tokens.sentText,
         label: l10n.chatStatusRead,
       ),
@@ -1760,6 +1975,7 @@ class _Bubble extends StatelessWidget {
                         message: message,
                         outgoing: outgoing,
                         l10n: l10n,
+                        store: store,
                         onAccept: onAccept,
                         onDecline: onDecline,
                         onOpen: onOpen,
@@ -1859,6 +2075,7 @@ class _FileCard extends StatelessWidget {
     required this.message,
     required this.outgoing,
     required this.l10n,
+    required this.store,
     required this.onAccept,
     required this.onDecline,
     required this.onOpen,
@@ -1868,20 +2085,27 @@ class _FileCard extends StatelessWidget {
   final ChatMessage message;
   final bool outgoing;
   final AppLocalizations l10n;
+  final ChatStore store;
   final VoidCallback onAccept;
   final VoidCallback onDecline;
   final VoidCallback onOpen;
   final VoidCallback onSaveAs;
 
-  IconData _fileIcon(String? mime, String? name) {
+  static bool isImageFile(String? mime, String? name) {
     final m = (mime ?? '').toLowerCase();
     final n = (name ?? '').toLowerCase();
-    if (m.startsWith('image/') ||
+    return m.startsWith('image/') ||
         n.endsWith('.png') ||
         n.endsWith('.jpg') ||
         n.endsWith('.jpeg') ||
         n.endsWith('.gif') ||
-        n.endsWith('.webp')) {
+        n.endsWith('.webp');
+  }
+
+  IconData _fileIcon(String? mime, String? name) {
+    final m = (mime ?? '').toLowerCase();
+    final n = (name ?? '').toLowerCase();
+    if (isImageFile(mime, name)) {
       return Icons.image_outlined;
     }
     if (m.startsWith('video/') ||
@@ -1919,46 +2143,71 @@ class _FileCard extends StatelessWidget {
         : tokens.receivedSecondary;
     final tileFill = outgoing ? tokens.sentFileTile : tokens.receivedFileTile;
     final tileIcon = outgoing ? tokens.sentText : tokens.receivedFileIcon;
+    final isImg = isImageFile(message.fileMime, message.fileName);
+    final isDone = status == 'completed';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (isImg && isDone) ...[
+          _ImageThumbnail(
+            message: message,
+            store: store,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => _ImageViewerPage(
+                    message: message,
+                    store: store,
+                    onOpen: onOpen,
+                    onSaveAs: onSaveAs,
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 8),
+        ],
         ExcludeSemantics(
-          child: Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: tileFill,
-                  borderRadius: BorderRadius.circular(10),
+          child: InkWell(
+            onTap: isDone ? onOpen : null,
+            borderRadius: BorderRadius.circular(10),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: tileFill,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(icon, size: 28, color: tileIcon),
                 ),
-                child: Icon(icon, size: 28, color: tileIcon),
-              ),
-              const SizedBox(width: 10),
-              Flexible(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      name,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: textTheme.titleSmall?.copyWith(color: fg),
-                    ),
-                    if (size.isNotEmpty)
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                       Text(
-                        size,
-                        style: textTheme.labelMedium?.copyWith(
-                          color: secondary,
-                        ),
+                        name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: textTheme.titleSmall?.copyWith(color: fg),
                       ),
-                  ],
+                      if (size.isNotEmpty)
+                        Text(
+                          size,
+                          style: textTheme.labelMedium?.copyWith(
+                            color: secondary,
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 8),
@@ -2032,9 +2281,6 @@ class _FileCard extends StatelessWidget {
           ),
         );
       case 'completed':
-        // An outgoing file shows "Delivered" in the metadata row, once the
-        // receiver has confirmed it.
-        if (outgoing) return const SizedBox.shrink();
         return Wrap(
           spacing: 8,
           runSpacing: 4,
@@ -2042,21 +2288,22 @@ class _FileCard extends StatelessWidget {
             TextButton.icon(
               style: TextButton.styleFrom(
                 minimumSize: const Size(48, 48),
-                foregroundColor: tokens.receivedText,
+                foregroundColor: outgoing ? tokens.sentText : tokens.receivedText,
               ),
               icon: const Icon(Icons.open_in_new, size: 18),
               label: Text(l10n.chatFileOpen),
               onPressed: onOpen,
             ),
-            TextButton.icon(
-              style: TextButton.styleFrom(
-                minimumSize: const Size(48, 48),
-                foregroundColor: tokens.receivedText,
+            if (!outgoing)
+              TextButton.icon(
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(48, 48),
+                  foregroundColor: tokens.receivedText,
+                ),
+                icon: const Icon(Icons.download, size: 18),
+                label: Text(l10n.chatFileSaveAs),
+                onPressed: onSaveAs,
               ),
-              icon: const Icon(Icons.download, size: 18),
-              label: Text(l10n.chatFileSaveAs),
-              onPressed: onSaveAs,
-            ),
           ],
         );
       case 'declined':
@@ -2092,6 +2339,199 @@ class _FileCard extends StatelessWidget {
       default:
         return const SizedBox.shrink();
     }
+  }
+}
+
+/// Thumbnail rendered for image attachments.
+class _ImageThumbnail extends StatefulWidget {
+  const _ImageThumbnail({
+    required this.message,
+    required this.store,
+    required this.onTap,
+  });
+
+  final ChatMessage message;
+  final ChatStore store;
+  final VoidCallback onTap;
+
+  @override
+  State<_ImageThumbnail> createState() => _ImageThumbnailState();
+}
+
+class _ImageThumbnailState extends State<_ImageThumbnail> {
+  Uint8List? _bytes;
+  bool _loading = true;
+  bool _error = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final b = await widget.store.readFile(widget.message);
+      if (mounted) setState(() { _bytes = b; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() { _error = true; _loading = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return Container(
+        height: 180,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+    if (_error || _bytes == null) {
+      return const SizedBox.shrink();
+    }
+    return GestureDetector(
+      onTap: widget.onTap,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 260, minWidth: double.infinity),
+          child: Image.memory(
+            _bytes!,
+            fit: BoxFit.cover,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Full screen image viewer with pinch-to-zoom and save actions.
+class _ImageViewerPage extends StatefulWidget {
+  const _ImageViewerPage({
+    required this.message,
+    required this.store,
+    required this.onOpen,
+    required this.onSaveAs,
+  });
+
+  final ChatMessage message;
+  final ChatStore store;
+  final VoidCallback onOpen;
+  final VoidCallback onSaveAs;
+
+  @override
+  State<_ImageViewerPage> createState() => _ImageViewerPageState();
+}
+
+class _ImageViewerPageState extends State<_ImageViewerPage> {
+  Uint8List? _bytes;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final b = await widget.store.readFile(widget.message);
+      if (mounted) setState(() { _bytes = b; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() { _loading = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final name = widget.message.fileName ?? 'Image';
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black.withValues(alpha: 0.8),
+        foregroundColor: Colors.white,
+        title: Text(name, style: const TextStyle(fontSize: 16)),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.open_in_new),
+            tooltip: 'Open with app',
+            onPressed: widget.onOpen,
+          ),
+          IconButton(
+            icon: const Icon(Icons.download),
+            tooltip: 'Save to device',
+            onPressed: widget.onSaveAs,
+          ),
+        ],
+      ),
+      body: Center(
+        child: _loading
+            ? const CircularProgressIndicator(color: Colors.white)
+            : _bytes == null
+                ? const Text('Could not load image', style: TextStyle(color: Colors.white70))
+                : InteractiveViewer(
+                    minScale: 0.5,
+                    maxScale: 4.0,
+                    child: Image.memory(
+                      _bytes!,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+      ),
+    );
+  }
+}
+
+enum _AttachmentKind { gallery, document, audio }
+
+class _AttachmentOption extends StatelessWidget {
+  const _AttachmentOption({
+    required this.icon,
+    required this.color,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircleAvatar(
+              radius: 28,
+              backgroundColor: color,
+              child: Icon(icon, color: Colors.white, size: 28),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w500,
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
