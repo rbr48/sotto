@@ -1,6 +1,6 @@
 # Plan: peer-to-peer encrypted messaging
 
-Status: **proposal, awaiting approval.** Nothing here is built yet.
+Status: **approved with the decisions below; not yet built.** Building starts once PR #26 is merged (this branch is #26's branch).
 
 ## Summary
 
@@ -132,13 +132,11 @@ own device and send them automatically when the contact next comes online.
 2. Screens, notifications, translations.
 3. End-to-end tests and docs; then a release.
 
-## Decisions needed
+## Decisions (recorded)
 
-1. **Who can message you:** contacts only (recommended; others get
-   `chat.decline`), or anyone who has your link?
-2. **Notifications:** sender's name only (recommended, nothing readable on the
-   lock screen), or a preview of the text?
-3. **History:** kept until deleted (recommended), or deleted automatically
-   after a set time?
-4. **Offline:** confirm "Not sent + Retry" for v1, with the sender-side outbox
-   as a later step.
+Approved with the recommended option for each:
+
+1. **Who can message you:** contacts only. Others get `chat.decline`.
+2. **Notifications:** the sender's name only. No text preview on the lock screen.
+3. **History:** kept until you delete it. No automatic deletion in v1.
+4. **Offline:** "Not sent" with Retry for v1. A sender-side outbox comes later.

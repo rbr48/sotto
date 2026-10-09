@@ -1,11 +1,10 @@
 # Plan: group calls and meetings
 
-Status: **proposal, awaiting approval.** Nothing here is built yet.
+Status: **approved with the decisions below; not yet built.** Building starts once PR #26 is merged (this branch is #26's branch).
 
 ## Summary
 
-Phase 1 adds **group calls for up to 4 people on video** (or 8 on audio), using a
-*mesh*: each participant holds one direct WebRTC connection to every other
+Phase 1 adds **group calls for up to 4 people on video**, using a *mesh*: each participant holds one direct WebRTC connection to every other
 participant. Media never passes through a server, so the privacy model stays
 as it is for calls. The relay carries only the encrypted set-up messages, as
 it does today, and the TURN servers relay media only where a direct path is
@@ -99,7 +98,7 @@ them. The room has a **roster**: the participants' Sotto IDs and names.
   legs, instead of each leg adapting alone.
 - **Size.** 4 video participants means each device sends and receives up to 3
   streams. Above that, quality on phones drops quickly. Audio-only groups of up
-  to 8 are the same mesh with the camera off.
+  to 8 are the same mesh with the camera off, but they are deferred from Phase 1.
 - **TURN.** A leg that needs relaying costs TURN bandwidth. A 4-person mesh
   has 6 pairs, so up to 12 one-way streams can be relayed across the call.
   Hide my IP address forces relaying on every leg, so its cost grows with the
@@ -180,18 +179,18 @@ benefit to professional calls.
 6. Documentation and a release.
 7. Phase 2 features, one at a time, each with its own plan.
 
-## Decisions needed
+## Decisions (recorded)
 
-1. **Size:** 4 people on video (recommended), or 8 on audio only at first?
-2. **Who can invite:** only the host (recommended, as it keeps the roster
-   simple), or any participant?
+Approved with the recommended option for each:
+
+1. **Size:** Phase 1 is 4 people on video. Audio-only groups larger than that
+   are deferred until the mesh has been measured.
+2. **Who can invite:** the host only. Roster changes are signed by the host.
 3. **If the host leaves:** the call goes on with the same roster, and nobody
-   can invite or remove anyone until the call ends (recommended for v1), or
-   the call ends for everyone?
-4. **Visibility:** do you accept that every participant learns every
-   other participant's name and Sotto ID? A mesh needs this, and the privacy
-   page will say so.
-5. **Recording:** none in Phase 1 (recommended). Any later version would be
-   local only, announced to everyone, and visible on screen.
-6. **Phase 3 (larger meetings):** only if needed, and only with end-to-end
-   frame encryption confirmed on every platform first.
+   can invite or remove anyone until it ends. No host transfer in v1.
+4. **Visibility:** every participant can see every other participant's name and
+   Sotto ID. The privacy page will say so.
+5. **Recording:** none in Phase 1. Any later version would be local only,
+   announced to everyone, and visible on screen.
+6. **Phase 3 (larger meetings):** deferred. It is revisited only once
+   end-to-end frame encryption is confirmed on every platform.
