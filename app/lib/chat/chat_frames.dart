@@ -537,18 +537,20 @@ abstract final class ChatFrames {
     final buffer = StringBuffer();
     var used = 0;
     for (final rune in text.runes) {
-      final size = rune < 0x80
-          ? 1
-          : rune < 0x800
-          ? 2
-          : rune < 0x10000
-          ? 3
-          : 4;
+      final size = _runeBytes(rune);
       if (used + size > maxBytes) break;
       used += size;
       buffer.writeCharCode(rune);
     }
     return buffer.toString();
+  }
+
+  /// The number of UTF-8 bytes that [rune] takes.
+  static int _runeBytes(int rune) {
+    if (rune < 0x80) return 1;
+    if (rune < 0x800) return 2;
+    if (rune < 0x10000) return 3;
+    return 4;
   }
 
   /// Whether [value] is an id made by [newId]: 16 bytes, unpadded base64url.
