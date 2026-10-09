@@ -95,6 +95,17 @@ class ChatStore {
   /// Loaded on first use. Contact ID → messages, oldest first.
   Map<String, List<ChatMessage>>? _chats;
 
+  /// The last write asked for. Writes run one after another, in the order
+  /// they were asked for, so a change asked for after a message is stored
+  /// always lands after it (for example, marking it not sent).
+  Future<void> _tail = Future<void>.value();
+
+  Future<T> _inOrder<T>(Future<T> Function() write) {
+    final result = _tail.then((_) => write());
+    _tail = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
   Future<Map<String, List<ChatMessage>>> _load() async {
     if (_chats case final chats?) return chats;
     final stored = await _store.read(storageKey);
@@ -145,28 +156,29 @@ class ChatStore {
       (await find(contactId, id)) != null;
 
   /// Stores [message]. A message already stored (same id) is not added twice.
-  Future<void> add(ChatMessage message) async {
+  Future<void> add(ChatMessage message) => _inOrder(() async {
     final chats = await _load();
     final list = chats.putIfAbsent(message.contactId, () => []);
     if (list.any((m) => m.id == message.id)) return;
     list.add(message);
     await _save(chats);
-  }
+  });
 
-  Future<void> setState(String contactId, String id, ChatState state) async {
-    final chats = await _load();
-    final list = chats[contactId];
-    final index = list?.indexWhere((m) => m.id == id) ?? -1;
-    if (list == null || index < 0) return;
-    list[index] = list[index].withState(state);
-    await _save(chats);
-  }
+  Future<void> setState(String contactId, String id, ChatState state) =>
+      _inOrder(() async {
+        final chats = await _load();
+        final list = chats[contactId];
+        final index = list?.indexWhere((m) => m.id == id) ?? -1;
+        if (list == null || index < 0) return;
+        list[index] = list[index].withState(state);
+        await _save(chats);
+      });
 
   /// Deletes the whole chat with [contactId].
-  Future<void> deleteChat(String contactId) async {
+  Future<void> deleteChat(String contactId) => _inOrder(() async {
     final chats = await _load();
     if (chats.remove(contactId) != null) await _save(chats);
-  }
+  });
 
   Future<void> _save(Map<String, List<ChatMessage>> chats) => _store.write(
     storageKey,

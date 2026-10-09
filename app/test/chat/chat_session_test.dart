@@ -306,4 +306,84 @@ void main() {
       expect(bob.session.isEnded, isTrue);
     },
   );
+
+  test(
+    'a session that ends during a store write marks the message not sent',
+    () async {
+      final (a, b) = _pair();
+      final secrets = _GatedSecrets();
+      final aliceStore = ChatStore(secrets);
+      final alice = ChatSession(
+        contactId: 'bob',
+        transport: a,
+        store: aliceStore,
+        clock: clock,
+      );
+      final aliceEvents = <ChatSessionEvent>[];
+      alice.events.listen(aliceEvents.add);
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      unawaited(alice.start());
+      await _settle();
+      expect(alice.isReady, isTrue);
+
+      secrets.hold();
+      final pending = alice.sendText('in the middle of a write');
+      await _settle();
+      // The other side closes while this message is being written to storage.
+      await bob.session.close();
+      await _settle();
+      secrets.release();
+      await pending;
+      await _settle();
+
+      final stored = (await aliceStore.messages('bob')).single;
+      expect(stored.state, ChatState.notSent);
+      expect(aliceEvents.whereType<MessageNotSent>(), hasLength(1));
+    },
+  );
+
+  test(
+    'a contact removed mid-chat: nothing more is stored, and the session ends',
+    () async {
+      final (a, b) = _pair();
+      var stillAContact = true;
+      final aliceStore = ChatStore(MemorySecretStore());
+      final alice = ChatSession(
+        contactId: 'bob',
+        transport: a,
+        store: aliceStore,
+        clock: clock,
+        isContact: () => stillAContact,
+      );
+      unawaited(alice.start());
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+
+      stillAContact = false;
+      await bob.session.sendText('after the removal');
+      await _settle();
+
+      expect(alice.isEnded, isTrue);
+      expect(await aliceStore.messages('bob'), isEmpty);
+    },
+  );
+}
+
+/// A store whose writes can be held, to end a session in the middle of one.
+class _GatedSecrets extends MemorySecretStore {
+  Completer<void>? _gate;
+
+  void hold() => _gate = Completer<void>();
+
+  void release() {
+    _gate?.complete();
+    _gate = null;
+  }
+
+  @override
+  Future<void> write(String key, String value) async {
+    final gate = _gate;
+    if (gate != null) await gate.future;
+    await super.write(key, value);
+  }
 }

@@ -92,6 +92,11 @@ class CallController extends ChangeNotifier {
 
   ChatManager? _chat;
 
+  /// Identities of recent chat senders, so a decline can be sealed for someone
+  /// who is not a contact. Kept in memory only, and a few at most.
+  final _chatSenders = <String, PublicIdentity>{};
+  static const _maxChatSenders = 32;
+
   /// Peer-to-peer chats with contacts. Only in the professional's app, which
   /// has contacts.
   ChatManager? get chat => _chat;
@@ -583,7 +588,16 @@ class CallController extends ChangeNotifier {
   bool _isContactId(String id) =>
       contacts?.contacts.any((contact) => contact.identity.id == id) ?? false;
 
-  /// Seals a chat envelope for the contact [to] and sends it through the relay.
+  void _rememberChatSender(PublicIdentity sender) {
+    _chatSenders.remove(sender.id);
+    _chatSenders[sender.id] = sender;
+    while (_chatSenders.length > _maxChatSenders) {
+      _chatSenders.remove(_chatSenders.keys.first);
+    }
+  }
+
+  /// Seals a chat envelope for [to] and sends it through the relay. [to] is a
+  /// contact, or someone who just sent a chat envelope (to be declined).
   void _sendChatEnvelope(
     String to,
     String type,
@@ -592,22 +606,20 @@ class CallController extends ChangeNotifier {
   ) {
     final codec = _codec;
     final relay = _relay;
-    final book = contacts;
-    if (codec == null || relay == null || book == null) return;
-    for (final contact in book.contacts) {
-      if (contact.identity.id == to) {
-        relay.send(
-          to,
-          codec.seal(
-            recipient: contact.identity,
-            type: type,
-            body: body,
-            callId: callId,
-          ),
-        );
-        return;
-      }
+    if (codec == null || relay == null) return;
+    final recipient = _chatSenders[to] ?? _contactIdentity(to);
+    if (recipient == null) return;
+    relay.send(
+      to,
+      codec.seal(recipient: recipient, type: type, body: body, callId: callId),
+    );
+  }
+
+  PublicIdentity? _contactIdentity(String id) {
+    for (final contact in contacts?.contacts ?? const []) {
+      if (contact.identity.id == id) return contact.identity;
     }
+    return null;
   }
 
   void _sendGuestMessage(
@@ -686,6 +698,7 @@ class CallController extends ChangeNotifier {
     }
     if (_profiles?.handleReply(opened) ?? false) return;
     if (opened.type.startsWith('chat.')) {
+      _rememberChatSender(opened.sender);
       _chat?.handle(
         from: opened.sender.id,
         type: opened.type,

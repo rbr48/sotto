@@ -139,7 +139,8 @@ class ChatManager {
       text: cleaned,
       state: ChatState.sending,
     );
-    await store.add(message);
+    // Queued before the write, so a chat that ends during the write still
+    // marks the message not sent (store writes run in the order asked for).
     if (live != null) {
       live.resend.add(message);
     } else {
@@ -148,6 +149,7 @@ class ChatManager {
         _perform(_signalling.open(contact, clock()));
       }
     }
+    await store.add(message);
     return message;
   }
 
@@ -188,6 +190,7 @@ class ChatManager {
   Future<void> tick() async {
     if (_disposed) return;
     _perform(_signalling.tick(clock()));
+    _settleWaiting();
     for (final live in _live.values.toList()) {
       await live.session?.tick(viewing: _viewing == live.contact);
     }
@@ -235,6 +238,19 @@ class ChatManager {
           }
       }
     }
+    _settleWaiting();
+  }
+
+  /// Messages waiting for a chat are only sent while that chat is being
+  /// opened or is live. Any other messages can never go, so they are marked
+  /// not sent (for example, when another device of the contact won the answer).
+  void _settleWaiting() {
+    for (final contact in _waiting.keys.toList()) {
+      if (_signalling.isOpening(contact) || _activeFor(contact) != null) {
+        continue;
+      }
+      _openFailed(contact, 'dropped');
+    }
   }
 
   void _startSession(SessionReady ready) {
@@ -256,7 +272,14 @@ class ChatManager {
     try {
       final servers = await iceServers();
       if (live.ended) return;
-      final rtc = await createRtc(iceServers: servers, relayOnly: hideIp());
+      final relayOnly = hideIp();
+      // "Hide my IP address" never falls back to a direct connection, so
+      // without a relay server the chat fails at once, with a reason.
+      if (relayOnly && !_hasTurn(servers)) {
+        await _end(live, 'no-relay');
+        return;
+      }
+      final rtc = await createRtc(iceServers: servers, relayOnly: relayOnly);
       live.rtc = rtc;
       if (live.ended) {
         await rtc.close();
@@ -268,6 +291,7 @@ class ChatManager {
         store: store,
         clock: clock,
         newId: _newId,
+        isContact: () => isContact(live.contact),
       );
       live.session = session;
       live.sessionSub = session.events.listen(
@@ -293,6 +317,18 @@ class ChatManager {
       await _end(live, 'failed');
     }
   }
+
+  /// Whether [servers] include a TURN server (`turn:` or `turns:`).
+  static bool _hasTurn(List<Map<String, dynamic>> servers) =>
+      servers.any((server) {
+        final urls = server['urls'];
+        final list = urls is List ? urls : [urls];
+        return list.any(
+          (url) =>
+              url is String &&
+              (url.startsWith('turn:') || url.startsWith('turns:')),
+        );
+      });
 
   void _onOpened(_Live live) {
     final session = live.session;

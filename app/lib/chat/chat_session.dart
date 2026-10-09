@@ -59,6 +59,7 @@ class ChatSession {
     required this.clock,
     String Function()? newId,
     this.idleTimeout = const Duration(minutes: 5),
+    this.isContact,
   }) : _newId = newId ?? ChatFrames.newId;
 
   final String contactId;
@@ -66,6 +67,12 @@ class ChatSession {
   final ChatStore store;
   final DateTime Function() clock;
   final String Function() _newId;
+
+  /// Whether the other person is still a contact. When not, the session ends
+  /// and nothing more from them is stored. Null: no check.
+  final bool Function()? isContact;
+
+  bool get _contactNow => isContact?.call() ?? true;
 
   /// How long the session can be silent (with the chat not open) before it
   /// closes.
@@ -130,9 +137,12 @@ class ChatSession {
       text: cleaned,
       state: ChatState.sending,
     );
-    await store.add(message);
+    // Queued before the write. If the session ends during the write, the end
+    // marks the message not sent: store writes run in the order they were
+    // asked for.
     _outbox[message.id] = message;
     _unsent.add(message.id);
+    await store.add(message);
     _lastActivity = clock();
     _sendOutbox();
     return message;
@@ -149,7 +159,13 @@ class ChatSession {
   /// screen ([viewing]) is kept, and so is a session with messages still
   /// waiting for an answer.
   Future<void> tick({required bool viewing}) async {
-    if (_ended || viewing || _outbox.isNotEmpty) return;
+    if (_ended) return;
+    if (!_contactNow) {
+      _write(const ByeFrame());
+      await _end('not-contact');
+      return;
+    }
+    if (viewing || _outbox.isNotEmpty) return;
     if (clock().difference(_lastActivity) < idleTimeout) return;
     _write(const ByeFrame());
     await _end('idle');
@@ -201,6 +217,12 @@ class ChatSession {
         _sendOutbox();
       case MessageFrame(:final id, :final ts, :final text):
         if (!_peerHello) return;
+        if (!_contactNow) {
+          // Someone removed from the contacts gets no more stored.
+          _write(const ByeFrame());
+          await _end('not-contact');
+          return;
+        }
         if (!await store.contains(contactId, id)) {
           final message = ChatMessage(
             id: id,

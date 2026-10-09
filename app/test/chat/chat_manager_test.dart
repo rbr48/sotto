@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sotto/chat/chat_frames.dart';
 import 'package:sotto/chat/chat_manager.dart';
 import 'package:sotto/chat/chat_rtc.dart';
 import 'package:sotto/chat/chat_session.dart';
@@ -180,6 +181,7 @@ void main() {
     bool neverOpens = false,
     Duration connectTimeout = const Duration(seconds: 30),
     ChatStore? store,
+    List<Map<String, dynamic>>? servers,
   }) {
     final manager = ChatManager(
       myId: myId,
@@ -187,9 +189,12 @@ void main() {
       isContact: contacts.contains,
       send: (to, type, body, callId) =>
           net.deliver(myId, to, type, body, callId),
-      iceServers: () async => [
-        {'urls': 'stun:stun.test'},
-      ],
+      iceServers: () async =>
+          servers ??
+          [
+            {'urls': 'stun:stun.test'},
+            {'urls': 'turn:turn.test', 'username': 'u', 'credential': 'c'},
+          ],
       hideIp: () => hideIp,
       createRtc: ({required iceServers, required relayOnly}) async {
         if (failCreate) throw StateError('no network');
@@ -392,5 +397,74 @@ void main() {
         .whereType<SessionEnded>();
     expect(ended, isNotEmpty);
     await sub.cancel();
+  });
+
+  test('when another device wins the answer, messages waiting for this device fail', () async {
+    final store = ChatStore(MemorySecretStore());
+    final sent =
+        <
+          ({String to, String type, Map<String, Object?> body, String? callId})
+        >[];
+    final manager = ChatManager(
+      myId: 'zzz',
+      store: store,
+      isContact: {'aaa'}.contains,
+      send: (to, type, body, callId) =>
+          sent.add((to: to, type: type, body: body, callId: callId)),
+      iceServers: () async => const [],
+      hideIp: () => false,
+      createRtc: ({required iceServers, required relayOnly}) async =>
+          throw StateError('no connection expected'),
+      clock: () => now,
+    );
+    managers.add(manager);
+    final events = <ChatManagerEvent>[];
+    final sub = manager.events.listen(events.add);
+
+    // This device opens a chat, and the contact opens one at the same moment.
+    final message = await manager.sendText('aaa', 'queued');
+    final ours = sent.single.callId!;
+    final theirs = ChatFrames.newId();
+    manager.handle(
+      from: 'aaa',
+      type: 'chat.open',
+      body: const {},
+      callId: theirs,
+    );
+    await _settle();
+    // Another device of the contact answered first and won.
+    manager.handle(
+      from: 'aaa',
+      type: 'chat.taken',
+      body: {'tag': ChatFrames.newId()},
+      callId: theirs,
+    );
+    await _settle();
+
+    expect(ours, isNot(theirs));
+    expect((await store.find('aaa', message.id))!.state, ChatState.notSent);
+    expect(events.whereType<ChatOpenFailure>().single.reason, 'dropped');
+    await sub.cancel();
+  });
+
+  test('Hide my IP address with no relay server fails at once, and never connects directly', () async {
+    final store = ChatStore(MemorySecretStore());
+    final alice = device(
+      'alice',
+      contacts: {'bob'},
+      hideIp: true,
+      store: store,
+      servers: [
+        {'urls': 'stun:stun.test'},
+      ],
+    );
+    device('bob', contacts: {'alice'});
+
+    final message = await alice.sendText('bob', 'hidden');
+    await _settle();
+
+    expect((await store.find('bob', message.id))!.state, ChatState.notSent);
+    expect(net.rtcs['alice'] ?? const <_FakeRtc>[], isEmpty);
+    expect(net.sent.where((s) => s.type == 'chat.offer'), isEmpty);
   });
 }

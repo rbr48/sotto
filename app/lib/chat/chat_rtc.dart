@@ -188,6 +188,8 @@ class WebRtcChatRtc implements ChatRtc {
     await _transport.close();
     await _candidates.close();
     await _pc.close();
+    // close() leaves the native connection registered; dispose() releases it.
+    await _pc.dispose();
   }
 }
 
