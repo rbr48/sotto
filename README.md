@@ -48,7 +48,7 @@ The name comes from *sotto voce*: speaking quietly so that only the listener hea
 
 **Online:** open [`call.sottocall.com`](https://call.sottocall.com/), press **Start**, and enter a name. A browser session keeps nothing after the tab closes or reloads, unless you choose *Remember me on this browser* on your own computer. Share a guest link with a "client" on another device, or your contact link (**Contacts → Share my contact**) with a "colleague". Compare the safety numbers. `?selftest=1` runs the crypto self-test in the browser.
 
-**Locally:** you need Node.js 20 or later and Flutter 3.47.6 (the version CI uses). On Linux, first install the build packages listed in the Linux job of [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+**Locally:** you need Node.js 20 or later and Flutter 3.47.6 (the version CI uses). On Linux, first install the build packages listed in the Linux job of [`.github/workflows/ci.yml`](.github/workflows/ci.yml). On Ubuntu 22.04, run `sudo apt-get remove -y libunwind-14-dev` first, as that job does.
 
 ```bash
 # Relay on this computer, reachable from this computer only
@@ -59,9 +59,9 @@ cd app && flutter run -d linux --dart-define=SOTTO_RELAY_URL=ws://localhost:8080
 cd app && flutter run -d chrome --dart-define=SOTTO_RELAY_URL=ws://localhost:8080/relay
 ```
 
-Two windows on this computer work with the commands above. Open the app in both, go through onboarding, then add each other: one person presses **Contacts → Share my contact**, and the other pastes that link under **Contacts → Add contact**. Compare the safety numbers, then press **Video call**. You can also paste a link under **Home → Call a link**.
+Two windows on this computer work with the commands above: the Linux app plus Chrome, or two Chrome windows. Do not start the Linux app twice: Sotto runs one desktop window per user, and a second start exits at once. Open the app in both, go through onboarding, then add each other: one person presses **Contacts → Share my contact**, and the other pastes that link under **Contacts → Add contact**. Compare the safety numbers, then press **Video call**. You can also paste a link under **Home → Call a link**.
 
-For two computers on the same network, start the relay with `npm start` (it listens on all interfaces, port 8080) and build each app with `--dart-define=SOTTO_RELAY_URL=ws://<relay-LAN-IP>:8080/relay`. Local calls connect directly. To test *Hide my IP address* locally, the relay also needs `SOTTO_STUN_URLS`, `SOTTO_TURN_URLS` and `SOTTO_TURN_SECRET`; the values are in `.github/workflows/ci.yml`. On Linux the app needs a Secret Service (GNOME Keyring or KWallet) to keep its keys; without one it offers a session that saves nothing.
+For two computers on the same network, start the relay with `npm start` (it listens on all interfaces, port 8080) and build each app with `--dart-define=SOTTO_RELAY_URL=ws://<relay-LAN-IP>:8080/relay`. Local calls connect directly. To test *Hide my IP address* locally, also run a TURN server on the relay's computer, as in step 0 of [`e2e/README.md`](e2e/README.md), and start the relay with `SOTTO_STUN_URLS`, `SOTTO_TURN_URLS` and `SOTTO_TURN_SECRET` set to the values in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (lines 131–133). Those values point at `127.0.0.1`, so they work only on the relay's own computer. On Linux the app needs a Secret Service (GNOME Keyring or KWallet) to keep its keys; without one it offers a session that saves nothing.
 
 ## Self-host
 
@@ -72,7 +72,7 @@ git clone https://github.com/rbr48/sotto && cd sotto
 sudo ./infra/install.sh
 ```
 
-You need a Linux server with a public IP address and at least 2 GB of RAM, and a domain whose DNS A record points to it (with any Cloudflare proxy turned off). The full guide is [`docs/SELF_HOSTING.md`](docs/SELF_HOSTING.md).
+You need a Linux server with a public IP address and at least 2 GB of RAM (the installer adds a 2 GB swap file when memory plus swap is under about 2.5 GB, because building the web app needs that much), and a domain whose DNS A record points to it (with any Cloudflare proxy turned off). Open TCP 80, 443, 3478 and 5349, and UDP 443, 3478 and 49152–65535, in any firewall your hosting provider runs. The full guide is [`docs/SELF_HOSTING.md`](docs/SELF_HOSTING.md).
 
 ## Security status
 
