@@ -8,8 +8,9 @@ This is a living document. It records what Sotto protects, against whom, and wha
 |---|---|
 | Call audio and video | In transit only (WebRTC DTLS-SRTP), device to device |
 | Call setup data (SDP, ICE candidates: IP addresses, codec details) | In transit, inside end-to-end envelopes |
+| Chat messages (text) | In transit only, directly between the two devices over an encrypted data channel; the relay never carries the text |
 | Identities (master secret) | Professional's device, in the OS keystore (in the browser: memory only, or the browser's storage with *Remember me*, §9.1 of `PROTOCOL.md`); guests: memory only |
-| Contacts, call history, notes, recordings | Professional's device only, in the encrypted vault (`PROTOCOL.md` §9) |
+| Contacts, call history, chat history, notes, recordings | Professional's device only, in the encrypted vault (`PROTOCOL.md` §9) |
 | Backups | Wherever the user saves them, encrypted with their passphrase (`PROTOCOL.md` §8) |
 | Metadata: who talks to whom, when, from which IP | Seen briefly by the relay in RAM; never stored |
 
@@ -35,6 +36,10 @@ This is a living document. It records what Sotto protects, against whom, and wha
 | Participant re-addresses a signed message to someone else | Signed `to` field | ✅ |
 | Relay swaps identity cards (man in the middle) | Safety numbers shown to both people; mismatch reveals interception. Signed guest links (Phase 5) and verified contacts (Phase 6) remove the need to trust the first exchange | Detectable ✅; prevented from Phase 5 |
 | Relay or TURN reads media | WebRTC DTLS-SRTP; the DTLS fingerprints travel inside signed envelopes, so a relay can't substitute its own | ✅ |
+| Relay or TURN reads chat messages | Chat text travels only over the direct WebRTC data channel (DTLS). The relay carries only the sealed set-up envelopes (`chat.*`), and never queues a chat message | ✅ |
+| Someone who later steals a key decrypts recorded chat messages | Each chat session has its own DTLS keys, discarded when it ends, so a stolen identity key does not reveal past message text. The set-up envelopes do use long-term keys (limitation 1) | ✅ for message text |
+| A stranger sends a chat message | Only contacts can open a chat; anyone else gets `chat.decline` (`not-contact`) and nothing is shown | ✅ |
+| Message text shown on a lock screen or in the notification history | Notifications say "New message"; the sender's name appears only with *Show names in notifications* on and the app unlocked. The text is never in a notification | ✅ |
 | Disk seizure of servers | No database, read-only containers, no request logs; an automated test runs the real relay process and fails if it writes any file | ✅ |
 | Someone logs in to the relay as another person | Challenge-response login: the device signs a fresh random challenge bound to the relay's hostname with its identity key; signatures can't be replayed or forwarded from another server | ✅ |
 | Someone injects messages "from" another person | The relay attaches the authenticated sender; apps additionally require the envelope signature to match it | ✅ |
@@ -43,7 +48,7 @@ This is a living document. It records what Sotto protects, against whom, and wha
 | Guest link secrets leak to servers | The payload is in the URL fragment (`#…`), which browsers never send to web servers; knocks travel inside end-to-end envelopes | ✅ |
 | Guest page loads third-party resources (CDNs, Google Fonts) that learn visitors' IPs | Built with `--no-web-resources-cdn`, fonts bundled, fallback fonts only from our server; the e2e tests fail if a page contacts any other host | ✅ |
 | Auto-answer abused to listen in on someone (a caller, or a person who secretly enables it on someone else's device) | Off by default; only the device's owner can enable it, on that device; never controllable by a caller; only for verified contacts (safety number compared; exact key match) chosen one by one; turning it on, choosing people and changing the ring time all require the app lock's PIN; rings first (default 5 s) so it can be declined; voice only unless video is allowed per person; "Auto-answered" banner on both sides; permanent home-screen reminder naming who is trusted while it is on; never interrupts an ongoing call | ✅ |
-| The other person learns your IP address | Optional **Hide my IP address**: relay-only ICE, so only the TURN server's address is exchanged | ✅ |
+| The other person learns your IP address | Optional **Hide my IP address** (calls and chats): relay-only ICE, so only the TURN server's address is exchanged | ✅ |
 | TURN server used as an open proxy into private networks | coturn refuses relaying to private, loopback, link-local and other special ranges; TCP relaying disabled | ✅ |
 | TURN credentials abused | Issued only to logged-in relay clients; expire after 6 hours; per-user and total allocation quotas; bandwidth cap per session | ✅ |
 | TURN server links calls to people | Usernames are `<expiry>:<random>`, never a Sotto ID; coturn's logs are discarded | ✅ |
@@ -73,6 +78,8 @@ This is a living document. It records what Sotto protects, against whom, and wha
 9. **Endpoint compromise** (malware on a participant's device) is out of scope; no messaging system can protect against it.
 10. **No external audit yet.** Planned before public launch (Phase 13).
 11. **A remembered browser is as safe as that browser profile.** With *Remember me on this browser*, the identity stays in the browser's storage. The wrapping key is non-extractable, but browsers keep it in the profile's files, and the browser's PIN verifier is a keyed hash, not Argon2id. Someone who can use or copy the profile can therefore use the identity. Use it on your own computer only; on shared computers, keep the default (nothing kept), and prefer the apps.
+12. **Chat needs both people online.** A message is not stored for an offline contact and is not resent in the background: the sender sees *Not sent* and can retry. A direct chat shows each person the other's IP address, as a call does, unless Hide my IP address is on.
+13. **No automatic deletion of chat history (v1).** Each chat stays on the devices until its owner deletes it or removes the app. The call-history retention setting does not apply to chats, and chats are not synced between one person's devices.
 
 ## 5. Cryptographic choices
 
@@ -86,5 +93,6 @@ This is a living document. It records what Sotto protects, against whom, and wha
 | Safety numbers | BLAKE2b-512 (`crypto_generichash`) |
 | Randomness | libsodium `randombytes` (OS CSPRNG) |
 | Media | WebRTC DTLS-SRTP |
+| Chat text | WebRTC data channel (DTLS), keys per session |
 
 Every primitive is used through libsodium's high-level API. Details: [`PROTOCOL.md`](PROTOCOL.md).

@@ -31,7 +31,7 @@ The features planned for the product. Phase numbers refer to [ROADMAP.md](ROADMA
 | Interception protection | Call encryption keys are authenticated end to end, so even a hacked server can't secretly join a call | 2–3 | Free |
 | Safety numbers | Compare a short code with a colleague once to confirm nobody is in the middle | 2, 6 | Free |
 | No directory | Nobody can search for you; people reach you only through links or QR codes you share | 5–6 | Free |
-| All data on your device | Contacts, call history, session notes, settings and recordings are stored only on your device, encrypted | 6 | Free |
+| All data on your device | Contacts, call history, chat history, session notes, settings and recordings are stored only on your device, encrypted | 6 | Free |
 | App lock | Protect the app with a PIN (fingerprint and face unlock: Phase 12) | 6 | Free |
 | Remember me on this browser | Professionals using Sotto in a browser can keep their identity, links, contacts and history across reloads, encrypted in the browser (off by default; for one's own computer). Without it, the page warns before a reload would end the session | 7 | Free |
 | Hide my IP address | Route calls through the relay so the other person never sees your IP address | 4 | Free |
@@ -49,6 +49,7 @@ The features planned for the product. Phase numbers refer to [ROADMAP.md](ROADMA
 | Ringing and call states | Clear "Calling…", "Ringing…", "Connecting…", "Connected" and "Reconnecting…" screens | 3 | Free |
 | Busy handling | Colleagues get "busy"; clients who knock during another call see "please wait" | 3, 11 | Free |
 | Works on any network | Direct device-to-device when possible; otherwise relayed through TURN (strict routers, mobile networks, office and hotel firewalls) | 4 | Free (self-hosted) / Pro (hosted TURN) |
+| Text messages with contacts | Chat with a colleague app to app. Messages go directly between the two devices, encrypted, and never pass through the server. Both need Sotto open: a message that doesn't arrive is marked *Not sent*, with Retry. Notifications show "New message" (the name only if you allow names). History stays on your device until you delete the chat | Built in | Free |
 
 ## 4. In-call controls
 
@@ -113,14 +114,14 @@ The features planned for the product. Phase numbers refer to [ROADMAP.md](ROADMA
 | Team features | An admin shares a signed team roster, server settings and branding with colleagues end to end encrypted; nothing stored on the server (Business) |
 | Linked devices | Use the same identity on phone and PC; history and contacts sync device-to-device, end to end encrypted |
 | Small group calls (up to 4) | For example family therapy, or a lawyer with two clients |
-| In-call chat and file sharing | Send a document to a client during a call, end to end encrypted |
+| File sharing and in-call chat | Send a document to a client during a call, end to end encrypted (text messages between contacts are already built) |
 | Compliance pack | GDPR documentation and a HIPAA-readiness assessment for the chosen market |
 | Larger group calls (5+) | Needs a media server plus extra end-to-end encryption (SFrame); a separate project |
 
 ## What the server can still see
 
-The server keeps nothing, but while a call is being set up it briefly sees, in memory only, which keys are connecting to each other and their IP addresses. Hiding even that would need Tor-style routing, which is too slow for live calls. Organisations that want to remove even this can **self-host**, so the only server involved is their own.
+The server keeps nothing, but while a call or a chat is being set up it briefly sees, in memory only, which keys are connecting to each other and their IP addresses. Message text never reaches the server. Hiding even that would need Tor-style routing, which is too slow for live calls. Organisations that want to remove even this can **self-host**, so the only server involved is their own.
 
 ## Public launch scope (Milestone M5, ~month 9)
 
-Sections 1–8: guest browser links with a waiting room and scheduling, end-to-end encrypted 1:1 calls with no accounts and no server storage, consent-based recording, a desktop and Android app for professionals, Android wake-up for incoming calls, and both hosted and self-hosted deployment. iOS, teams, group calls and chat come after launch.
+Sections 1–8: guest browser links with a waiting room and scheduling, end-to-end encrypted 1:1 calls with no accounts and no server storage, consent-based recording, a desktop and Android app for professionals, Android wake-up for incoming calls, both hosted and self-hosted deployment, and text messages between contacts. iOS, teams and group calls come after launch.
