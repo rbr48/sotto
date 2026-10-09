@@ -4,6 +4,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../android/android_integration.dart';
 import '../../call/call_controller.dart';
 import '../../core/downloads.dart';
+import '../../core/l10n/app_localizations.dart';
+import '../../core/l10n/language.dart';
 import '../../core/server_address.dart';
 import '../../core/ui_kit.dart';
 import '../../core/version.dart';
@@ -19,6 +21,53 @@ import '../../relay/relay_client.dart';
 import '../../storage/ui/backup_ui.dart';
 import '../app_controller.dart';
 
+/// The language choice: the device's, or one of the supported languages.
+/// Each name is written in its own script, so it can be found by anyone.
+class _LanguagePicker extends StatelessWidget {
+  const _LanguagePicker();
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    String name(AppLanguage language) => switch (language) {
+      AppLanguage.system => l10n.languageSystem,
+      AppLanguage.english => l10n.languageEnglish,
+      AppLanguage.bangla => l10n.languageBangla,
+      AppLanguage.arabic => l10n.languageArabic,
+    };
+    return ValueListenableBuilder(
+      valueListenable: appLanguage,
+      builder: (context, current, _) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final language in AppLanguage.values)
+            ListTile(
+              key: ValueKey('language-${language.code}'),
+              title: Text(name(language)),
+              selected: language == current,
+              trailing: language == current
+                  ? Icon(
+                      Icons.check,
+                      color: Theme.of(context).colorScheme.primary,
+                    )
+                  : null,
+              onTap: () => chooseAppLanguage(language),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: Text(
+              l10n.languageHelp,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Profile, app lock, auto-answer, privacy, history, devices and backups.
 class SettingsTab extends StatelessWidget {
   const SettingsTab({super.key, required this.app, required this.calls});
@@ -32,6 +81,9 @@ class SettingsTab extends StatelessWidget {
     builder: (context, _) => ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        _Section(AppLocalizations.of(context).languageSetting, [
+          const _LanguagePicker(),
+        ]),
         _Section('Profile', [_ProfileForm(app: app)]),
         _Section('App lock', _lock(context)),
         _Section('Auto-answer', _autoAnswer(context)),

@@ -1,0 +1,8 @@
+# Translations: lib/core/l10n/arb/app_<locale>.arb (English is the template).
+# Generated code goes to the Dart package, see docs/TRANSLATING.md.
+arb-dir: lib/core/l10n/arb
+output-dir: lib/core/l10n
+template-arb-file: app_en.arb
+output-localization-file: app_localizations.dart
+output-class: AppLocalizations
+nullable-getter: false

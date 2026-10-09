@@ -8,6 +8,7 @@ import '../../call/ui/common.dart';
 import '../../contacts/profile_exchange.dart';
 import '../../contacts/ui/contact_dialogs.dart';
 import '../../contacts/ui/contacts_tab.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../core/ui_kit.dart';
 import '../../core/update_check.dart';
 import '../../core/version.dart';
@@ -34,14 +35,19 @@ class _HomeShellState extends State<HomeShell> {
   int _tab = 0;
 
   static const _destinations = [
-    (Icons.home_outlined, Icons.home, 'Home'),
-    (Icons.people_outline, Icons.people, 'Contacts'),
-    (Icons.history, Icons.history, 'History'),
-    (Icons.settings_outlined, Icons.settings, 'Settings'),
+    (Icons.home_outlined, Icons.home),
+    (Icons.people_outline, Icons.people),
+    (Icons.history, Icons.history),
+    (Icons.settings_outlined, Icons.settings),
   ];
+
+  /// Tab labels in the current language.
+  static String _label(AppLocalizations l10n, int i) =>
+      [l10n.navHome, l10n.navContacts, l10n.navHistory, l10n.navSettings][i];
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final app = widget.app;
     final calls = widget.calls;
     final tab = switch (_tab) {
@@ -61,7 +67,7 @@ class _HomeShellState extends State<HomeShell> {
     final wide = MediaQuery.sizeOf(context).width >= 760;
     final waiting = calls.guestHost?.waiting.length ?? 0;
     Widget icon(int index, bool selected) {
-      final (outlined, filled, _) = _destinations[index];
+      final (outlined, filled) = _destinations[index];
       final widget = Icon(selected ? filled : outlined);
       return index == 0 && waiting > 0
           ? Badge(label: Text('$waiting'), child: widget)
@@ -84,7 +90,7 @@ class _HomeShellState extends State<HomeShell> {
         leading: Padding(
           padding: const EdgeInsets.only(left: 12),
           child: Tooltip(
-            message: 'Settings',
+            message: l10n.navSettings,
             child: InkWell(
               onTap: () => setState(() => _tab = 3),
               customBorder: const CircleBorder(),
@@ -186,7 +192,7 @@ class _HomeShellState extends State<HomeShell> {
                         NavigationRailDestination(
                           icon: icon(i, false),
                           selectedIcon: icon(i, true),
-                          label: Text(_destinations[i].$3),
+                          label: Text(_label(l10n, i)),
                         ),
                     ],
                   ),
@@ -206,7 +212,7 @@ class _HomeShellState extends State<HomeShell> {
                   NavigationDestination(
                     icon: icon(i, false),
                     selectedIcon: icon(i, true),
-                    label: _destinations[i].$3,
+                    label: _label(l10n, i),
                   ),
               ],
             ),

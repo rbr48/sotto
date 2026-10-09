@@ -1,0 +1,14 @@
+{
+  "@@locale": "ar",
+  "appName": "Sotto",
+  "languageSetting": "اللغة",
+  "languageSystem": "لغة الجهاز",
+  "languageEnglish": "English",
+  "languageBangla": "বাংলা",
+  "languageArabic": "العربية",
+  "languageHelp": "تغيّر لغة التطبيق. لا تتأثر جهات الاتصال والمكالمات.",
+  "navHome": "الرئيسية",
+  "navContacts": "جهات الاتصال",
+  "navHistory": "السجل",
+  "navSettings": "الإعدادات"
+}

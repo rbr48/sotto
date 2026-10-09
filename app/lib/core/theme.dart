@@ -44,7 +44,9 @@ abstract final class SottoTheme {
       colorScheme: scheme,
       useMaterial3: true,
     );
-    final text = base.textTheme;
+    // Roboto has no Bengali characters: those fall back to Noto Sans Bengali.
+    const bengaliFallback = ['NotoSansBengali'];
+    final text = base.textTheme.apply(fontFamilyFallback: bengaliFallback);
     final rounded = RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(14),
     );
@@ -52,6 +54,7 @@ abstract final class SottoTheme {
     const buttonText = TextStyle(
       // Named here too: a button's text style replaces the theme's font.
       fontFamily: 'Roboto',
+      fontFamilyFallback: bengaliFallback,
       fontSize: 15,
       fontWeight: FontWeight.w600,
       letterSpacing: 0.1,
