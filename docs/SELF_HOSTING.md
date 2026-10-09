@@ -146,7 +146,7 @@ Each professional backs up their own identity in the app (*Settings → Backup*)
 
 ## What the server sees
 
-While running, the relay knows which Sotto IDs (public keys) are online and who sends encrypted messages to whom, and when; coturn sees the IP addresses of relayed calls. None of this is written to disk or logged, and it is gone after a restart. Self-hosting means only you run that server. Details: [`THREAT_MODEL.md`](THREAT_MODEL.md).
+While running, the relay knows which Sotto IDs (public keys) are online and who sends encrypted messages to whom, and when (for a text chat, when two contacts set one up; the message text never reaches the relay); coturn sees the IP addresses of relayed calls. None of this is written to disk or logged, and it is gone after a restart. Self-hosting means only you run that server. Details: [`THREAT_MODEL.md`](THREAT_MODEL.md).
 
 ## Security notes
 

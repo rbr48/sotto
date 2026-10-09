@@ -1,4 +1,6 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sotto/core/l10n/app_localizations.dart';
 import 'package:sotto/desktop/notices.dart';
 
 void main() {
@@ -147,4 +149,62 @@ void main() {
     expect(old.startAtLogin, isFalse);
     expect(old.ringWhenClosed, isTrue);
   });
+
+  test('chat messages: nothing while the chat is open in front, otherwise a notice', () {
+    ChatNoticeKind kind({
+      bool notifications = true,
+      bool showNames = false,
+      bool inFront = false,
+      bool viewing = false,
+      bool locked = false,
+    }) => NoticeRules.chatMessage(
+      prefs: prefs.copyWith(notifications: notifications, showNames: showNames),
+      inFront: inFront,
+      viewing: viewing,
+      locked: locked,
+    );
+
+    expect(
+      kind(),
+      ChatNoticeKind.anonymous,
+      reason: 'in the background: no names by default',
+    );
+    expect(kind(inFront: true, viewing: true), ChatNoticeKind.none);
+    expect(
+      kind(inFront: true, viewing: false),
+      ChatNoticeKind.anonymous,
+      reason: 'another chat in front still gets a notice',
+    );
+    expect(kind(notifications: false), ChatNoticeKind.none);
+    expect(kind(showNames: true), ChatNoticeKind.named);
+    expect(
+      kind(showNames: true, locked: true),
+      ChatNoticeKind.anonymous,
+      reason: 'no names while locked',
+    );
+  });
+
+  test(
+    'chat notices say who sent it only when names are chosen, never the text',
+    () {
+      final l10n = lookupAppLocalizations(const Locale('en'));
+      Notice? words(ChatNoticeKind kind, {String senderName = 'Meera Rao'}) =>
+          NoticeRules.chatWords(kind: kind, senderName: senderName, l10n: l10n);
+
+      final named = words(ChatNoticeKind.named)!;
+      expect(named.title, 'New message from Meera Rao');
+      expect(named.body, 'Open Sotto to read it.');
+
+      final anonymous = words(ChatNoticeKind.anonymous)!;
+      expect(anonymous.title, 'New message');
+      expect(anonymous.toString(), isNot(contains('Meera')));
+
+      expect(
+        words(ChatNoticeKind.named, senderName: '')!.title,
+        'New message',
+        reason: 'a named notice with no name falls back to the anonymous one',
+      );
+      expect(words(ChatNoticeKind.none), isNull);
+    },
+  );
 }

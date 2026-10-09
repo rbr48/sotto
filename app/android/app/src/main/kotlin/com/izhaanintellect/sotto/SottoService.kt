@@ -49,7 +49,7 @@ class SottoService : Service() {
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_sotto)
             .setContentTitle("Sotto is ready for calls")
-            .setContentText("Calls and waiting guests ring even when the app is closed.")
+            .setContentText("Calls, messages and waiting guests reach you even when the app is closed.")
             .setContentIntent(CallNotifications.openApp(this))
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)

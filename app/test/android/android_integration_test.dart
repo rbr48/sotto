@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sotto/android/android_integration.dart';
 import 'package:sotto/android/android_platform.dart';
 import 'package:sotto/app/app_controller.dart';
+import 'package:sotto/chat/chat_arrival.dart';
 import 'package:sotto/storage/browser_storage.dart';
 
 import '../call/devices_test.dart' show FakeLister;
@@ -47,6 +48,15 @@ class FakeAndroid implements AndroidPlatform {
 
   @override
   Future<void> cancelKnock() async => log.add('cancel knock');
+
+  @override
+  Future<void> showMessage({
+    required String title,
+    required String body,
+  }) async => log.add('message: $title / $body');
+
+  @override
+  Future<void> cancelMessage() async => log.add('cancel message');
 
   @override
   Future<void> callFinished() async => log.add('call finished');
@@ -129,4 +139,49 @@ void main() {
     expect(platform.log, contains('cancel knock'));
     android.dispose();
   });
+
+  test(
+    'a message from a contact: a notice only while in the background',
+    () async {
+      final (app, platform, android) = await started();
+      const arrival = ChatArrival(senderName: 'Meera Rao', viewing: false);
+
+      android.onChatMessage(arrival);
+      expect(
+        platform.log,
+        contains('message: New message / Open Sotto to read it.'),
+        reason: 'names are off by default',
+      );
+
+      await app.setDesktopPrefs(app.desktopPrefs.copyWith(showNames: true));
+      android.onChatMessage(arrival);
+      expect(
+        platform.log,
+        contains(
+          'message: New message from Meera Rao / Open Sotto to read it.',
+        ),
+      );
+
+      android.inFront = true;
+      await pumpEventQueue();
+      expect(platform.log, contains('cancel message'));
+      android.onChatMessage(
+        const ChatArrival(senderName: 'Meera Rao', viewing: true),
+      );
+      expect(
+        platform.log.where((e) => e.startsWith('message:')),
+        hasLength(2),
+        reason: 'the open chat, in front, needs no notice',
+      );
+      android.onChatMessage(
+        const ChatArrival(senderName: 'Meera Rao', viewing: false),
+      );
+      expect(
+        platform.log.where((e) => e.startsWith('message:')),
+        hasLength(3),
+        reason: 'another chat in front still gets one',
+      );
+      android.dispose();
+    },
+  );
 }

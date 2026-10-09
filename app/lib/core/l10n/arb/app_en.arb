@@ -10,5 +10,44 @@
   "navHome": "Home",
   "navContacts": "Contacts",
   "navHistory": "History",
-  "navSettings": "Settings"
+  "navSettings": "Settings",
+  "chatMessage": "Message",
+  "chatWriteHint": "Write a message",
+  "chatSend": "Send",
+  "chatRetry": "Retry",
+  "chatStatusSending": "Sending",
+  "chatStatusDelivered": "Delivered",
+  "chatStatusNotSent": "Not sent",
+  "chatStatusNotSentOffline": "Not sent: {name} is offline",
+  "@chatStatusNotSentOffline": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Meera Rao"
+      }
+    }
+  },
+  "chatEmptyHint": "No messages yet. Messages go directly to them while you are both online.",
+  "chatDirectNote": "Messages go directly between your devices while you are both online. Nothing is stored on a server.",
+  "chatDeleteMenu": "Delete chat",
+  "chatDeleteTitle": "Delete this chat?",
+  "chatDeleteBody": "The messages are removed from this device. The other person keeps their copy.",
+  "chatCancel": "Cancel",
+  "chatDelete": "Delete",
+  "chatFailConnection": "The connection could not be made. Your messages were not sent; you can retry.",
+  "chatFailDeclined": "They cannot receive messages from you.",
+  "chatFailNoRelay": "Hide my IP address is on, but this server has no relay for chats. Turn it off, or ask the operator to add one.",
+  "chatEnded": "The chat has ended.",
+  "chatDismiss": "OK",
+  "chatNoticeAnonymousTitle": "New message",
+  "chatNoticeNamedTitle": "New message from {name}",
+  "@chatNoticeNamedTitle": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Meera Rao"
+      }
+    }
+  },
+  "chatNoticeBody": "Open Sotto to read it."
 }

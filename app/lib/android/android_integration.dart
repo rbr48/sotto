@@ -5,6 +5,8 @@ import 'package:flutter/widgets.dart';
 import '../app/app_controller.dart';
 import '../call/call_controller.dart';
 import '../call/call_manager.dart';
+import '../chat/chat_arrival.dart';
+import '../core/l10n/language.dart';
 import '../desktop/notices.dart';
 import '../guest/guest_host.dart';
 import 'android_platform.dart';
@@ -65,6 +67,7 @@ class AndroidIntegration extends ChangeNotifier {
       // The app shows the call and the waiting guests itself now.
       _stopRinging();
       unawaited(_platform.cancelKnock());
+      unawaited(_platform.cancelMessage());
       unawaited(refresh());
     }
   }
@@ -101,7 +104,25 @@ class AndroidIntegration extends ChangeNotifier {
       ..addListener(_onCallChanged);
     _callSubscriptions
       ..add(calls.incomingCalls.listen((call) => _onIncoming(calls, call)))
-      ..add(calls.newGuests.listen(_onKnock));
+      ..add(calls.newGuests.listen(_onKnock))
+      ..add(calls.newChatMessages.listen(onChatMessage));
+  }
+
+  /// A message from a contact arrived. A notice shows while the app is in the
+  /// background (see [NoticeRules.chatMessage]), in the app's language.
+  void onChatMessage(ChatArrival arrival) {
+    final notice = NoticeRules.chatWords(
+      kind: NoticeRules.chatMessage(
+        prefs: app.desktopPrefs,
+        inFront: _inFront,
+        viewing: arrival.viewing,
+        locked: app.lock.locked,
+      ),
+      senderName: arrival.senderName,
+      l10n: localizationsForNotices(),
+    );
+    if (notice == null) return;
+    unawaited(_platform.showMessage(title: notice.title, body: notice.body));
   }
 
   /// Ringing needs notifications: ask once, while the user is looking.

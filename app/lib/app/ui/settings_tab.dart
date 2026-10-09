@@ -109,8 +109,9 @@ class SettingsTab extends StatelessWidget {
               title: const Text('Keep running in the tray'),
               subtitle: Text(
                 app.trayAvailable
-                    ? 'Closing the window keeps Sotto running, so calls and '
-                          'waiting guests still reach you. Quit from the tray icon.'
+                    ? 'Closing the window keeps Sotto running, so calls, '
+                          'messages and waiting guests still reach you. Quit '
+                          'from the tray icon.'
                     : 'No system tray was found on this desktop, so closing '
                           'the window quits Sotto.',
               ),
@@ -153,8 +154,9 @@ class SettingsTab extends StatelessWidget {
               contentPadding: EdgeInsets.zero,
               title: const Text('Show names in notifications'),
               subtitle: const Text(
-                'Off: notifications only say that someone is waiting or '
-                'calling. The system may keep notifications in its history.',
+                'Off: notifications only say that someone is waiting, calling '
+                'or has written to you. The system may keep notifications in '
+                'its history.',
               ),
               value: app.desktopPrefs.showNames,
               onChanged: app.desktopPrefs.notifications
@@ -958,8 +960,9 @@ class _AndroidBackground extends StatelessWidget {
             title: const Text('Ring even when Sotto is closed'),
             subtitle: const Text(
               'Sotto stays connected to your server in the background, with '
-              'a quiet notification, so calls and waiting guests ring like a '
-              'phone call. Uses a little battery. No push service is used.',
+              'a quiet notification, so calls ring like a phone call, and '
+              'messages and waiting guests reach you. Uses a little battery. '
+              'No push service is used.',
             ),
             value: ring,
             onChanged: (v) => app.setDesktopPrefs(

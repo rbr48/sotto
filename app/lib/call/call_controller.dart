@@ -25,6 +25,11 @@ import 'media_engine.dart';
 import 'screen_awake.dart';
 import 'video_adapter.dart';
 import 'webrtc_media_engine.dart';
+import '../chat/chat_arrival.dart';
+import '../chat/chat_manager.dart';
+import '../chat/chat_rtc.dart';
+import '../chat/chat_session.dart';
+import '../chat/chat_store.dart';
 
 /// Everything the call screens need: the relay connection, the current
 /// call, guest links and the waiting room.
@@ -86,6 +91,17 @@ class CallController extends ChangeNotifier {
   final PublicProfile? Function()? _publicProfile;
   ProfileExchange? _profiles;
   late final ProfileCache _profileCache = ProfileCache(_settings);
+
+  ChatManager? _chat;
+
+  /// Identities of recent chat senders, so a decline can be sealed for someone
+  /// who is not a contact. Kept in memory only, and a few at most.
+  final _chatSenders = <String, PublicIdentity>{};
+  static const _maxChatSenders = 32;
+
+  /// Peer-to-peer chats with contacts. Only in the professional's app, which
+  /// has contacts.
+  ChatManager? get chat => _chat;
   final VideoCallScreen _screen;
   void _updateScreen() => _screen.update(call);
 
@@ -196,6 +212,11 @@ class CallController extends ChangeNotifier {
 
   /// Calls that just started ringing here (for desktop notifications).
   Stream<CallState> get incomingCalls => _incomingCalls.stream;
+
+  final _chatArrivals = StreamController<ChatArrival>.broadcast();
+
+  /// Messages that just arrived from contacts (for notifications).
+  Stream<ChatArrival> get newChatMessages => _chatArrivals.stream;
 
   /// "Hide my IP address": calls only use the TURN relay, so the other
   /// person never sees this device's IP address.
@@ -361,6 +382,19 @@ class CallController extends ChangeNotifier {
         sodium: sodium,
         identity: identity,
       );
+      if (contacts != null) {
+        final chat = _chat = ChatManager(
+          myId: identity.id,
+          store: ChatStore(_settings),
+          isContact: _isContactId,
+          send: _sendChatEnvelope,
+          iceServers: _iceServersForCall,
+          hideIp: () => _hideIp,
+          createRtc: WebRtcChatRtc.create,
+          clock: DateTime.now,
+        );
+        _subscriptions.add(chat.events.listen(_onChatEvent));
+      }
       _profiles = ProfileExchange(
         sodium: sodium,
         identity: identity,
@@ -559,6 +593,65 @@ class CallController extends ChangeNotifier {
     }
   }
 
+  bool _isContactId(String id) =>
+      contacts?.contacts.any((contact) => contact.identity.id == id) ?? false;
+
+  /// The name of a contact, as this device has it ("" if it is not one).
+  String _contactName(String id) {
+    for (final contact in contacts?.contacts ?? const <Contact>[]) {
+      if (contact.identity.id == id) return contact.name;
+    }
+    return '';
+  }
+
+  /// A message from a contact was stored: tell the notifications who sent it
+  /// and whether that chat is on screen. The text never leaves the chat.
+  void _onChatEvent(ChatManagerEvent event) {
+    if (event case ChatUpdate(:final contact, event: MessageReceived())) {
+      if (_chatArrivals.isClosed) return;
+      _chatArrivals.add(
+        ChatArrival(
+          senderName: _contactName(contact),
+          viewing: _chat?.isViewing(contact) ?? false,
+        ),
+      );
+    }
+  }
+
+  void _rememberChatSender(PublicIdentity sender) {
+    _chatSenders.remove(sender.id);
+    _chatSenders[sender.id] = sender;
+    while (_chatSenders.length > _maxChatSenders) {
+      _chatSenders.remove(_chatSenders.keys.first);
+    }
+  }
+
+  /// Seals a chat envelope for [to] and sends it through the relay. [to] is a
+  /// contact, or someone who just sent a chat envelope (to be declined).
+  void _sendChatEnvelope(
+    String to,
+    String type,
+    Map<String, Object?> body,
+    String? callId,
+  ) {
+    final codec = _codec;
+    final relay = _relay;
+    if (codec == null || relay == null) return;
+    final recipient = _chatSenders[to] ?? _contactIdentity(to);
+    if (recipient == null) return;
+    relay.send(
+      to,
+      codec.seal(recipient: recipient, type: type, body: body, callId: callId),
+    );
+  }
+
+  PublicIdentity? _contactIdentity(String id) {
+    for (final contact in contacts?.contacts ?? const []) {
+      if (contact.identity.id == id) return contact.identity;
+    }
+    return null;
+  }
+
   void _sendGuestMessage(
     PublicIdentity to,
     String type,
@@ -634,6 +727,16 @@ class CallController extends ChangeNotifier {
       return;
     }
     if (_profiles?.handleReply(opened) ?? false) return;
+    if (opened.type.startsWith('chat.')) {
+      _rememberChatSender(opened.sender);
+      _chat?.handle(
+        from: opened.sender.id,
+        type: opened.type,
+        body: opened.body,
+        callId: opened.callId,
+      );
+      return;
+    }
     if (opened.type.startsWith('guest.')) {
       _host?.handle(opened);
       _visit?.handle(opened);
@@ -833,6 +936,7 @@ class CallController extends ChangeNotifier {
 
   @override
   void dispose() {
+    unawaited(_chat?.dispose());
     removeListener(_updateScreen);
     _screen.release();
     for (final subscription in _subscriptions) {
@@ -842,6 +946,7 @@ class CallController extends ChangeNotifier {
     _callSounds?.dispose();
     unawaited(_newGuests.close());
     unawaited(_incomingCalls.close());
+    unawaited(_chatArrivals.close());
     _manager?.dispose();
     _host?.dispose();
     _visit?.dispose();

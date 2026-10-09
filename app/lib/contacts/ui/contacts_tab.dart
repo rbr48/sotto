@@ -4,6 +4,8 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../app/app_controller.dart';
 import '../../call/call_controller.dart';
+import '../../chat/ui/chat_page.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../core/test_hooks.dart';
 import '../../core/ui_kit.dart';
 import 'contact_dialogs.dart';
@@ -85,6 +87,22 @@ class ContactsTab extends StatelessWidget {
                         ),
                         trailing: Wrap(
                           children: [
+                            if (calls.chat case final chat?)
+                              IconButton(
+                                tooltip:
+                                    '${AppLocalizations.of(context).chatMessage}: '
+                                    '${contact.name}',
+                                icon: const Icon(Icons.chat_bubble_outline),
+                                onPressed: () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => ChatPage(
+                                      chat: chat,
+                                      contactId: contact.identity.id,
+                                      name: contact.name,
+                                    ),
+                                  ),
+                                ),
+                              ),
                             IconButton(
                               tooltip: 'Voice call ${contact.name}',
                               icon: const Icon(Icons.call),

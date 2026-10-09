@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
+import '../core/l10n/app_localizations.dart';
+
 /// A desktop notification.
 @immutable
 class Notice {
@@ -100,9 +102,47 @@ class DesktopPrefs {
   }
 }
 
+/// What a chat notice may say: nothing, the sender's name, or no name.
+enum ChatNoticeKind { none, anonymous, named }
+
 /// What to show, if anything. Nothing while Sotto is in front (the app
 /// shows it), and no names unless the user chose so, never while locked.
 abstract final class NoticeRules {
+  /// A message from a contact arrived. Nothing when notices are off, or when
+  /// the chat is open in front of the person. Otherwise the sender's name,
+  /// only if the user chose names and the device is unlocked. The message
+  /// text is never part of a notice.
+  static ChatNoticeKind chatMessage({
+    required DesktopPrefs prefs,
+    required bool inFront,
+    required bool viewing,
+    required bool locked,
+  }) {
+    if (!prefs.notifications || (inFront && viewing)) {
+      return ChatNoticeKind.none;
+    }
+    return prefs.showNames && !locked
+        ? ChatNoticeKind.named
+        : ChatNoticeKind.anonymous;
+  }
+
+  /// The words of a chat notice, in the app's language. A named notice with
+  /// no name falls back to the anonymous one.
+  static Notice? chatWords({
+    required ChatNoticeKind kind,
+    required String senderName,
+    required AppLocalizations l10n,
+  }) {
+    if (kind == ChatNoticeKind.none) return null;
+    final named = kind == ChatNoticeKind.named && senderName.isNotEmpty;
+    return Notice(
+      named
+          ? l10n.chatNoticeNamedTitle(senderName)
+          : l10n.chatNoticeAnonymousTitle,
+      l10n.chatNoticeBody,
+    );
+  }
+
   static Notice? knock({
     required String guestName,
     required DesktopPrefs prefs,

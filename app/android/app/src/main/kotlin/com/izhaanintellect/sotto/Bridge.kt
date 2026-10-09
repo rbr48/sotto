@@ -106,6 +106,11 @@ object Bridge {
                 null
             }
             "cancelKnock" -> { CallNotifications.cancelKnock(app); null }
+            "showMessage" -> {
+                CallNotifications.showMessage(app, args["title"] as String, args["body"] as String)
+                null
+            }
+            "cancelMessage" -> { CallNotifications.cancelMessage(app); null }
             "startCallService" -> {
                 CallService.start(app, args["title"] as String, args["name"] as String,
                     (args["since"] as? Number)?.toLong(), args["video"] == true)

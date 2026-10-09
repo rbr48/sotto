@@ -8,6 +8,8 @@ import 'package:window_manager/window_manager.dart';
 
 import '../app/app_controller.dart';
 import '../call/call_controller.dart';
+import '../chat/chat_arrival.dart';
+import '../core/l10n/language.dart';
 import 'autostart.dart';
 import 'notices.dart';
 import 'single_instance.dart';
@@ -141,8 +143,26 @@ class DesktopIntegration with TrayListener, WindowListener {
             ),
           ),
         ),
+      )
+      ..add(
+        calls.newChatMessages.listen(
+          (arrival) => _notify(_chatNotice(arrival)),
+        ),
       );
   }
+
+  /// A message from a contact arrived: a notice unless the chat is open in
+  /// front of the person (see [NoticeRules.chatMessage]).
+  Notice? _chatNotice(ChatArrival arrival) => NoticeRules.chatWords(
+    kind: NoticeRules.chatMessage(
+      prefs: app.desktopPrefs,
+      inFront: inFront,
+      viewing: arrival.viewing,
+      locked: app.lock.locked,
+    ),
+    senderName: arrival.senderName,
+    l10n: localizationsForNotices(),
+  );
 
   Future<void> _applyPreventClose() async {
     try {
@@ -168,6 +188,8 @@ class DesktopIntegration with TrayListener, WindowListener {
   }
 
   Future<void> _showWindow() async {
+    // Shown again: the person can see the app, whatever the lifecycle says.
+    inFront = true;
     try {
       await windowManager.show();
       await windowManager.focus();
@@ -182,13 +204,17 @@ class DesktopIntegration with TrayListener, WindowListener {
       unawaited(windowManager.destroy());
       return;
     }
+    // A window hidden in the tray is not in front, whatever the lifecycle
+    // still reports: calls, messages and knocks must notify.
+    inFront = false;
     unawaited(windowManager.hide());
     if (!_toldAboutTray) {
       _toldAboutTray = true;
       _notify(
         const Notice(
           'Sotto is still running',
-          'Calls and waiting guests still reach you. Quit from the tray icon.',
+          'Calls, messages and waiting guests still reach you. Quit from the '
+              'tray icon.',
         ),
       );
     }

@@ -24,8 +24,10 @@ object CallNotifications {
 
     private const val CALLS = "calls"
     private const val GUESTS = "guests"
+    private const val MESSAGES = "messages"
     private const val CALL_ID = 2
     private const val KNOCK_ID = 3
+    private const val MESSAGE_ID = 5
 
     fun showIncoming(context: Context, title: String, body: String, video: Boolean) {
         val manager = channels(context)
@@ -78,6 +80,26 @@ object CallNotifications {
 
     fun cancelKnock(context: Context) = manager(context).cancel(KNOCK_ID)
 
+    /** A message from a contact. The text itself never reaches this side. */
+    fun showMessage(context: Context, title: String, body: String) {
+        val manager = channels(context)
+        manager.notify(
+            MESSAGE_ID,
+            NotificationCompat.Builder(context, MESSAGES)
+                .setSmallIcon(R.drawable.ic_stat_sotto)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setAutoCancel(true)
+                .setContentIntent(openApp(context))
+                .build(),
+        )
+    }
+
+    fun cancelMessage(context: Context) = manager(context).cancel(MESSAGE_ID)
+
     /** Opens the app. */
     fun openApp(context: Context): PendingIntent = activity(context, 14, null, call = false)
 
@@ -115,6 +137,12 @@ object CallNotifications {
             manager.createNotificationChannel(
                 NotificationChannel(GUESTS, "Waiting guests", NotificationManager.IMPORTANCE_HIGH).apply {
                     description = "A guest knocked on your link while Sotto is in the background"
+                },
+            )
+            manager.createNotificationChannel(
+                NotificationChannel(MESSAGES, "Messages", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                    description = "A message from a contact arrived while Sotto is in the background"
+                    lockscreenVisibility = Notification.VISIBILITY_PRIVATE
                 },
             )
         }

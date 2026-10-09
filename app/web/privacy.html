@@ -33,26 +33,31 @@ Contact: {{with env "SOTTO_CONTACT"}}<a href="mailto:{{.}}">{{.}}</a>{{else}}<a 
 accounts, no phone numbers or e-mail addresses, no advertising, no analytics and no
 tracking. This page explains, plainly, what is processed, where, and for how long.</p>
 
-<h2>Calls are end-to-end encrypted</h2>
+<h2>Calls and messages are end-to-end encrypted</h2>
 <p>Audio and video travel encrypted from one device to the other (WebRTC with DTLS-SRTP).
-The messages that set up a call, including your name if you send it, are encrypted on
-your device for the other person's device only (libsodium). This server cannot read
-them, and it cannot listen to or watch a call.</p>
+The messages that set up a call or a chat, including your name if you send it, are
+encrypted on your device for the other person's device only (libsodium). This server
+cannot read them, and it cannot listen to or watch a call.</p>
+<p>Text messages between contacts go straight from one device to the other over an
+encrypted connection (a WebRTC data channel). They never pass through this server.</p>
 
 <h2>What this server processes</h2>
 <table>
-<tr><th>Never</th><td>Names, contact lists, call history, notes, call content (audio,
-video, call set-up messages). There is no database: nothing about you is stored.</td></tr>
+<tr><th>Never</th><td>Names, contact lists, call history, chat history, notes, call and
+chat content (audio, video, call and chat set-up messages, and the text of your
+messages). There is no database: nothing about you is stored.</td></tr>
 <tr><th>Briefly, in memory only</th><td>
 <ul>
 <li>The public key of each connected device (it is your Sotto ID), and the IP address of
 the connection, while it is open.</li>
 <li>Which ID sends an encrypted message to which ID, and when, while the message passes
 through. A message for a device that is offline is held for at most 60 seconds, then
-dropped.</li>
-<li>For calls that go through the relay (when devices can't connect directly, or with
-"Hide my IP address"): the IP addresses of both devices and the amount of data, for as
-long as the call lasts. The relay credentials are temporary and contain no ID.</li>
+dropped. Chat messages are never held: a chat message to an offline contact is not
+sent, and the sender is told.</li>
+<li>For calls and chats that go through the relay (when devices can't connect directly,
+or with "Hide my IP address"): the IP addresses of both devices and the amount of data,
+for as long as the call or chat lasts. The relay credentials are temporary and contain
+no ID.</li>
 <li>Counters to prevent abuse (connections per network address, messages per second),
 keyed with a random secret that changes when the server restarts.</li>
 </ul>
@@ -66,10 +71,12 @@ adds too much delay for live calls.</p>
 <h2>What stays on your device</h2>
 <ul>
 <li><strong>Apps (Android, Windows, Linux):</strong> your identity keys (in the system
-keystore), and an encrypted file with your profile, contacts, call history and notes,
-settings and guest links. History is deleted after the period you choose in Settings
-(30 days unless you change it). Backups are files you create and keep yourself,
-encrypted with your password.</li>
+keystore), and an encrypted file with your profile, contacts, call history, chat
+history, notes, settings and guest links. Call history is deleted after the period you
+choose in Settings (30 days unless you change it). Chat history is kept until you delete
+a chat. Backups are files you create and keep yourself, encrypted with your password.
+Notifications for new messages say "New message", with the sender's name only if you
+turn on names; the text is never shown in a notification.</li>
 <li><strong>Browser:</strong> nothing is kept after you close the tab, unless you choose
 "Remember me on this browser". Then the same data is kept in the browser, encrypted
 with a key the browser cannot export.</li>
@@ -79,9 +86,9 @@ with a key the browser cannot export.</li>
 <ul>
 <li>The person you call sees the name in your profile (or the name you type as a guest),
 and your Sotto ID. A name that isn't verified is marked "not in your contacts".</li>
-<li>When a call connects directly, the two devices learn each other's IP address. With
-"Hide my IP address" on, calls always go through the relay, so the other person never
-sees yours.</li>
+<li>When a call or chat connects directly, the two devices learn each other's IP address.
+With "Hide my IP address" on, calls and chats always go through the relay, so the other
+person never sees yours.</li>
 </ul>
 
 <h2>Other services the apps contact</h2>

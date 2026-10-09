@@ -239,6 +239,54 @@ reply   = envelope (§3) of type "profile", body {n, o?}           sealed, signe
 - The person must be online for a first lookup, as for a call. After that, the app keeps the verified result in its encrypted settings, and uses it while the person is offline. A short link of someone already in the contacts needs no lookup at all.
 - Full links (§5.7, §5.8) are still accepted everywhere.
 
+### 5.10 Chat sessions (peer-to-peer messages)
+
+A chat is set up with envelopes and then runs over a WebRTC data channel
+labelled `sotto-chat`, directly between the two devices (see
+`MESSAGING_PLAN.md`). The relay carries only the envelopes below.
+
+Envelope types. `callId` is the session id: 16 random bytes.
+
+| `type` | Direction | `body` |
+|---|---|---|
+| `chat.open` | opener → contact | `{}` |
+| `chat.accept` | answering device → opener | `{"tag"}`: 16 random bytes, made by that device |
+| `chat.decline` | contact → opener | `{"reason": "not-contact" \| "disabled"}` |
+| `chat.taken` | opener → contact | `{"tag"}`: the winning device's tag |
+| `chat.offer` / `chat.answer` | offerer ↔ winning device | `{"tag", "sdp"}` |
+| `chat.ice` | either, with the winning device | `{"tag", "candidate", "sdpMid", "sdpMLineIndex"}` |
+| `chat.close` | either | `{}` |
+
+- Only contacts can open a chat. Others get `chat.decline` with `not-contact`.
+- Every logged-in device of the contact answers `chat.open` with its own tag.
+  The first `chat.accept` wins. The opener sends `chat.taken` with that tag, and
+  the other devices drop their sessions.
+- `chat.offer`, `chat.answer` and `chat.ice` carry the winning tag, so no other
+  device applies them. They use their own types, not `sdp.*`, so call handling
+  (§5.5) is unaffected.
+- When both people open a chat at the same moment, the side with the lower
+  Sotto ID keeps its own invitation; the other side answers it.
+- An open with no answer after 20 seconds fails. An answering device that
+  hears nothing decisive after 20 seconds drops its session.
+
+Data-channel frames: UTF-8 JSON, at most 16 KiB each. Text is at most 4,000
+characters after cleaning: control characters (except line breaks and tabs)
+and the Unicode direction controls U+202A–U+202E and U+2066–U+2069 are removed,
+and the ends are trimmed.
+
+| Frame | Meaning |
+|---|---|
+| `{"t":"hello","v":1}` | First frame from each side. Another version ends the session. |
+| `{"t":"msg","id","ts","text"}` | A message. `id`: 16 random bytes. `ts`: sender's clock, ms. |
+| `{"t":"ack","id"}` | The message is stored on the receiving device. Sent for every copy received. |
+| `{"t":"bye"}` | The session is ending. |
+
+Messages are sent only after the other side's `hello`. A message received
+again (same `id`) is acknowledged but stored once. A session that ends before
+an acknowledgement marks the message not sent; it is sent again in the next
+session. A session with no activity for five minutes closes, unless the chat
+is open on screen or messages are waiting.
+
 ## 6. Test vectors
 
 `tools/crypto-vectors/gen.js` implements §2–§4 independently and prints the vectors stored in `app/lib/crypto/test_vectors.dart`:
