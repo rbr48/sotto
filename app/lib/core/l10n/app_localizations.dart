@@ -447,6 +447,114 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'30 days'**
   String get chatDisappearing30d;
+
+  /// No description provided for @chatSearch.
+  ///
+  /// In en, this message translates to:
+  /// **'Search'**
+  String get chatSearch;
+
+  /// No description provided for @chatSearchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search in conversation'**
+  String get chatSearchHint;
+
+  /// No description provided for @chatSearchNoMatches.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching messages found'**
+  String get chatSearchNoMatches;
+
+  /// No description provided for @chatAttachFile.
+  ///
+  /// In en, this message translates to:
+  /// **'Attach file'**
+  String get chatAttachFile;
+
+  /// No description provided for @chatFileOffer.
+  ///
+  /// In en, this message translates to:
+  /// **'File offered: {name}'**
+  String chatFileOffer(String name);
+
+  /// No description provided for @chatFileAccept.
+  ///
+  /// In en, this message translates to:
+  /// **'Accept'**
+  String get chatFileAccept;
+
+  /// No description provided for @chatFileDecline.
+  ///
+  /// In en, this message translates to:
+  /// **'Decline'**
+  String get chatFileDecline;
+
+  /// No description provided for @chatFileDownloading.
+  ///
+  /// In en, this message translates to:
+  /// **'Receiving {percent}%'**
+  String chatFileDownloading(int percent);
+
+  /// No description provided for @chatFileUploading.
+  ///
+  /// In en, this message translates to:
+  /// **'Sending {percent}%'**
+  String chatFileUploading(int percent);
+
+  /// No description provided for @chatFileReceived.
+  ///
+  /// In en, this message translates to:
+  /// **'Received file'**
+  String get chatFileReceived;
+
+  /// No description provided for @chatFileSent.
+  ///
+  /// In en, this message translates to:
+  /// **'Sent file'**
+  String get chatFileSent;
+
+  /// No description provided for @chatFileOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get chatFileOpen;
+
+  /// No description provided for @chatFileSaveAs.
+  ///
+  /// In en, this message translates to:
+  /// **'Save to…'**
+  String get chatFileSaveAs;
+
+  /// No description provided for @chatFileDeclined.
+  ///
+  /// In en, this message translates to:
+  /// **'Transfer declined'**
+  String get chatFileDeclined;
+
+  /// No description provided for @chatFileCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Transfer cancelled'**
+  String get chatFileCancelled;
+
+  /// No description provided for @chatFileFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Transfer failed'**
+  String get chatFileFailed;
+
+  /// No description provided for @chatFileTooLarge.
+  ///
+  /// In en, this message translates to:
+  /// **'File exceeds maximum size limit (100 MB)'**
+  String get chatFileTooLarge;
+
+  /// No description provided for @chatFileBlocked.
+  ///
+  /// In en, this message translates to:
+  /// **'Executables and script files cannot be sent'**
+  String get chatFileBlocked;
 }
 
 class _AppLocalizationsDelegate

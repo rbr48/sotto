@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sotto/chat/chat_frames.dart';
@@ -20,6 +21,7 @@ class _FakeRtc implements ChatRtc {
   final addedCandidates = <Map<String, dynamic>>[];
 
   final _frames = StreamController<String>();
+  final _binaryFrames = StreamController<Uint8List>();
   final _opened = Completer<void>();
   final _lost = Completer<void>();
   final _candidates = StreamController<Map<String, Object?>>.broadcast();
@@ -76,6 +78,7 @@ class _FakeRtc implements ChatRtc {
     closed = true;
     _markLost();
     if (!_frames.isClosed) await _frames.close();
+    if (!_binaryFrames.isClosed) await _binaryFrames.close();
     if (!_candidates.isClosed) await _candidates.close();
   }
 
@@ -112,11 +115,27 @@ class _FakeTransport implements ChatTransport {
   }
 
   @override
+  bool sendBinary(Uint8List data) {
+    final peer = owner.peer;
+    if (!owner._open || peer == null || owner.closed) return false;
+    scheduleMicrotask(() {
+      if (!peer.closed && !peer._binaryFrames.isClosed) {
+        peer._binaryFrames.add(data);
+      }
+    });
+    return true;
+  }
+
+  @override
   Stream<String> get frames => owner._frames.stream;
+
+  @override
+  Stream<Uint8List> get binaryFrames => owner._binaryFrames.stream;
 
   @override
   Future<void> close() async {
     if (!owner._frames.isClosed) await owner._frames.close();
+    if (!owner._binaryFrames.isClosed) await owner._binaryFrames.close();
   }
 }
 

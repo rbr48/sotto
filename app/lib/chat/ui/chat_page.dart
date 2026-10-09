@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -47,8 +48,19 @@ class ChatPage extends StatefulWidget {
 
 class _ChatPageState extends State<ChatPage> {
   final _input = TextEditingController();
+  final _scrollController = ScrollController();
+  final _searchController = TextEditingController();
+
   StreamSubscription<ChatManagerEvent>? _events;
   List<ChatMessage> _messages = const [];
+
+  static const int _pageSize = 50;
+  int _loadedCount = _pageSize;
+  bool _hasMore = true;
+  bool _isLoadingMore = false;
+
+  bool _isSearching = false;
+  String _searchQuery = '';
 
   /// What went wrong with the last connection, shown until dismissed.
   String? _problem;
@@ -64,8 +76,19 @@ class _ChatPageState extends State<ChatPage> {
     widget.chat.viewing(widget.contactId);
     _events = widget.chat.events.listen(_onEvent);
     _input.addListener(_onInputChanged);
+    _scrollController.addListener(_onScroll);
     unawaited(_markAndSendRead());
-    unawaited(_load());
+    unawaited(_load(reset: true));
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
+      if (!_isLoadingMore && _hasMore) {
+        unawaited(_loadMore());
+      }
+    }
   }
 
   Future<void> _markAndSendRead() async {
@@ -105,16 +128,44 @@ class _ChatPageState extends State<ChatPage> {
     _typingDebounceTimer?.cancel();
     _peerTypingTimer?.cancel();
     _input.removeListener(_onInputChanged);
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    _searchController.dispose();
     widget.chat.viewing(null);
     unawaited(_events?.cancel());
     _input.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
-    final messages = await widget.chat.store.messages(widget.contactId);
+  Future<void> _load({bool reset = false}) async {
+    if (reset) _loadedCount = _pageSize;
+    final total = await widget.chat.store.messageCount(widget.contactId);
+    final messages = await widget.chat.store.messages(
+      widget.contactId,
+      limit: _loadedCount,
+    );
     if (!mounted) return;
-    setState(() => _messages = messages);
+    setState(() {
+      _messages = messages;
+      _hasMore = total > _loadedCount;
+    });
+  }
+
+  Future<void> _loadMore() async {
+    if (_isLoadingMore || !_hasMore) return;
+    _isLoadingMore = true;
+    _loadedCount += _pageSize;
+    final total = await widget.chat.store.messageCount(widget.contactId);
+    final messages = await widget.chat.store.messages(
+      widget.contactId,
+      limit: _loadedCount,
+    );
+    if (!mounted) return;
+    setState(() {
+      _messages = messages;
+      _hasMore = total > _loadedCount;
+      _isLoadingMore = false;
+    });
   }
 
   void _onEvent(ChatManagerEvent event) {
@@ -177,6 +228,79 @@ class _ChatPageState extends State<ChatPage> {
     await _load();
   }
 
+  Future<void> _attachFile() async {
+    final l10n = AppLocalizations.of(context);
+    try {
+      final file = await openFile();
+      if (file == null) return;
+      if (ChatFrames.isBlockedFileType(file.name)) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(l10n.chatFileBlocked)));
+        return;
+      }
+      final bytes = await file.readAsBytes();
+      if (bytes.length > maxFileSizeNative) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(l10n.chatFileTooLarge)));
+        return;
+      }
+      await widget.chat.offerFile(
+        contact: widget.contactId,
+        name: file.name,
+        bytes: bytes,
+        mime: file.mimeType ?? 'application/octet-stream',
+      );
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+
+  Future<void> _acceptFile(ChatMessage message) async {
+    final fileId = message.fileId ?? message.id;
+    await widget.chat.acceptFile(widget.contactId, fileId);
+    await _load();
+  }
+
+  Future<void> _declineFile(ChatMessage message) async {
+    final fileId = message.fileId ?? message.id;
+    await widget.chat.declineFile(widget.contactId, fileId);
+    await _load();
+  }
+
+  Future<void> _openFile(ChatMessage message) async {
+    final path = message.filePath;
+    if (path == null) return;
+    try {
+      await launchUrl(Uri.file(path));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Could not open file ($e)')));
+    }
+  }
+
+  Future<void> _saveFileAs(ChatMessage message) async {
+    final path = message.filePath;
+    if (path == null) return;
+    try {
+      final location = await getSaveLocation(suggestedName: message.fileName);
+      if (location == null) return;
+      await XFile(path).saveTo(location.path);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context).chatFileReceived)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Could not save file ($e)')));
+    }
+  }
+
   Future<void> _retry(ChatMessage message) async {
     await widget.chat.retry(widget.contactId, message.id);
     await _load();
@@ -234,7 +358,9 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   void _copyMessage(ChatMessage message) {
-    unawaited(Clipboard.setData(ClipboardData(text: message.text)));
+    unawaited(
+      Clipboard.setData(ClipboardData(text: message.fileName ?? message.text)),
+    );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -338,41 +464,90 @@ class _ChatPageState extends State<ChatPage> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final displayed = _searchQuery.isEmpty
+        ? _messages
+        : _messages
+              .where(
+                (m) =>
+                    m.text.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+                    (m.fileName?.toLowerCase().contains(
+                          _searchQuery.toLowerCase(),
+                        ) ??
+                        false),
+              )
+              .toList();
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.name),
+        title: _isSearching
+            ? TextField(
+                controller: _searchController,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: l10n.chatSearchHint,
+                  border: InputBorder.none,
+                ),
+                onChanged: (q) => setState(() => _searchQuery = q.trim()),
+              )
+            : Text(widget.name),
+        leading: _isSearching
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => setState(() {
+                  _isSearching = false;
+                  _searchQuery = '';
+                  _searchController.clear();
+                }),
+              )
+            : null,
         actions: [
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              if (value == 'disappearing') {
-                unawaited(_chooseRetention(l10n));
-              } else if (value == 'delete') {
-                unawaited(_deleteChat(l10n));
-              }
-            },
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'disappearing',
-                child: Row(
-                  children: [
-                    const Icon(Icons.timer_outlined, size: 20),
-                    const SizedBox(width: 12),
-                    Text(l10n.chatDisappearingTitle),
-                  ],
-                ),
+          if (_isSearching) ...[
+            if (_searchQuery.isNotEmpty)
+              IconButton(
+                icon: const Icon(Icons.clear),
+                onPressed: () => setState(() {
+                  _searchQuery = '';
+                  _searchController.clear();
+                }),
               ),
-              PopupMenuItem(
-                value: 'delete',
-                child: Row(
-                  children: [
-                    const Icon(Icons.delete_outline, size: 20),
-                    const SizedBox(width: 12),
-                    Text(l10n.chatDeleteMenu),
-                  ],
+          ] else ...[
+            IconButton(
+              icon: const Icon(Icons.search),
+              tooltip: l10n.chatSearch,
+              onPressed: () => setState(() => _isSearching = true),
+            ),
+            PopupMenuButton<String>(
+              onSelected: (value) {
+                if (value == 'disappearing') {
+                  unawaited(_chooseRetention(l10n));
+                } else if (value == 'delete') {
+                  unawaited(_deleteChat(l10n));
+                }
+              },
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 'disappearing',
+                  child: Row(
+                    children: [
+                      const Icon(Icons.timer_outlined, size: 20),
+                      const SizedBox(width: 12),
+                      Text(l10n.chatDisappearingTitle),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
+                PopupMenuItem(
+                  value: 'delete',
+                  child: Row(
+                    children: [
+                      const Icon(Icons.delete_outline, size: 20),
+                      const SizedBox(width: 12),
+                      Text(l10n.chatDeleteMenu),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
       body: SafeArea(
@@ -391,11 +566,19 @@ class _ChatPageState extends State<ChatPage> {
                       title: l10n.chatMessage,
                       message: l10n.chatEmptyHint,
                     )
+                  : displayed.isEmpty
+                  ? EmptyState(
+                      icon: Icons.search_off,
+                      title: l10n.chatSearch,
+                      message: l10n.chatSearchNoMatches,
+                    )
                   : ListView.builder(
+                      controller: _scrollController,
                       reverse: true,
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                      itemCount: displayed.length,
                       itemBuilder: (context, index) {
-                        final message = _messages[_messages.length - 1 - index];
+                        final message = displayed[displayed.length - 1 - index];
                         return _Bubble(
                           message: message,
                           contactName: widget.name,
@@ -406,6 +589,10 @@ class _ChatPageState extends State<ChatPage> {
                           onTapUrl: _handleUrlTap,
                           onCopy: () => _copyMessage(message),
                           onDelete: () => _deleteMessage(message),
+                          onAccept: () => _acceptFile(message),
+                          onDecline: () => _declineFile(message),
+                          onOpen: () => _openFile(message),
+                          onSaveAs: () => _saveFileAs(message),
                         );
                       },
                     ),
@@ -466,6 +653,12 @@ class _ChatPageState extends State<ChatPage> {
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
               child: Row(
                 children: [
+                  IconButton(
+                    tooltip: l10n.chatAttachFile,
+                    icon: const Icon(Icons.attach_file),
+                    onPressed: _attachFile,
+                  ),
+                  const SizedBox(width: 4),
                   Expanded(
                     child: TextField(
                       controller: _input,
@@ -543,6 +736,10 @@ class _Bubble extends StatelessWidget {
     required this.onTapUrl,
     required this.onCopy,
     required this.onDelete,
+    required this.onAccept,
+    required this.onDecline,
+    required this.onOpen,
+    required this.onSaveAs,
   });
 
   final ChatMessage message;
@@ -556,6 +753,10 @@ class _Bubble extends StatelessWidget {
   final void Function(String url) onTapUrl;
   final VoidCallback onCopy;
   final VoidCallback onDelete;
+  final VoidCallback onAccept;
+  final VoidCallback onDecline;
+  final VoidCallback onOpen;
+  final VoidCallback onSaveAs;
 
   void _showContextMenu(BuildContext context, Offset position) async {
     final selected = await showMenu<String>(
@@ -669,18 +870,29 @@ class _Bubble extends StatelessWidget {
             children: [
               Align(
                 alignment: AlignmentDirectional.centerStart,
-                child: _LinkifiedText(
-                  text: message.text,
-                  style: TextStyle(color: foreground),
-                  linkStyle: TextStyle(
-                    color: linkColor,
-                    decoration: TextDecoration.underline,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  onTapUrl: onTapUrl,
-                ),
+                child: message.isAttachment
+                    ? _FileCard(
+                        message: message,
+                        outgoing: outgoing,
+                        foreground: foreground,
+                        l10n: l10n,
+                        onAccept: onAccept,
+                        onDecline: onDecline,
+                        onOpen: onOpen,
+                        onSaveAs: onSaveAs,
+                      )
+                    : _LinkifiedText(
+                        text: message.text,
+                        style: TextStyle(color: foreground),
+                        linkStyle: TextStyle(
+                          color: linkColor,
+                          decoration: TextDecoration.underline,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        onTapUrl: onTapUrl,
+                      ),
               ),
-              if (outgoing) ...[
+              if (outgoing && !message.isAttachment) ...[
                 const SizedBox(height: 4),
                 Row(
                   mainAxisSize: MainAxisSize.min,
@@ -758,6 +970,256 @@ class _Bubble extends StatelessWidget {
     ChatState.notSent => l10n.chatStatusNotSent,
     ChatState.received => '',
   };
+}
+
+String _formatFileSize(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) {
+    return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  }
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+}
+
+class _FileCard extends StatelessWidget {
+  const _FileCard({
+    required this.message,
+    required this.outgoing,
+    required this.foreground,
+    required this.l10n,
+    required this.onAccept,
+    required this.onDecline,
+    required this.onOpen,
+    required this.onSaveAs,
+  });
+
+  final ChatMessage message;
+  final bool outgoing;
+  final Color foreground;
+  final AppLocalizations l10n;
+  final VoidCallback onAccept;
+  final VoidCallback onDecline;
+  final VoidCallback onOpen;
+  final VoidCallback onSaveAs;
+
+  IconData _fileIcon(String? mime, String? name) {
+    final m = (mime ?? '').toLowerCase();
+    final n = (name ?? '').toLowerCase();
+    if (m.startsWith('image/') ||
+        n.endsWith('.png') ||
+        n.endsWith('.jpg') ||
+        n.endsWith('.jpeg') ||
+        n.endsWith('.gif') ||
+        n.endsWith('.webp')) {
+      return Icons.image_outlined;
+    }
+    if (m.startsWith('video/') ||
+        n.endsWith('.mp4') ||
+        n.endsWith('.mkv') ||
+        n.endsWith('.mov')) {
+      return Icons.videocam_outlined;
+    }
+    if (m.startsWith('audio/') ||
+        n.endsWith('.mp3') ||
+        n.endsWith('.wav') ||
+        n.endsWith('.ogg') ||
+        n.endsWith('.m4a')) {
+      return Icons.audio_file_outlined;
+    }
+    if (m == 'application/pdf' || n.endsWith('.pdf')) {
+      return Icons.picture_as_pdf_outlined;
+    }
+    return Icons.insert_drive_file_outlined;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final name = message.fileName ?? message.text;
+    final size = message.fileSize != null
+        ? _formatFileSize(message.fileSize!)
+        : '';
+    final status = message.fileStatus ?? (outgoing ? 'completed' : 'offered');
+    final icon = _fileIcon(message.fileMime, message.fileName);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: foreground.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, color: foreground, size: 28),
+            ),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: foreground,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                  if (size.isNotEmpty)
+                    Text(
+                      size,
+                      style: TextStyle(
+                        color: foreground.withValues(alpha: 0.75),
+                        fontSize: 12,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _buildStatusContent(context, status),
+      ],
+    );
+  }
+
+  Widget _buildStatusContent(BuildContext context, String status) {
+    switch (status) {
+      case 'offered':
+        if (!outgoing) {
+          return Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FilledButton.tonal(
+                style: FilledButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: onAccept,
+                child: Text(l10n.chatFileAccept),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  foregroundColor: foreground,
+                ),
+                onPressed: onDecline,
+                child: Text(l10n.chatFileDecline),
+              ),
+            ],
+          );
+        }
+        return Text(
+          l10n.chatFileOffer(message.fileName ?? ''),
+          style: TextStyle(
+            color: foreground.withValues(alpha: 0.8),
+            fontSize: 12,
+          ),
+        );
+      case 'transferring':
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              outgoing
+                  ? l10n.chatFileUploading(0)
+                  : l10n.chatFileDownloading(0),
+              style: TextStyle(
+                color: foreground.withValues(alpha: 0.8),
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(height: 4),
+            SizedBox(
+              width: 140,
+              child: LinearProgressIndicator(
+                color: foreground,
+                backgroundColor: foreground.withValues(alpha: 0.25),
+              ),
+            ),
+          ],
+        );
+      case 'completed':
+        if (!outgoing) {
+          return Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (message.filePath != null) ...[
+                TextButton.icon(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    foregroundColor: foreground,
+                  ),
+                  icon: const Icon(Icons.open_in_new, size: 16),
+                  label: Text(l10n.chatFileOpen),
+                  onPressed: onOpen,
+                ),
+                TextButton.icon(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    foregroundColor: foreground,
+                  ),
+                  icon: const Icon(Icons.download, size: 16),
+                  label: Text(l10n.chatFileSaveAs),
+                  onPressed: onSaveAs,
+                ),
+              ] else
+                Text(
+                  l10n.chatFileReceived,
+                  style: TextStyle(
+                    color: foreground.withValues(alpha: 0.8),
+                    fontSize: 12,
+                  ),
+                ),
+            ],
+          );
+        }
+        return Text(
+          l10n.chatFileSent,
+          style: TextStyle(
+            color: foreground.withValues(alpha: 0.8),
+            fontSize: 12,
+          ),
+        );
+      case 'declined':
+        return Text(
+          l10n.chatFileDeclined,
+          style: TextStyle(
+            color: foreground.withValues(alpha: 0.8),
+            fontSize: 12,
+            fontStyle: FontStyle.italic,
+          ),
+        );
+      case 'cancelled':
+        return Text(
+          l10n.chatFileCancelled,
+          style: TextStyle(
+            color: foreground.withValues(alpha: 0.8),
+            fontSize: 12,
+            fontStyle: FontStyle.italic,
+          ),
+        );
+      case 'failed':
+        return Text(
+          l10n.chatFileFailed,
+          style: TextStyle(
+            color: foreground.withValues(alpha: 0.8),
+            fontSize: 12,
+            fontStyle: FontStyle.italic,
+          ),
+        );
+      default:
+        return const SizedBox.shrink();
+    }
+  }
 }
 
 class _LinkifiedText extends StatefulWidget {

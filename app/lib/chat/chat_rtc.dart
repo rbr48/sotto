@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
@@ -197,6 +198,7 @@ class WebRtcChatRtc implements ChatRtc {
 /// is open, and incoming text frames are queued until a session listens.
 class _DataChannelTransport implements ChatTransport {
   final _frames = StreamController<String>();
+  final _binaryFrames = StreamController<Uint8List>();
   RTCDataChannel? _channel;
   void Function()? _onBroken;
   bool _broken = false;
@@ -205,14 +207,22 @@ class _DataChannelTransport implements ChatTransport {
     _channel = channel;
     _onBroken = onBroken;
     channel.onMessage = (message) {
-      if (message.isBinary || _frames.isClosed) return;
-      _frames.add(message.text);
+      if (message.isBinary) {
+        if (!_binaryFrames.isClosed) {
+          _binaryFrames.add(message.binary);
+        }
+      } else {
+        if (!_frames.isClosed) {
+          _frames.add(message.text);
+        }
+      }
     };
   }
 
   void markBroken() {
     _broken = true;
     if (!_frames.isClosed) unawaited(_frames.close());
+    if (!_binaryFrames.isClosed) unawaited(_binaryFrames.close());
   }
 
   @override
@@ -229,7 +239,25 @@ class _DataChannelTransport implements ChatTransport {
   }
 
   @override
+  bool sendBinary(Uint8List data) {
+    final channel = _channel;
+    if (_broken || channel == null) return false;
+    if (channel.state != RTCDataChannelState.RTCDataChannelOpen) return false;
+    unawaited(
+      channel.send(RTCDataChannelMessage.fromBinary(data)).catchError((
+        Object _,
+      ) {
+        _onBroken?.call();
+      }),
+    );
+    return true;
+  }
+
+  @override
   Stream<String> get frames => _frames.stream;
+
+  @override
+  Stream<Uint8List> get binaryFrames => _binaryFrames.stream;
 
   @override
   Future<void> close() async {

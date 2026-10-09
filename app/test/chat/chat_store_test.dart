@@ -326,4 +326,84 @@ void main() {
     expect(remaining, hasLength(1));
     expect(remaining.first.id, _id(2));
   });
+
+  test(
+    'legacy sotto.chats.v1 automatically migrates to decoupled keys',
+    () async {
+      // Write legacy monolithic format
+      final legacyStore = MemorySecretStore();
+      final legacyJson =
+          '''
+    {
+      "alice": [{"id": "${_id(1)}", "out": true, "ts": 1000, "text": "hello alice", "state": "delivered"}],
+      "bob": [{"id": "${_id(2)}", "out": false, "ts": 2000, "text": "hello me", "state": "received", "read": false}]
+    }
+    ''';
+      await legacyStore.write(ChatStore.storageKey, legacyJson);
+
+      final newStore = ChatStore(legacyStore);
+      final aliceMsgs = await newStore.messages('alice');
+      expect(aliceMsgs, hasLength(1));
+      expect(aliceMsgs.first.text, 'hello alice');
+
+      final bobMsgs = await newStore.messages('bob');
+      expect(bobMsgs, hasLength(1));
+      expect(bobMsgs.first.text, 'hello me');
+
+      // Verify decoupled keys were written and legacy key was deleted
+      expect(await legacyStore.read(ChatStore.storageKey), isNull);
+      expect(await legacyStore.read(ChatStore.contactsIndexKey), isNotNull);
+      expect(await legacyStore.read(ChatStore.contactKey('alice')), isNotNull);
+      expect(await legacyStore.read(ChatStore.contactKey('bob')), isNotNull);
+      expect(await newStore.contactIds(), unorderedEquals(['alice', 'bob']));
+    },
+  );
+
+  test(
+    'per-contact isolation: adding message only touches target contact key',
+    () async {
+      await store.add(_message(1, contact: 'alice'));
+      await store.add(_message(2, contact: 'bob'));
+
+      final aliceBefore = await secrets.read(ChatStore.contactKey('alice'));
+      expect(aliceBefore, isNotNull);
+
+      // Now add another message for Bob
+      await store.add(_message(3, contact: 'bob'));
+
+      // Alice's raw secret value must not change at all
+      final aliceAfter = await secrets.read(ChatStore.contactKey('alice'));
+      expect(aliceAfter, equals(aliceBefore));
+    },
+  );
+
+  test('paginated messages returns windowed slices correctly', () async {
+    for (var i = 1; i <= 25; i++) {
+      await store.add(_message(i, contact: 'bob'));
+    }
+
+    expect(await store.messageCount('bob'), 25);
+
+    // Limit 10, offset 0 -> 10 newest messages (16 to 25)
+    final page1 = await store.messages('bob', limit: 10, offset: 0);
+    expect(page1, hasLength(10));
+    expect(page1.first.id, _id(16));
+    expect(page1.last.id, _id(25));
+
+    // Limit 10, offset 10 -> previous 10 messages (6 to 15)
+    final page2 = await store.messages('bob', limit: 10, offset: 10);
+    expect(page2, hasLength(10));
+    expect(page2.first.id, _id(6));
+    expect(page2.last.id, _id(15));
+
+    // Limit 10, offset 20 -> remaining 5 oldest messages (1 to 5)
+    final page3 = await store.messages('bob', limit: 10, offset: 20);
+    expect(page3, hasLength(5));
+    expect(page3.first.id, _id(1));
+    expect(page3.last.id, _id(5));
+
+    // Limit 10, offset 25 -> empty
+    final page4 = await store.messages('bob', limit: 10, offset: 25);
+    expect(page4, isEmpty);
+  });
 }

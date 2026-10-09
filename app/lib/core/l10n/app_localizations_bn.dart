@@ -200,4 +200,66 @@ class AppLocalizationsBn extends AppLocalizations {
 
   @override
   String get chatDisappearing30d => '৩০ দিন';
+
+  @override
+  String get chatSearch => 'অনুসন্ধান';
+
+  @override
+  String get chatSearchHint => 'কথোপকথনে অনুসন্ধান করুন';
+
+  @override
+  String get chatSearchNoMatches => 'কোনো বার্তা পাওয়া যায়নি';
+
+  @override
+  String get chatAttachFile => 'ফাইল সংযুক্ত করুন';
+
+  @override
+  String chatFileOffer(String name) {
+    return 'ফাইল পাঠানো হয়েছে: $name';
+  }
+
+  @override
+  String get chatFileAccept => 'গ্রহণ করুন';
+
+  @override
+  String get chatFileDecline => 'প্রত্যাখ্যান করুন';
+
+  @override
+  String chatFileDownloading(int percent) {
+    return 'আনা হচ্ছে $percent%';
+  }
+
+  @override
+  String chatFileUploading(int percent) {
+    return 'পাঠানো হচ্ছে $percent%';
+  }
+
+  @override
+  String get chatFileReceived => 'ফাইল পাওয়া গেছে';
+
+  @override
+  String get chatFileSent => 'ফাইল পাঠানো হয়েছে';
+
+  @override
+  String get chatFileOpen => 'খুলুন';
+
+  @override
+  String get chatFileSaveAs => 'সংরক্ষণ করুন…';
+
+  @override
+  String get chatFileDeclined => 'স্থানান্তর প্রত্যাখ্যাত';
+
+  @override
+  String get chatFileCancelled => 'স্থানান্তর বাতিল';
+
+  @override
+  String get chatFileFailed => 'স্থানান্তর ব্যর্থ হয়েছে';
+
+  @override
+  String get chatFileTooLarge =>
+      'ফাইলের আকার সর্বোচ্চ সীমা (১০০ মেগাবাইট) অতিক্রম করেছে';
+
+  @override
+  String get chatFileBlocked =>
+      'এক্সিকিউটেবল এবং স্ক্রিপ্ট ফাইল পাঠানো যাবে না';
 }

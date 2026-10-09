@@ -1,7 +1,11 @@
 import 'dart:async';
+import 'dart:typed_data';
+
+import 'package:crypto/crypto.dart';
 
 import 'chat_frames.dart';
 import 'chat_store.dart';
+import 'file_storage.dart';
 
 /// The data channel of one chat session, as the session needs it. The WebRTC
 /// engine provides it; tests use an in-memory pair.
@@ -9,8 +13,14 @@ abstract interface class ChatTransport {
   /// Queues one frame. False when the channel is closed.
   bool send(String frame);
 
+  /// Queues one binary chunk frame. False when the channel is closed.
+  bool sendBinary(Uint8List data) => false;
+
   /// Incoming frames, in order, until the channel closes.
   Stream<String> get frames;
+
+  /// Incoming binary frames, in order, until the channel closes.
+  Stream<Uint8List> get binaryFrames => const Stream.empty();
 
   Future<void> close();
 }
@@ -49,12 +59,58 @@ final class MessagesRead extends ChatSessionEvent {
   final List<String> ids;
 }
 
+/// A file offer was received from the peer.
+final class FileOfferReceived extends ChatSessionEvent {
+  const FileOfferReceived(this.message);
+  final ChatMessage message;
+}
+
+/// Progress update for an active file transfer (0.0 to 1.0).
+final class FileTransferProgress extends ChatSessionEvent {
+  const FileTransferProgress(this.id, this.progress);
+  final String id;
+  final double progress;
+}
+
+/// File transfer completed and verified.
+final class FileTransferCompleted extends ChatSessionEvent {
+  const FileTransferCompleted(this.id, this.filePath);
+  final String id;
+  final String? filePath;
+}
+
+/// File transfer was declined, cancelled, or failed.
+final class FileTransferFailed extends ChatSessionEvent {
+  const FileTransferFailed(this.id, this.reason);
+  final String id;
+  final String reason;
+}
+
 /// The session is over. [reason] is 'closed' (this side), 'bye' (the other
 /// side), 'idle', 'version' (the other side speaks another version), or
 /// 'lost' (the channel broke).
 final class SessionEnded extends ChatSessionEvent {
   const SessionEnded(this.reason);
   final String reason;
+}
+
+class _IncomingFileTransfer {
+  _IncomingFileTransfer({
+    required this.id,
+    required this.name,
+    required this.size,
+    required this.mime,
+    required this.sha256,
+    required this.totalChunks,
+  });
+
+  final String id;
+  final String name;
+  final int size;
+  final String mime;
+  final String sha256;
+  final int totalChunks;
+  final chunks = <int, Uint8List>{};
 }
 
 /// One chat over one data channel, as specified in `docs/MESSAGING_PLAN.md`.
@@ -105,9 +161,16 @@ class ChatSession {
   Future<void> _incoming = Future<void>.value();
 
   StreamSubscription<String>? _subscription;
+  StreamSubscription<Uint8List>? _binarySubscription;
   bool _peerHello = false;
   bool _ended = false;
   late DateTime _lastActivity;
+
+  /// Outgoing file byte payloads waiting to stream on accept, by fileId.
+  final _outgoingFiles = <String, Uint8List>{};
+
+  /// Incoming file transfers in progress, by fileId.
+  final _incomingFiles = <String, _IncomingFileTransfer>{};
 
   /// Whether messages can be sent now.
   bool get isReady => _peerHello && !_ended;
@@ -126,6 +189,9 @@ class ChatSession {
     _subscription = transport.frames.listen(
       (raw) => _incoming = _incoming.then((_) => _onFrame(raw)),
       onDone: () => _incoming = _incoming.then((_) => _end('lost')),
+    );
+    _binarySubscription = transport.binaryFrames.listen(
+      (bytes) => _incoming = _incoming.then((_) => _onBinaryChunk(bytes)),
     );
     _write(const HelloFrame());
   }
@@ -158,6 +224,127 @@ class ChatSession {
     _lastActivity = clock();
     _sendOutbox();
     return message;
+  }
+
+  /// Offers to send a file to the contact.
+  Future<ChatMessage> offerFile({
+    required String name,
+    required Uint8List bytes,
+    required String mime,
+  }) async {
+    _ensureOpen();
+    if (ChatFrames.isBlockedFileType(name)) {
+      throw ArgumentError('Blocked file type: $name');
+    }
+    if (bytes.length > maxFileSizeNative) {
+      throw ArgumentError('File exceeds max size limit');
+    }
+    final cleaned = ChatFrames.cleanFileName(name);
+    final hash = sha256.convert(bytes).toString();
+    final chunks = (bytes.length / fileChunkSize).ceil();
+    final id = _newId();
+    final message = ChatMessage(
+      id: id,
+      contactId: contactId,
+      outgoing: true,
+      ts: clock().millisecondsSinceEpoch,
+      text: cleaned,
+      state: ChatState.sending,
+      fileId: id,
+      fileName: cleaned,
+      fileSize: bytes.length,
+      fileMime: mime,
+      fileSha256: hash,
+      fileStatus: 'offered',
+    );
+    _outgoingFiles[id] = bytes;
+    await store.add(message);
+    _write(
+      FileOfferFrame(
+        id: id,
+        name: cleaned,
+        size: bytes.length,
+        mime: mime,
+        sha256: hash,
+        chunks: chunks == 0 ? 1 : chunks,
+      ),
+    );
+    return message;
+  }
+
+  /// Accepts an offered file from the contact.
+  Future<void> acceptFile(String fileId) async {
+    _ensureOpen();
+    final msg = await store.find(contactId, fileId);
+    if (msg == null || msg.fileName == null) return;
+    final totalChunks = ((msg.fileSize ?? 0) / fileChunkSize).ceil();
+    _incomingFiles[fileId] = _IncomingFileTransfer(
+      id: fileId,
+      name: msg.fileName!,
+      size: msg.fileSize ?? 0,
+      mime: msg.fileMime ?? 'application/octet-stream',
+      sha256: msg.fileSha256 ?? '',
+      totalChunks: totalChunks == 0 ? 1 : totalChunks,
+    );
+    await store.updateMessage(msg.copyWith(fileStatus: 'transferring'));
+    _write(FileAcceptFrame(id: fileId));
+  }
+
+  /// Declines an offered file from the contact.
+  Future<void> declineFile(String fileId) async {
+    _ensureOpen();
+    final msg = await store.find(contactId, fileId);
+    if (msg != null) {
+      await store.updateMessage(msg.copyWith(fileStatus: 'declined'));
+    }
+    _write(FileDeclineFrame(id: fileId));
+  }
+
+  /// Cancels an active file transfer.
+  Future<void> cancelFile(String fileId, {String? reason}) async {
+    _outgoingFiles.remove(fileId);
+    _incomingFiles.remove(fileId);
+    final msg = await store.find(contactId, fileId);
+    if (msg != null) {
+      await store.updateMessage(msg.copyWith(fileStatus: 'cancelled'));
+    }
+    _write(FileCancelFrame(id: fileId, reason: reason));
+  }
+
+  Future<void> _streamFileChunks(String fileId, Uint8List bytes) async {
+    final totalChunks = (bytes.length / fileChunkSize).ceil();
+    final count = totalChunks == 0 ? 1 : totalChunks;
+    for (var i = 0; i < count; i++) {
+      if (_ended || !_outgoingFiles.containsKey(fileId)) return;
+      final start = i * fileChunkSize;
+      final end = (start + fileChunkSize) > bytes.length
+          ? bytes.length
+          : start + fileChunkSize;
+      final slice = bytes.sublist(start, end);
+      final chunkBytes = ChatFrames.encodeChunk(
+        fileId: fileId,
+        chunkIndex: i,
+        payload: slice,
+      );
+      transport.sendBinary(chunkBytes);
+      final progress = (i + 1) / count;
+      _events.add(FileTransferProgress(fileId, progress));
+      await Future<void>.delayed(Duration.zero);
+    }
+    _write(FileDoneFrame(id: fileId));
+  }
+
+  Future<void> _onBinaryChunk(Uint8List bytes) async {
+    if (_ended) return;
+    _lastActivity = clock();
+    try {
+      final (:fileId, :chunkIndex, :payload) = ChatFrames.decodeChunk(bytes);
+      final transfer = _incomingFiles[fileId];
+      if (transfer == null) return;
+      transfer.chunks[chunkIndex] = payload;
+      final progress = transfer.chunks.length / transfer.totalChunks;
+      _events.add(FileTransferProgress(fileId, progress));
+    } catch (_) {}
   }
 
   /// Sends again a message from an earlier attempt. It keeps its id, so the
@@ -286,6 +473,127 @@ class ChatSession {
           await store.setState(contactId, id, ChatState.read);
         }
         _events.add(MessagesRead(ids));
+      case FileOfferFrame(
+        :final id,
+        :final name,
+        :final size,
+        :final mime,
+        :final sha256,
+      ):
+        if (!_peerHello) return;
+        if (!_contactNow) {
+          _write(const ByeFrame());
+          await _end('not-contact');
+          return;
+        }
+        if (!await store.contains(contactId, id)) {
+          final message = ChatMessage(
+            id: id,
+            contactId: contactId,
+            outgoing: false,
+            ts: clock().millisecondsSinceEpoch,
+            text: name,
+            state: ChatState.received,
+            read: false,
+            fileId: id,
+            fileName: name,
+            fileSize: size,
+            fileMime: mime,
+            fileSha256: sha256,
+            fileStatus: 'offered',
+          );
+          await store.add(message);
+          _events.add(MessageReceived(message));
+          _events.add(FileOfferReceived(message));
+        }
+      case FileAcceptFrame(:final id):
+        if (!_peerHello) return;
+        final bytes = _outgoingFiles[id];
+        if (bytes == null) return;
+        final existing = await store.find(contactId, id);
+        if (existing != null) {
+          await store.updateMessage(
+            existing.copyWith(fileStatus: 'transferring'),
+          );
+        }
+        unawaited(_streamFileChunks(id, bytes));
+      case FileDeclineFrame(:final id):
+        if (!_peerHello) return;
+        _outgoingFiles.remove(id);
+        final existing = await store.find(contactId, id);
+        if (existing != null) {
+          await store.updateMessage(existing.copyWith(fileStatus: 'declined'));
+          _events.add(FileTransferFailed(id, 'declined'));
+        }
+      case FileDoneFrame(:final id):
+        if (!_peerHello) return;
+        final transfer = _incomingFiles.remove(id);
+        if (transfer == null) return;
+        if (transfer.chunks.length != transfer.totalChunks) {
+          _write(FileCancelFrame(id: id, reason: 'incomplete'));
+          final existing = await store.find(contactId, id);
+          if (existing != null) {
+            await store.updateMessage(existing.copyWith(fileStatus: 'failed'));
+          }
+          _events.add(FileTransferFailed(id, 'incomplete'));
+          return;
+        }
+        final builder = BytesBuilder(copy: false);
+        for (var i = 0; i < transfer.totalChunks; i++) {
+          final chunk = transfer.chunks[i];
+          if (chunk == null) {
+            _write(FileCancelFrame(id: id, reason: 'missing-chunk'));
+            final existing = await store.find(contactId, id);
+            if (existing != null) {
+              await store.updateMessage(
+                existing.copyWith(fileStatus: 'failed'),
+              );
+            }
+            _events.add(FileTransferFailed(id, 'missing-chunk'));
+            return;
+          }
+          builder.add(chunk);
+        }
+        final fullBytes = builder.takeBytes();
+        final computedHash = sha256.convert(fullBytes).toString();
+        if (computedHash != transfer.sha256) {
+          _write(FileCancelFrame(id: id, reason: 'damaged'));
+          final existing = await store.find(contactId, id);
+          if (existing != null) {
+            await store.updateMessage(existing.copyWith(fileStatus: 'failed'));
+          }
+          _events.add(FileTransferFailed(id, 'damaged'));
+          return;
+        }
+        final savedPath = await ChatFileStorage.saveReceivedBlob(
+          fileId: id,
+          name: transfer.name,
+          bytes: fullBytes,
+        );
+        _write(FileAckFrame(id: id));
+        final existing = await store.find(contactId, id);
+        if (existing != null) {
+          await store.updateMessage(
+            existing.copyWith(fileStatus: 'completed', filePath: savedPath),
+          );
+        }
+        _events.add(FileTransferCompleted(id, savedPath));
+      case FileAckFrame(:final id):
+        if (!_peerHello) return;
+        _outgoingFiles.remove(id);
+        final existing = await store.find(contactId, id);
+        if (existing != null) {
+          await store.updateMessage(existing.copyWith(fileStatus: 'completed'));
+        }
+        _events.add(FileTransferCompleted(id, null));
+      case FileCancelFrame(:final id, :final reason):
+        _outgoingFiles.remove(id);
+        _incomingFiles.remove(id);
+        final existing = await store.find(contactId, id);
+        if (existing != null) {
+          await store.updateMessage(existing.copyWith(fileStatus: 'cancelled'));
+        }
+        _events.add(FileTransferFailed(id, reason ?? 'cancelled'));
       case ByeFrame():
         await _end('bye');
     }
@@ -300,7 +608,10 @@ class ChatSession {
     }
     _outbox.clear();
     _unsent.clear();
+    _outgoingFiles.clear();
+    _incomingFiles.clear();
     await _subscription?.cancel();
+    await _binarySubscription?.cancel();
     await transport.close();
     _events.add(SessionEnded(reason));
     await _events.close();

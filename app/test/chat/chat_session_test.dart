@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sotto/chat/chat_frames.dart';
@@ -12,6 +13,7 @@ String _id(int n) => b64Encode(List<int>.filled(16, n));
 /// One end of an in-memory data channel. Frames sent here arrive at [peer].
 class _Link implements ChatTransport {
   final _incoming = StreamController<String>();
+  final _incomingBinary = StreamController<Uint8List>();
   _Link? peer;
   bool connected = true;
   bool closed = false;
@@ -24,12 +26,23 @@ class _Link implements ChatTransport {
   }
 
   @override
+  bool sendBinary(Uint8List data) {
+    if (closed || !connected || peer == null || peer!.closed) return false;
+    peer!._incomingBinary.add(data);
+    return true;
+  }
+
+  @override
   Stream<String> get frames => _incoming.stream;
+
+  @override
+  Stream<Uint8List> get binaryFrames => _incomingBinary.stream;
 
   @override
   Future<void> close() async {
     closed = true;
     if (!_incoming.isClosed) await _incoming.close();
+    if (!_incomingBinary.isClosed) await _incomingBinary.close();
   }
 }
 

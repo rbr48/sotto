@@ -200,4 +200,66 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get chatDisappearing30d => '30 يوماً';
+
+  @override
+  String get chatSearch => 'بحث';
+
+  @override
+  String get chatSearchHint => 'البحث في المحادثة';
+
+  @override
+  String get chatSearchNoMatches => 'لم يتم العثور على رسائل مطابقة';
+
+  @override
+  String get chatAttachFile => 'إرفاق ملف';
+
+  @override
+  String chatFileOffer(String name) {
+    return 'ملف معروض: $name';
+  }
+
+  @override
+  String get chatFileAccept => 'قبول';
+
+  @override
+  String get chatFileDecline => 'رفض';
+
+  @override
+  String chatFileDownloading(int percent) {
+    return 'جارٍ الاستلام $percent%';
+  }
+
+  @override
+  String chatFileUploading(int percent) {
+    return 'جارٍ الإرسال $percent%';
+  }
+
+  @override
+  String get chatFileReceived => 'تم استلام الملف';
+
+  @override
+  String get chatFileSent => 'تم إرسال الملف';
+
+  @override
+  String get chatFileOpen => 'فتح';
+
+  @override
+  String get chatFileSaveAs => 'حفظ باسم…';
+
+  @override
+  String get chatFileDeclined => 'تم رفض النقل';
+
+  @override
+  String get chatFileCancelled => 'تم إلغاء النقل';
+
+  @override
+  String get chatFileFailed => 'فشل النقل';
+
+  @override
+  String get chatFileTooLarge =>
+      'الملف يتجاوز الحد الأقصى للحجم (100 ميجابايت)';
+
+  @override
+  String get chatFileBlocked =>
+      'لا يمكن إرسال الملفات القابلة للتنفيذ أو البرمجية';
 }

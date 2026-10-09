@@ -89,5 +89,47 @@
   "chatDisappearingOff": "Off",
   "chatDisappearing24h": "24 hours",
   "chatDisappearing7d": "7 days",
-  "chatDisappearing30d": "30 days"
+  "chatDisappearing30d": "30 days",
+  "chatSearch": "Search",
+  "chatSearchHint": "Search in conversation",
+  "chatSearchNoMatches": "No matching messages found",
+  "chatAttachFile": "Attach file",
+  "chatFileOffer": "File offered: {name}",
+  "@chatFileOffer": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "document.pdf"
+      }
+    }
+  },
+  "chatFileAccept": "Accept",
+  "chatFileDecline": "Decline",
+  "chatFileDownloading": "Receiving {percent}%",
+  "@chatFileDownloading": {
+    "placeholders": {
+      "percent": {
+        "type": "int",
+        "example": "45"
+      }
+    }
+  },
+  "chatFileUploading": "Sending {percent}%",
+  "@chatFileUploading": {
+    "placeholders": {
+      "percent": {
+        "type": "int",
+        "example": "45"
+      }
+    }
+  },
+  "chatFileReceived": "Received file",
+  "chatFileSent": "Sent file",
+  "chatFileOpen": "Open",
+  "chatFileSaveAs": "Save to…",
+  "chatFileDeclined": "Transfer declined",
+  "chatFileCancelled": "Transfer cancelled",
+  "chatFileFailed": "Transfer failed",
+  "chatFileTooLarge": "File exceeds maximum size limit (100 MB)",
+  "chatFileBlocked": "Executables and script files cannot be sent"
 }

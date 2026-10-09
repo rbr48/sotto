@@ -200,4 +200,64 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get chatDisappearing30d => '30 days';
+
+  @override
+  String get chatSearch => 'Search';
+
+  @override
+  String get chatSearchHint => 'Search in conversation';
+
+  @override
+  String get chatSearchNoMatches => 'No matching messages found';
+
+  @override
+  String get chatAttachFile => 'Attach file';
+
+  @override
+  String chatFileOffer(String name) {
+    return 'File offered: $name';
+  }
+
+  @override
+  String get chatFileAccept => 'Accept';
+
+  @override
+  String get chatFileDecline => 'Decline';
+
+  @override
+  String chatFileDownloading(int percent) {
+    return 'Receiving $percent%';
+  }
+
+  @override
+  String chatFileUploading(int percent) {
+    return 'Sending $percent%';
+  }
+
+  @override
+  String get chatFileReceived => 'Received file';
+
+  @override
+  String get chatFileSent => 'Sent file';
+
+  @override
+  String get chatFileOpen => 'Open';
+
+  @override
+  String get chatFileSaveAs => 'Save to…';
+
+  @override
+  String get chatFileDeclined => 'Transfer declined';
+
+  @override
+  String get chatFileCancelled => 'Transfer cancelled';
+
+  @override
+  String get chatFileFailed => 'Transfer failed';
+
+  @override
+  String get chatFileTooLarge => 'File exceeds maximum size limit (100 MB)';
+
+  @override
+  String get chatFileBlocked => 'Executables and script files cannot be sent';
 }

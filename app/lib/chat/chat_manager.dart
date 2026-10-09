@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'chat_frames.dart';
 import 'chat_rtc.dart';
@@ -237,6 +238,81 @@ class ChatManager {
     final ids = await store.contactIds();
     for (final contact in ids) {
       await flushOutbox(contact);
+    }
+  }
+
+  /// Offers a file or photo to [contact].
+  Future<ChatMessage> offerFile({
+    required String contact,
+    required String name,
+    required Uint8List bytes,
+    required String mime,
+  }) async {
+    if (!isContact(contact)) {
+      throw ArgumentError.value(contact, 'contact', 'is not a contact');
+    }
+    _ensureTicker();
+    var live = _activeFor(contact);
+    if (live == null && !_signalling.isOpening(contact)) {
+      _perform(_signalling.open(contact, clock()));
+    }
+    if (live?.session != null &&
+        !live!.session!.isEnded &&
+        live.session!.isReady) {
+      return live.session!.offerFile(name: name, bytes: bytes, mime: mime);
+    }
+    // Wait up to 10 seconds for session to become ready
+    final deadline = clock().add(const Duration(seconds: 10));
+    while (clock().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      live = _activeFor(contact);
+      if (live?.session != null &&
+          !live!.session!.isEnded &&
+          live.session!.isReady) {
+        return live.session!.offerFile(name: name, bytes: bytes, mime: mime);
+      }
+    }
+    throw StateError('Peer is offline or connection could not be established.');
+  }
+
+  /// Accepts an offered file.
+  Future<void> acceptFile(String contact, String fileId) async {
+    final live = _activeFor(contact);
+    final session = live?.session;
+    if (session != null && !session.isEnded) {
+      await session.acceptFile(fileId);
+    }
+  }
+
+  /// Declines an offered file.
+  Future<void> declineFile(String contact, String fileId) async {
+    final live = _activeFor(contact);
+    final session = live?.session;
+    if (session != null && !session.isEnded) {
+      await session.declineFile(fileId);
+    } else {
+      final msg = await store.find(contact, fileId);
+      if (msg != null) {
+        await store.updateMessage(msg.copyWith(fileStatus: 'declined'));
+      }
+    }
+  }
+
+  /// Cancels an active file transfer.
+  Future<void> cancelFile(
+    String contact,
+    String fileId, {
+    String? reason,
+  }) async {
+    final live = _activeFor(contact);
+    final session = live?.session;
+    if (session != null && !session.isEnded) {
+      await session.cancelFile(fileId, reason: reason);
+    } else {
+      final msg = await store.find(contact, fileId);
+      if (msg != null) {
+        await store.updateMessage(msg.copyWith(fileStatus: 'cancelled'));
+      }
     }
   }
 
