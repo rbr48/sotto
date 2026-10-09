@@ -681,6 +681,7 @@ class ChatSession {
           _events.add(MessageReceived(message));
           if (declined) {
             _write(FileDeclineFrame(id: id));
+          } else {
             _events.add(FileOfferReceived(message));
             // Files from contacts are accepted automatically so they transfer immediately without blocking
             if (!_ended) await acceptFile(id);

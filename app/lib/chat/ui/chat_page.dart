@@ -61,10 +61,7 @@ Future<List<({String name, Object error})>> sendPickedFiles({
       // No size check here: offerFile removes an image's metadata first, and
       // the limit applies to what is sent. It refuses a file over the limit.
       final bytes = await file.read();
-      var mime = file.mime;
-      if (mime == null || mime.isEmpty || mime == 'application/octet-stream') {
-        mime = ChatFrames.detectMimeType(file.name, bytes);
-      }
+      final mime = file.mime ?? 'application/octet-stream';
       await offer(file.name, bytes, mime);
       await onSent?.call();
     } catch (e) {
@@ -830,7 +827,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final skipped = await sendPickedFiles(
       picked: [
         for (final file in picked)
-          (name: file.name, read: file.readAsBytes, mime: file.mimeType),
+          (
+            name: file.name,
+            read: file.readAsBytes,
+            mime: file.mimeType ?? ChatFrames.detectMimeType(file.name),
+          ),
       ],
       offer: (name, bytes, mime) => widget.chat.offerFile(
         contact: widget.contactId,
@@ -1343,44 +1344,48 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                   }),
                 ),
             ] else ...[
-              IconButton(
-                style: IconButton.styleFrom(minimumSize: const Size(44, 48)),
-                icon: const Icon(Icons.videocam),
-                tooltip: 'Video call ${widget.name}',
-                onPressed: _callActive || widget.calls == null
-                    ? null
-                    : () => unawaited(
-                        widget.calls?.callContactId(
-                          widget.contactId,
-                          video: true,
+              if (widget.calls != null) ...[
+                IconButton(
+                  style: IconButton.styleFrom(minimumSize: const Size(44, 48)),
+                  icon: const Icon(Icons.videocam),
+                  tooltip: 'Video call ${widget.name}',
+                  onPressed: _callActive
+                      ? null
+                      : () => unawaited(
+                          widget.calls?.callContactId(
+                            widget.contactId,
+                            video: true,
+                          ),
                         ),
-                      ),
-              ),
-              IconButton(
-                style: IconButton.styleFrom(minimumSize: const Size(44, 48)),
-                icon: const Icon(Icons.call),
-                tooltip: 'Voice call ${widget.name}',
-                onPressed: _callActive || widget.calls == null
-                    ? null
-                    : () => unawaited(
-                        widget.calls?.callContactId(
-                          widget.contactId,
-                          video: false,
+                ),
+                IconButton(
+                  style: IconButton.styleFrom(minimumSize: const Size(44, 48)),
+                  icon: const Icon(Icons.call),
+                  tooltip: 'Voice call ${widget.name}',
+                  onPressed: _callActive
+                      ? null
+                      : () => unawaited(
+                          widget.calls?.callContactId(
+                            widget.contactId,
+                            video: false,
+                          ),
                         ),
-                      ),
-              ),
+                ),
+              ],
               IconButton(
                 style: IconButton.styleFrom(minimumSize: const Size(44, 48)),
                 icon: const Icon(Icons.search),
                 tooltip: l10n.chatSearch,
                 onPressed: () => setState(() => _isSearching = true),
               ),
-              IconButton(
-                style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
-                icon: const Icon(Icons.timer_outlined),
-                tooltip: l10n.chatDisappearingTitle,
-                onPressed: () => unawaited(_chooseRetention(l10n)),
-              ),
+              if (widget.calls == null ||
+                  MediaQuery.sizeOf(context).width >= 360)
+                IconButton(
+                  style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+                  icon: const Icon(Icons.timer_outlined),
+                  tooltip: l10n.chatDisappearingTitle,
+                  onPressed: () => unawaited(_chooseRetention(l10n)),
+                ),
               PopupMenuButton<String>(
                 padding: const EdgeInsets.all(12),
                 onSelected: (value) {
@@ -2001,7 +2006,7 @@ class _Bubble extends StatelessWidget {
     if (message.isAttachment) {
       if (message.fileStatus != 'completed') return null;
       return (
-        icon: Icons.done_all,
+        icon: Icons.done,
         iconColor: tokens.sentSecondary,
         labelColor: tokens.sentSecondary,
         label: l10n.chatStatusDelivered,
@@ -2021,7 +2026,7 @@ class _Bubble extends StatelessWidget {
         label: l10n.chatStatusQueued,
       ),
       ChatState.delivered => (
-        icon: Icons.done_all,
+        icon: Icons.done,
         iconColor: tokens.sentSecondary,
         labelColor: tokens.sentSecondary,
         label: l10n.chatStatusDelivered,
