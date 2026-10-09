@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 
 import 'chat_frames.dart';
 import 'chat_store.dart';
+import 'image_metadata.dart';
 
 /// The data channel of one chat session, as the session needs it. The WebRTC
 /// engine provides it; tests use an in-memory pair.
@@ -252,46 +253,67 @@ class ChatSession {
   }
 
   /// Offers to send a file to the contact.
+  ///
+  /// An image has its metadata removed first (location, camera details,
+  /// comments), so the contact receives only the picture. Throws
+  /// [ArgumentError] for a blocked type, an empty file, a file over the size
+  /// limit, an image that cannot be read, or an image type this app cannot
+  /// clean.
   Future<ChatMessage> offerFile({
     required String name,
     required Uint8List bytes,
     required String mime,
   }) async {
     _ensureOpen();
-    if (ChatFrames.isBlockedFileType(name)) {
+    final cleanedName = ChatFrames.cleanFileName(name);
+    if (ChatFrames.isBlockedFileType(name) ||
+        ChatFrames.isBlockedFileType(cleanedName)) {
       throw ArgumentError('Blocked file type: $name');
     }
-    if (bytes.length > maxFileSizeNative) {
+    if (mime.runes.length > maxMimeChars) {
+      throw ArgumentError.value(
+        mime,
+        'mime',
+        'must be at most $maxMimeChars characters',
+      );
+    }
+    final Uint8List clean;
+    try {
+      clean = ImageMetadata.clean(bytes, mime);
+    } on FormatException {
+      throw ArgumentError('Image could not be read');
+    }
+    if (clean.isEmpty) throw ArgumentError('File is empty');
+    if (clean.length > maxFileSizeNative) {
       throw ArgumentError('File exceeds max size limit');
     }
-    final cleaned = ChatFrames.cleanFileName(name);
-    final hash = sha256.convert(bytes).toString();
-    final chunks = (bytes.length / fileChunkSize).ceil();
+    final hash = sha256.convert(clean).toString();
+    final chunks = (clean.length / fileChunkSize).ceil();
     final id = _newId();
     final message = ChatMessage(
       id: id,
       contactId: contactId,
       outgoing: true,
       ts: clock().millisecondsSinceEpoch,
-      text: cleaned,
+      text: cleanedName,
       state: ChatState.sending,
       fileId: id,
-      fileName: cleaned,
-      fileSize: bytes.length,
+      fileName: cleanedName,
+      fileSize: clean.length,
       fileMime: mime,
       fileSha256: hash,
       fileStatus: 'offered',
     );
-    _outgoingFiles[id] = bytes;
+    _outgoingFiles[id] = clean;
     await store.add(message);
     _write(
       FileOfferFrame(
         id: id,
-        name: cleaned,
-        size: bytes.length,
+        name: cleanedName,
+        size: clean.length,
         mime: mime,
         sha256: hash,
-        chunks: chunks == 0 ? 1 : chunks,
+        chunks: chunks,
       ),
     );
     return message;
@@ -570,7 +592,9 @@ class ChatSession {
           return;
         }
         if (!await store.contains(contactId, id)) {
-          final tooLarge = size > maxFileBytes;
+          // Too large, or of a blocked type: declined, and nothing is kept.
+          final declined =
+              size > maxFileBytes || ChatFrames.isBlockedFileType(name);
           final message = ChatMessage(
             id: id,
             contactId: contactId,
@@ -584,12 +608,12 @@ class ChatSession {
             fileSize: size,
             fileMime: mime,
             fileSha256: sha256,
-            fileStatus: tooLarge ? 'declined' : 'offered',
+            fileStatus: declined ? 'declined' : 'offered',
             arrivedAt: clock().millisecondsSinceEpoch,
           );
           await store.add(message);
           _events.add(MessageReceived(message));
-          if (tooLarge) {
+          if (declined) {
             _write(FileDeclineFrame(id: id));
           } else {
             _events.add(FileOfferReceived(message));
