@@ -154,6 +154,26 @@ Future<void> _settle() async {
   }
 }
 
+/// A store whose writes take a while, as a real vault's can.
+class _SlowSecrets implements SecretStore {
+  _SlowSecrets(this.delay);
+
+  final Duration delay;
+  final _inner = MemorySecretStore();
+
+  @override
+  Future<String?> read(String key) => _inner.read(key);
+
+  @override
+  Future<void> write(String key, String value) async {
+    await Future<void>.delayed(delay);
+    await _inner.write(key, value);
+  }
+
+  @override
+  Future<void> delete(String key) => _inner.delete(key);
+}
+
 void main() {
   late _Network net;
   late DateTime now;
@@ -315,6 +335,50 @@ void main() {
     expect(events.whereType<ChatOpenFailure>().single.reason, 'no-answer');
     expect((await store.find('bob', message.id))!.state, ChatState.notSent);
     expect((await store.find('bob', message.id))!.reason, 'no-answer');
+    await sub.cancel();
+  });
+
+  test('when a chat fails, the store already says "not sent" when the screen is told', () async {
+    // The chat screen reloads from the store when it hears of the failure. If
+    // the store has not written the new state yet, the bubble stays "Sending"
+    // and nothing reloads it again.
+    final store = ChatStore(_SlowSecrets(const Duration(milliseconds: 50)));
+    final alice = device('alice', contacts: {'bob'}, store: store);
+    final storedWhenTold = <ChatState?>[];
+    late String messageId;
+    final sub = alice.events.listen((event) {
+      if (event case ChatUpdate(event: MessageNotSent())) {
+        storedWhenTold.add(null);
+        final index = storedWhenTold.length - 1;
+        unawaited(
+          store
+              .find('bob', messageId)
+              .then((m) => storedWhenTold[index] = m?.state),
+        );
+      }
+    });
+
+    final message = await alice.sendText('bob', 'anyone there?');
+    messageId = message.id;
+    await _settle();
+    now = now.add(const Duration(seconds: 21));
+    // Another write is still in progress when the chat fails.
+    unawaited(
+      store.add(
+        ChatMessage(
+          id: ChatFrames.newId(),
+          contactId: 'carol',
+          outgoing: true,
+          ts: 1,
+          text: 'written meanwhile',
+          state: ChatState.delivered,
+        ),
+      ),
+    );
+    await alice.tick();
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+
+    expect(storedWhenTold, [ChatState.notSent]);
     await sub.cancel();
   });
 

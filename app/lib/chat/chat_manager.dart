@@ -261,7 +261,7 @@ class ChatManager {
         case SessionReady():
           _startSession(action);
         case OpenFailed(:final contact, :final reason):
-          _openFailed(contact, reason);
+          unawaited(_openFailed(contact, reason));
         case DropSession(:final sessionId):
           final live = _live[sessionId];
           if (live != null) unawaited(_end(live, 'dropped'));
@@ -283,7 +283,7 @@ class ChatManager {
       if (_signalling.isOpening(contact) || _activeFor(contact) != null) {
         continue;
       }
-      _openFailed(contact, 'dropped');
+      unawaited(_openFailed(contact, 'dropped'));
     }
   }
 
@@ -444,10 +444,18 @@ class ChatManager {
     }
   }
 
-  void _openFailed(String contact, String reason) {
-    for (final message in _waiting.remove(contact) ?? const <ChatMessage>[]) {
-      unawaited(
-        store.setState(contact, message.id, ChatState.notSent, reason: reason),
+  /// The messages waiting for [contact] are not sent. Each is stored as such
+  /// before the event goes out: a screen that reloads on the event must see
+  /// the new state, and nothing reloads it afterwards.
+  Future<void> _openFailed(String contact, String reason) async {
+    // Taken at once, so the messages are settled before any other step runs.
+    final waiting = _waiting.remove(contact) ?? const <ChatMessage>[];
+    for (final message in waiting) {
+      await store.setState(
+        contact,
+        message.id,
+        ChatState.notSent,
+        reason: reason,
       );
       _emit(ChatUpdate(contact, MessageNotSent(message.id)));
     }
