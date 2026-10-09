@@ -1,0 +1,6 @@
+Voice messages: record and send audio clips in any chat
+Encrypted file storage: received files are now kept encrypted on device
+Multi-file send: attach up to 10 files at once
+Background delivery: messages reach offline contacts via relay
+Chat redesign: timestamps, day separators, and a cleaner layout
+Security hardening: EXIF metadata stripped, file names validated, blocked types enforced
