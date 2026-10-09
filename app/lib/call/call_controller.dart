@@ -25,6 +25,9 @@ import 'media_engine.dart';
 import 'screen_awake.dart';
 import 'video_adapter.dart';
 import 'webrtc_media_engine.dart';
+import '../chat/chat_manager.dart';
+import '../chat/chat_rtc.dart';
+import '../chat/chat_store.dart';
 
 /// Everything the call screens need: the relay connection, the current
 /// call, guest links and the waiting room.
@@ -86,6 +89,12 @@ class CallController extends ChangeNotifier {
   final PublicProfile? Function()? _publicProfile;
   ProfileExchange? _profiles;
   late final ProfileCache _profileCache = ProfileCache(_settings);
+
+  ChatManager? _chat;
+
+  /// Peer-to-peer chats with contacts. Only in the professional's app, which
+  /// has contacts.
+  ChatManager? get chat => _chat;
   final VideoCallScreen _screen;
   void _updateScreen() => _screen.update(call);
 
@@ -361,6 +370,18 @@ class CallController extends ChangeNotifier {
         sodium: sodium,
         identity: identity,
       );
+      if (contacts != null) {
+        _chat = ChatManager(
+          myId: identity.id,
+          store: ChatStore(_settings),
+          isContact: _isContactId,
+          send: _sendChatEnvelope,
+          iceServers: _iceServersForCall,
+          hideIp: () => _hideIp,
+          createRtc: WebRtcChatRtc.create,
+          clock: DateTime.now,
+        );
+      }
       _profiles = ProfileExchange(
         sodium: sodium,
         identity: identity,
@@ -559,6 +580,36 @@ class CallController extends ChangeNotifier {
     }
   }
 
+  bool _isContactId(String id) =>
+      contacts?.contacts.any((contact) => contact.identity.id == id) ?? false;
+
+  /// Seals a chat envelope for the contact [to] and sends it through the relay.
+  void _sendChatEnvelope(
+    String to,
+    String type,
+    Map<String, Object?> body,
+    String? callId,
+  ) {
+    final codec = _codec;
+    final relay = _relay;
+    final book = contacts;
+    if (codec == null || relay == null || book == null) return;
+    for (final contact in book.contacts) {
+      if (contact.identity.id == to) {
+        relay.send(
+          to,
+          codec.seal(
+            recipient: contact.identity,
+            type: type,
+            body: body,
+            callId: callId,
+          ),
+        );
+        return;
+      }
+    }
+  }
+
   void _sendGuestMessage(
     PublicIdentity to,
     String type,
@@ -634,6 +685,15 @@ class CallController extends ChangeNotifier {
       return;
     }
     if (_profiles?.handleReply(opened) ?? false) return;
+    if (opened.type.startsWith('chat.')) {
+      _chat?.handle(
+        from: opened.sender.id,
+        type: opened.type,
+        body: opened.body,
+        callId: opened.callId,
+      );
+      return;
+    }
     if (opened.type.startsWith('guest.')) {
       _host?.handle(opened);
       _visit?.handle(opened);
@@ -833,6 +893,7 @@ class CallController extends ChangeNotifier {
 
   @override
   void dispose() {
+    unawaited(_chat?.dispose());
     removeListener(_updateScreen);
     _screen.release();
     for (final subscription in _subscriptions) {
