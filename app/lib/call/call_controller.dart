@@ -408,6 +408,7 @@ class CallController extends ChangeNotifier {
           clock: DateTime.now,
         );
         _subscriptions.add(chat.events.listen(_onChatEvent));
+        unawaited(chat.start());
       }
       _profiles = ProfileExchange(
         sodium: sodium,
@@ -426,6 +427,8 @@ class CallController extends ChangeNotifier {
             // Back online: a call that is reconnecting tries again now.
             if (status == RelayStatus.online) {
               unawaited(manager.networkChanged());
+              // Queued chat messages try again now that this device is back.
+              unawaited(_chat?.flushAllOutbox());
             }
             notifyListeners();
           }),

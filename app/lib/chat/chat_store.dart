@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import '../crypto/identity_store.dart';
+import 'file_storage.dart';
 
 /// Where a message is. Outgoing: [sending] until stored on the other device
 /// ([delivered]), [queued] in the client outbox waiting to send when online,
@@ -26,6 +27,7 @@ class ChatMessage {
     this.fileSha256,
     this.fileStatus,
     this.filePath,
+    this.arrivedAt,
   });
 
   /// 16 random bytes, unpadded base64url. The same on both devices.
@@ -59,7 +61,17 @@ class ChatMessage {
   final String? fileStatus;
   final String? filePath;
 
+  /// When an incoming message arrived on this device, in milliseconds since
+  /// the epoch. Disappearing messages expire from this time, so a sender's
+  /// clock cannot keep a message or purge it on arrival. Null for outgoing
+  /// messages (their [ts] is this device's clock).
+  final int? arrivedAt;
+
   bool get isAttachment => fileName != null;
+
+  /// When this message expires from this device, judged by [ts] for outgoing
+  /// messages and by [arrivedAt] for incoming ones.
+  int get clockMs => outgoing ? ts : (arrivedAt ?? ts);
 
   /// The same message in another state. A reason is kept only when given.
   ChatMessage withState(ChatState next, {String? reason}) => ChatMessage(
@@ -78,6 +90,7 @@ class ChatMessage {
     fileSha256: fileSha256,
     fileStatus: fileStatus,
     filePath: filePath,
+    arrivedAt: arrivedAt,
   );
 
   ChatMessage copyWith({
@@ -96,6 +109,7 @@ class ChatMessage {
     String? fileSha256,
     String? fileStatus,
     String? filePath,
+    int? arrivedAt,
   }) => ChatMessage(
     id: id ?? this.id,
     contactId: contactId ?? this.contactId,
@@ -112,6 +126,7 @@ class ChatMessage {
     fileSha256: fileSha256 ?? this.fileSha256,
     fileStatus: fileStatus ?? this.fileStatus,
     filePath: filePath ?? this.filePath,
+    arrivedAt: arrivedAt ?? this.arrivedAt,
   );
 
   Map<String, Object?> toJson() => {
@@ -129,6 +144,7 @@ class ChatMessage {
     if (fileSha256 != null) 'fileSha256': fileSha256,
     if (fileStatus != null) 'fileStatus': fileStatus,
     if (filePath != null) 'filePath': filePath,
+    if (arrivedAt != null) 'arrivedAt': arrivedAt,
   };
 
   static ChatMessage fromJson(String contactId, Map<String, dynamic> json) {
@@ -146,6 +162,7 @@ class ChatMessage {
     final fileSha256 = json['fileSha256'];
     final fileStatus = json['fileStatus'];
     final filePath = json['filePath'];
+    final arrivedAt = json['arrivedAt'];
     if (id is! String ||
         outgoing is! bool ||
         ts is! int ||
@@ -159,7 +176,8 @@ class ChatMessage {
         (fileMime != null && fileMime is! String) ||
         (fileSha256 != null && fileSha256 is! String) ||
         (fileStatus != null && fileStatus is! String) ||
-        (filePath != null && filePath is! String)) {
+        (filePath != null && filePath is! String) ||
+        (arrivedAt != null && arrivedAt is! int)) {
       throw const ChatStoreException('unreadable');
     }
     return ChatMessage(
@@ -178,6 +196,7 @@ class ChatMessage {
       fileSha256: fileSha256 as String?,
       fileStatus: fileStatus as String?,
       filePath: filePath as String?,
+      arrivedAt: arrivedAt as int?,
     );
   }
 }
@@ -322,11 +341,15 @@ class ChatStore {
     return _cachedChats[contactId] = messages;
   }
 
+  /// Saves [list] as the chat with [contactId]. The cache takes the new list
+  /// only once it is stored, so a failed write leaves what is on screen equal
+  /// to what is saved. Callers pass a copy of the cached list.
   Future<void> _saveContact(String contactId, List<ChatMessage> list) async {
     await _store.write(
       contactKey(contactId),
       jsonEncode([for (final m in list) m.toJson()]),
     );
+    _cachedChats[contactId] = list;
     final index = await _loadIndex();
     var indexChanged = false;
     if (list.isNotEmpty && index.add(contactId)) {
@@ -380,7 +403,7 @@ class ChatStore {
 
   /// Stores [message]. A message already stored (same id) is not added twice.
   Future<void> add(ChatMessage message) => _inOrder(() async {
-    final list = await _loadContact(message.contactId);
+    final list = [...await _loadContact(message.contactId)];
     if (list.any((m) => m.id == message.id)) return;
     list.add(message);
     await _saveContact(message.contactId, list);
@@ -388,7 +411,7 @@ class ChatStore {
 
   /// Updates an existing message in-place.
   Future<void> updateMessage(ChatMessage message) => _inOrder(() async {
-    final list = await _loadContact(message.contactId);
+    final list = [...await _loadContact(message.contactId)];
     final index = list.indexWhere((m) => m.id == message.id);
     if (index < 0) return;
     list[index] = message;
@@ -401,7 +424,7 @@ class ChatStore {
     ChatState state, {
     String? reason,
   }) => _inOrder(() async {
-    final list = await _loadContact(contactId);
+    final list = [...await _loadContact(contactId)];
     final index = list.indexWhere((m) => m.id == id);
     if (index < 0) return;
     list[index] = list[index].withState(state, reason: reason);
@@ -409,43 +432,69 @@ class ChatStore {
   });
 
   /// Deletes the whole chat with [contactId].
-  Future<void> deleteChat(String contactId) => _inOrder(() async {
-    await _checkMigration();
-    _cachedChats.remove(contactId);
+  Future<void> deleteChat(String contactId) async {
+    final removed = await _inOrder(() async {
+      await _checkMigration();
+      final messages = [...await _loadContact(contactId)];
+      _cachedChats.remove(contactId);
+      await _store.delete(contactKey(contactId));
+      final index = await _loadIndex();
+      if (index.remove(contactId)) {
+        await _store.write(contactsIndexKey, jsonEncode(index.toList()));
+      }
+      if (!_changes.isClosed) {
+        _changes.add(null);
+      }
+      return messages;
+    });
+    await _discardFiles(removed);
+  }
+
+  /// Deletes the files that [messages] received. Done after the chat records
+  /// are gone, so a file is never left behind by a message that is no longer
+  /// stored.
+  Future<void> _discardFiles(Iterable<ChatMessage> messages) async {
+    for (final message in messages) {
+      await ChatFileStorage.deleteFile(message.filePath);
+    }
+  }
+
+  /// Drops a chat that has no messages left.
+  Future<void> _forgetEmptyChat(String contactId) async {
     await _store.delete(contactKey(contactId));
     final index = await _loadIndex();
     if (index.remove(contactId)) {
       await _store.write(contactsIndexKey, jsonEncode(index.toList()));
     }
+    _cachedChats[contactId] = [];
     if (!_changes.isClosed) {
       _changes.add(null);
     }
-  });
+  }
 
   /// Deletes a single message with [id] in the chat with [contactId].
-  Future<void> deleteMessage(String contactId, String id) => _inOrder(() async {
-    final list = await _loadContact(contactId);
-    final index = list.indexWhere((m) => m.id == id);
-    if (index >= 0) {
-      list.removeAt(index);
+  Future<void> deleteMessage(String contactId, String id) async {
+    final removed = await _inOrder(() async {
+      final list = [...await _loadContact(contactId)];
+      final index = list.indexWhere((m) => m.id == id);
+      if (index < 0) return null;
+      final message = list.removeAt(index);
       if (list.isEmpty) {
-        await _store.delete(contactKey(contactId));
-        final idx = await _loadIndex();
-        if (idx.remove(contactId)) {
-          await _store.write(contactsIndexKey, jsonEncode(idx.toList()));
-        }
+        await _forgetEmptyChat(contactId);
       } else {
         await _saveContact(contactId, list);
       }
-    }
-  });
+      return message;
+    });
+    if (removed != null) await _discardFiles([removed]);
+  }
 
   static const retentionPrefix = 'sotto.chats.retention.';
 
   /// Marks all incoming messages from [contactId] as read. Returns the ids
   /// of messages that were newly marked as read.
   Future<List<String>> markAsRead(String contactId) => _inOrder(() async {
-    final list = await _loadContact(contactId);
+    final list = [...await _loadContact(contactId)];
     final readIds = <String>[];
     var changed = false;
     for (var i = 0; i < list.length; i++) {
@@ -483,15 +532,22 @@ class ChatStore {
     } else {
       await _store.write('$retentionPrefix$contactId', '${duration.inSeconds}');
     }
-    await _sweepInternal(contactId: contactId, clock: clock);
-  });
+    final result = await _sweepInternal(contactId: contactId, clock: clock);
+    // The files go once the records are gone (see _discardFiles).
+    return result.removed;
+  }).then((removed) => _discardFiles(removed));
 
   /// Sweeps expired messages across all chats (or only [contactId]).
   /// Returns the number of purged messages.
-  Future<int> sweepExpired({String? contactId, DateTime Function()? clock}) =>
-      _inOrder(() => _sweepInternal(contactId: contactId, clock: clock));
+  Future<int> sweepExpired({String? contactId, DateTime Function()? clock}) async {
+    final result = await _inOrder(() => _sweepInternal(contactId: contactId, clock: clock));
+    await _discardFiles(result.removed);
+    return result.count;
+  }
 
-  Future<int> _sweepInternal({
+  /// Removes the messages that have expired, and returns how many there were
+  /// and which ones (their files are deleted by the caller).
+  Future<({int count, List<ChatMessage> removed})> _sweepInternal({
     String? contactId,
     DateTime Function()? clock,
   }) async {
@@ -499,29 +555,39 @@ class ChatStore {
     final targetIds = contactId != null
         ? [contactId]
         : (await _loadIndex()).toList();
-    var purged = 0;
+    final removed = <ChatMessage>[];
     for (final id in targetIds) {
       final dur = await retention(id);
       if (dur <= Duration.zero) continue;
       final maxAgeMs = dur.inMilliseconds;
-      final list = await _loadContact(id);
-      final before = list.length;
-      list.removeWhere((m) => (nowMs - m.ts) > maxAgeMs);
-      final count = before - list.length;
-      if (count > 0) {
-        purged += count;
-        if (list.isEmpty) {
-          await _store.delete(contactKey(id));
-          final idx = await _loadIndex();
-          if (idx.remove(id)) {
-            await _store.write(contactsIndexKey, jsonEncode(idx.toList()));
-          }
-        } else {
-          await _saveContact(id, list);
-        }
+      final List<ChatMessage> list;
+      try {
+        list = [...await _loadContact(id)];
+      } on ChatStoreException {
+        continue;
+      }
+      final expired = list.where((m) => (nowMs - m.clockMs) > maxAgeMs).toList();
+      if (expired.isEmpty) continue;
+      removed.addAll(expired);
+      list.removeWhere((m) => (nowMs - m.clockMs) > maxAgeMs);
+      if (list.isEmpty) {
+        await _forgetEmptyChat(id);
+      } else {
+        await _saveContact(id, list);
       }
     }
-    return purged;
+    return (count: removed.length, removed: removed);
+  }
+
+  /// The messages of [contactId], or null when that chat cannot be read. Lists
+  /// over all chats skip such a chat, so one unreadable chat does not stop the
+  /// Chats tab or the unread badge (the chat itself still reports the problem).
+  Future<List<ChatMessage>?> _tryLoad(String contactId) async {
+    try {
+      return await _loadContact(contactId);
+    } on ChatStoreException {
+      return null;
+    }
   }
 
   /// The number of unread incoming messages across all chats.
@@ -529,7 +595,8 @@ class ChatStore {
     final ids = await _loadIndex();
     var count = 0;
     for (final id in ids) {
-      final list = await _loadContact(id);
+      final list = await _tryLoad(id);
+      if (list == null) continue;
       for (final message in list) {
         if (!message.outgoing && !message.read) count++;
       }
@@ -539,7 +606,7 @@ class ChatStore {
 
   /// The number of unread incoming messages with [contactId].
   Future<int> unreadCount(String contactId) async {
-    final list = await _loadContact(contactId);
+    final list = [...await _loadContact(contactId)];
     var count = 0;
     for (final message in list) {
       if (!message.outgoing && !message.read) count++;
@@ -552,7 +619,8 @@ class ChatStore {
     final ids = await _loadIndex();
     final summaries = <ChatThreadSummary>[];
     for (final id in ids) {
-      final list = await _loadContact(id);
+      final list = await _tryLoad(id);
+      if (list == null) continue;
       if (list.isEmpty) continue;
       final lastMsg = list.last;
       var unread = 0;
@@ -578,7 +646,8 @@ class ChatStore {
     final ids = await _loadIndex();
     final results = <ChatMessage>[];
     for (final id in ids) {
-      final list = await _loadContact(id);
+      final list = await _tryLoad(id);
+      if (list == null) continue;
       for (final msg in list) {
         if (msg.text.toLowerCase().contains(q) ||
             (msg.fileName?.toLowerCase().contains(q) ?? false)) {

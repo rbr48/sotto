@@ -105,6 +105,47 @@ class ChatManager {
     );
   }
 
+  /// Starts the periodic work and clears what an earlier run left behind.
+  /// Call once after the app opens the vault.
+  Future<void> start() async {
+    if (_disposed) return;
+    _ensureTicker();
+    await recoverInterrupted();
+    await store.sweepExpired(clock: clock);
+  }
+
+  /// Messages still "sending" from an earlier run of the app can never go:
+  /// their chat died with that run. They are marked not sent (reason
+  /// 'interrupted'), so Retry and Queue apply, and file transfers in progress
+  /// or unanswered are marked failed. Incoming file offers are expired, since
+  /// the sender's chat is gone.
+  Future<void> recoverInterrupted() async {
+    if (_disposed) return;
+    for (final contact in await store.contactIds()) {
+      if (_signalling.isOpening(contact) || _activeFor(contact) != null) {
+        continue;
+      }
+      for (final message in await store.messages(contact)) {
+        final fileStatus = message.fileStatus;
+        final pendingFile = fileStatus == 'offered' || fileStatus == 'transferring';
+        if (pendingFile) {
+          final next = !message.outgoing && fileStatus == 'offered'
+              ? 'expired'
+              : 'failed';
+          await store.updateMessage(message.copyWith(fileStatus: next));
+        }
+        if (message.outgoing && message.state == ChatState.sending) {
+          await store.setState(
+            contact,
+            message.id,
+            ChatState.notSent,
+            reason: 'interrupted',
+          );
+        }
+      }
+    }
+  }
+
   /// The chat with [contact] is open on screen (or none is). An open chat
   /// does not time out.
   void viewing(String? contact) => _viewing = contact;
@@ -203,6 +244,34 @@ class ChatManager {
     await store.setState(contact, messageId, ChatState.queued);
   }
 
+  /// Removes the disappearing messages that have expired, now.
+  Future<int> sweepExpired() async {
+    if (_disposed) return 0;
+    return store.sweepExpired(clock: clock);
+  }
+
+  /// Deletes a message from this device. A message still waiting to go is
+  /// taken off the queue first, so it is not sent after it was deleted.
+  Future<void> deleteMessage(String contact, String id) async {
+    _waiting[contact]?.removeWhere((m) => m.id == id);
+    final live = _activeFor(contact);
+    live?.resend.removeWhere((m) => m.id == id);
+    live?.session?.forget(id);
+    await store.deleteMessage(contact, id);
+  }
+
+  /// Deletes the whole chat with [contact] from this device, and stops
+  /// anything still waiting to go to it.
+  Future<void> deleteChat(String contact) async {
+    _waiting.remove(contact);
+    final live = _activeFor(contact);
+    if (live != null) {
+      live.resend.clear();
+      live.session?.forgetAll();
+    }
+    await store.deleteChat(contact);
+  }
+
   /// Cancels a queued message, setting it back to [ChatState.notSent].
   Future<void> unqueue(String contact, String messageId) async {
     final message = await store.find(contact, messageId);
@@ -219,17 +288,27 @@ class ChatManager {
     );
   }
 
-  /// Attempts to send any queued messages for [contact].
+  /// Attempts to send the queued messages for [contact]. A failed attempt
+  /// keeps them queued: they go out when a chat with the contact opens, and
+  /// the next attempt is made on the next check (see [tick]).
   Future<void> flushOutbox(String contact) async {
     if (!isContact(contact) || _disposed) return;
-    final all = await store.messages(contact);
-    final queued = all
+    final queued = (await store.messages(contact))
         .where((m) => m.outgoing && m.state == ChatState.queued)
         .toList();
     if (queued.isEmpty) return;
-    for (final msg in queued) {
-      await retry(contact, msg.id);
+    final live = _activeFor(contact);
+    final session = live?.session;
+    if (session != null && !session.isEnded && session.isReady) {
+      for (final msg in queued) {
+        await store.setState(contact, msg.id, ChatState.sending);
+        session.resend(msg.withState(ChatState.sending));
+      }
+      return;
     }
+    // A chat being opened sends the queue itself once its channel is open.
+    if (live != null || _signalling.isOpening(contact)) return;
+    _perform(_signalling.open(contact, clock()));
   }
 
   /// Attempts to flush queued messages across all contacts.
@@ -362,8 +441,8 @@ class ChatManager {
     live?.session?.sendReadReceipts(ids);
   }
 
-  /// Times out chats that nobody answered, closes idle sessions, and
-  /// sweeps expired messages.
+  /// Times out chats that nobody answered, closes idle sessions, sends queued
+  /// messages to contacts that are online, and sweeps expired messages.
   Future<void> tick() async {
     if (_disposed) return;
     _perform(_signalling.tick(clock()));
@@ -371,6 +450,7 @@ class ChatManager {
     for (final live in _live.values.toList()) {
       await live.session?.tick(viewing: _viewing == live.contact);
     }
+    await flushAllOutbox();
     await store.sweepExpired(clock: clock);
   }
 
@@ -512,10 +592,40 @@ class ChatManager {
     final session = live.session;
     if (live.ended || session == null) return;
     live.timer?.cancel();
-    final resend = List<ChatMessage>.of(live.resend);
+    unawaited(_startSessionWithQueue(live, session));
+  }
+
+  /// Starts the session with the messages waiting for it, and with the
+  /// queued messages for the contact (they are sent now that it is online).
+  Future<void> _startSessionWithQueue(_Live live, ChatSession session) async {
+    final waiting = List<ChatMessage>.of(live.resend);
     live.resend.clear();
-    unawaited(session.start(resend: resend));
-    unawaited(flushOutbox(live.contact));
+    final queued = (await store.messages(live.contact))
+        .where((m) => m.outgoing && m.state == ChatState.queued);
+    // Nothing is awaited between this check and the start, so the chat cannot
+    // end in between with these messages still unaccounted for.
+    if (live.ended) {
+      // The messages that were waiting for this chat are not sent. Queued
+      // messages stay queued for the next attempt.
+      for (final message in waiting) {
+        await store.setState(
+          live.contact,
+          message.id,
+          ChatState.notSent,
+          reason: 'failed',
+        );
+      }
+      return;
+    }
+    unawaited(session.start(resend: [...waiting, ...queued]));
+    // Read receipts for what this device has read are sent (again) with each
+    // chat, so the other side learns of reads that happened while no chat
+    // was open. The other side ignores what it already knows.
+    final read = (await store.messages(live.contact))
+        .where((m) => !m.outgoing && m.read)
+        .toList();
+    final recent = read.length > 500 ? read.sublist(read.length - 500) : read;
+    session.sendReadReceipts([for (final m in recent) m.id]);
   }
 
   void _onSessionEvent(_Live live, ChatSessionEvent event) {
@@ -624,6 +734,12 @@ class ChatManager {
       _emit(ChatUpdate(live.contact, MessageNotSent(message.id)));
     }
     live.resend.clear();
+    // A chat that never got a session still has to say why it failed (for
+    // example, "Hide my IP" without a relay server). A chat the user closed
+    // is not a failure.
+    if (live.session == null && reason != 'closed') {
+      _emit(ChatOpenFailure(live.contact, reason));
+    }
     await live.session?.close();
     await live.sessionSub?.cancel();
     await live.candidatesSub?.cancel();

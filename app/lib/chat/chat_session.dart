@@ -102,6 +102,7 @@ class _IncomingFileTransfer {
     required this.mime,
     required this.sha256,
     required this.totalChunks,
+    required this.lastChunkAt,
   });
 
   final String id;
@@ -110,6 +111,12 @@ class _IncomingFileTransfer {
   final String mime;
   final String sha256;
   final int totalChunks;
+
+  /// When the last chunk arrived (or the transfer was accepted).
+  DateTime lastChunkAt;
+
+  /// Bytes received so far, in total.
+  int received = 0;
   final chunks = <int, Uint8List>{};
 }
 
@@ -128,7 +135,14 @@ class ChatSession {
     String Function()? newId,
     this.idleTimeout = const Duration(minutes: 5),
     this.isContact,
+    this.maxFileBytes = maxFileSizeNative,
   }) : _newId = newId ?? ChatFrames.newId;
+
+  /// The largest file this device accepts (the browser's is smaller).
+  final int maxFileBytes;
+
+  /// How long a file transfer may go without a chunk before it fails.
+  static const fileStallTimeout = Duration(seconds: 30);
 
   final String contactId;
   final ChatTransport transport;
@@ -172,6 +186,9 @@ class ChatSession {
   /// Incoming file transfers in progress, by fileId.
   final _incomingFiles = <String, _IncomingFileTransfer>{};
 
+  /// Read receipts asked for before the other device was ready.
+  final _pendingReads = <String>{};
+
   /// Whether messages can be sent now.
   bool get isReady => _peerHello && !_ended;
 
@@ -186,14 +203,23 @@ class ChatSession {
       _outbox[message.id] = message.withState(ChatState.sending);
       _unsent.add(message.id);
     }
+    // Each step is chained on the one before, and an error in one step (a
+    // full disk, say) is dropped there, so the later frames and the end of
+    // the channel are still handled.
     _subscription = transport.frames.listen(
-      (raw) => _incoming = _incoming.then((_) => _onFrame(raw)),
-      onDone: () => _incoming = _incoming.then((_) => _end('lost')),
+      (raw) => _enqueue(() => _onFrame(raw)),
+      onDone: () => _enqueue(() => _end('lost')),
     );
     _binarySubscription = transport.binaryFrames.listen(
-      (bytes) => _incoming = _incoming.then((_) => _onBinaryChunk(bytes)),
+      (bytes) => _enqueue(() => _onBinaryChunk(bytes)),
     );
     _write(const HelloFrame());
+  }
+
+  void _enqueue(Future<void> Function() step) {
+    _incoming = _incoming.then((_) => step()).catchError((Object _) {
+      // The error can hold a file name or text. It is not logged.
+    });
   }
 
   /// Sends a message. It is stored at once and sent when the session is ready.
@@ -285,6 +311,7 @@ class ChatSession {
       mime: msg.fileMime ?? 'application/octet-stream',
       sha256: msg.fileSha256 ?? '',
       totalChunks: totalChunks == 0 ? 1 : totalChunks,
+      lastChunkAt: clock(),
     );
     await store.updateMessage(msg.copyWith(fileStatus: 'transferring'));
     _write(FileAcceptFrame(id: fileId));
@@ -337,14 +364,28 @@ class ChatSession {
   Future<void> _onBinaryChunk(Uint8List bytes) async {
     if (_ended) return;
     _lastActivity = clock();
+    late final ({String fileId, int chunkIndex, Uint8List payload}) chunk;
     try {
-      final (:fileId, :chunkIndex, :payload) = ChatFrames.decodeChunk(bytes);
-      final transfer = _incomingFiles[fileId];
-      if (transfer == null) return;
-      transfer.chunks[chunkIndex] = payload;
-      final progress = transfer.chunks.length / transfer.totalChunks;
-      _events.add(FileTransferProgress(fileId, progress));
-    } catch (_) {}
+      chunk = ChatFrames.decodeChunk(bytes);
+    } catch (_) {
+      return;
+    }
+    final transfer = _incomingFiles[chunk.fileId];
+    if (transfer == null) return;
+    // A chunk must belong to this file, have the agreed size, and not repeat
+    // data beyond the offered size. Anything else is dropped.
+    final last = transfer.totalChunks - 1;
+    if (chunk.chunkIndex < 0 || chunk.chunkIndex > last) return;
+    final expected = chunk.chunkIndex == last
+        ? transfer.size - last * fileChunkSize
+        : fileChunkSize;
+    if (chunk.payload.length != expected) return;
+    if (transfer.chunks.containsKey(chunk.chunkIndex)) return;
+    transfer.chunks[chunk.chunkIndex] = chunk.payload;
+    transfer.received += chunk.payload.length;
+    transfer.lastChunkAt = clock();
+    final progress = transfer.chunks.length / transfer.totalChunks;
+    _events.add(FileTransferProgress(chunk.fileId, progress));
   }
 
   /// Sends again a message from an earlier attempt. It keeps its id, so the
@@ -362,10 +403,41 @@ class ChatSession {
     _write(TypingFrame(typing: typing));
   }
 
-  /// Sends read receipts for [ids] to the other device.
+  /// Sends read receipts for [ids] to the other device. Receipts asked for
+  /// before the other device is ready are sent when it is.
   void sendReadReceipts(List<String> ids) {
-    if (!isReady || ids.isEmpty) return;
-    _write(ReadFrame(ids: ids));
+    if (_ended || ids.isEmpty) return;
+    if (!isReady) {
+      _pendingReads.addAll(ids);
+      return;
+    }
+    _writeReads(ids);
+  }
+
+  /// Receipts are sent in frames of at most this many ids, so a long history
+  /// stays within the frame size limit.
+  static const maxReceiptsPerFrame = 200;
+
+  void _writeReads(Iterable<String> ids) {
+    final all = ids.toList();
+    for (var i = 0; i < all.length; i += maxReceiptsPerFrame) {
+      final end = i + maxReceiptsPerFrame < all.length
+          ? i + maxReceiptsPerFrame
+          : all.length;
+      _write(ReadFrame(ids: all.sublist(i, end)));
+    }
+  }
+
+  /// Takes a message off the outbox, so it is not sent after it was deleted.
+  void forget(String id) {
+    _outbox.remove(id);
+    _unsent.remove(id);
+  }
+
+  /// Takes every message off the outbox (the chat was deleted).
+  void forgetAll() {
+    _outbox.clear();
+    _unsent.clear();
   }
 
   /// Ends the session from this side.
@@ -384,6 +456,13 @@ class ChatSession {
       _write(const ByeFrame());
       await _end('not-contact');
       return;
+    }
+    final now = clock();
+    for (final transfer in _incomingFiles.values.toList()) {
+      if (now.difference(transfer.lastChunkAt) >= fileStallTimeout) {
+        _write(FileCancelFrame(id: transfer.id, reason: 'stalled'));
+        await _failFile(transfer.id, 'stalled', 'failed');
+      }
     }
     if (viewing || _outbox.isNotEmpty) return;
     if (clock().difference(_lastActivity) < idleTimeout) return;
@@ -435,6 +514,10 @@ class ChatSession {
           ..clear()
           ..addAll(_outbox.keys);
         _sendOutbox();
+        if (_pendingReads.isNotEmpty) {
+          _writeReads(_pendingReads);
+          _pendingReads.clear();
+        }
       case MessageFrame(:final id, :final ts, :final text):
         if (!_peerHello) return;
         if (!_contactNow) {
@@ -452,6 +535,7 @@ class ChatSession {
             text: text,
             state: ChatState.received,
             read: false,
+            arrivedAt: clock().millisecondsSinceEpoch,
           );
           await store.add(message);
           _events.add(MessageReceived(message));
@@ -487,6 +571,7 @@ class ChatSession {
           return;
         }
         if (!await store.contains(contactId, id)) {
+          final tooLarge = size > maxFileBytes;
           final message = ChatMessage(
             id: id,
             contactId: contactId,
@@ -500,11 +585,16 @@ class ChatSession {
             fileSize: size,
             fileMime: mime,
             fileSha256: sha256,
-            fileStatus: 'offered',
+            fileStatus: tooLarge ? 'declined' : 'offered',
+            arrivedAt: clock().millisecondsSinceEpoch,
           );
           await store.add(message);
           _events.add(MessageReceived(message));
-          _events.add(FileOfferReceived(message));
+          if (tooLarge) {
+            _write(FileDeclineFrame(id: id));
+          } else {
+            _events.add(FileOfferReceived(message));
+          }
         }
       case FileAcceptFrame(:final id):
         if (!_peerHello) return;
@@ -599,6 +689,30 @@ class ChatSession {
     }
   }
 
+  /// Marks a file message as [status] and tells the screens why.
+  Future<void> _failFile(String id, String reason, String status) async {
+    final existing = await store.find(contactId, id);
+    if (existing != null) {
+      await store.updateMessage(existing.copyWith(fileStatus: status));
+    }
+    _events.add(FileTransferFailed(id, reason));
+  }
+
+  /// The file messages of this chat that can no longer go on: transfers in
+  /// progress and offers nobody answered fail; incoming offers expire, since
+  /// the sender's chat is gone and an accept would reach nobody.
+  Future<void> _settleFiles(String reason) async {
+    for (final message in await store.messages(contactId)) {
+      final status = message.fileStatus;
+      if (status != 'offered' && status != 'transferring') continue;
+      if (!message.outgoing && status == 'offered') {
+        await _failFile(message.id, reason, 'expired');
+      } else {
+        await _failFile(message.id, reason, 'failed');
+      }
+    }
+  }
+
   Future<void> _end(String reason) async {
     if (_ended) return;
     _ended = true;
@@ -608,6 +722,7 @@ class ChatSession {
     }
     _outbox.clear();
     _unsent.clear();
+    await _settleFiles(reason);
     _outgoingFiles.clear();
     _incomingFiles.clear();
     await _subscription?.cancel();

@@ -79,8 +79,15 @@ class _ChatPageState extends State<ChatPage> {
     _input.addListener(_onInputChanged);
     _scrollController.addListener(_onScroll);
     unawaited(_markAndSendRead());
-    unawaited(_load(reset: true));
+    unawaited(_sweepThenLoad());
     unawaited(_loadRetention());
+  }
+
+  /// Expired messages are removed before the chat is shown, so a chat opened
+  /// after a long time does not show them.
+  Future<void> _sweepThenLoad() async {
+    await widget.chat.sweepExpired();
+    if (mounted) await _load(reset: true);
   }
 
   Future<void> _loadRetention() async {
@@ -397,7 +404,7 @@ class _ChatPageState extends State<ChatPage> {
       ),
     );
     if (confirmed != true) return;
-    await widget.chat.store.deleteMessage(widget.contactId, message.id);
+    await widget.chat.deleteMessage(widget.contactId, message.id);
     await _load();
   }
 
@@ -421,7 +428,7 @@ class _ChatPageState extends State<ChatPage> {
     );
     if (confirmed != true) return;
     await widget.chat.close(widget.contactId);
-    await widget.chat.store.deleteChat(widget.contactId);
+    await widget.chat.deleteChat(widget.contactId);
     await _load();
   }
 
