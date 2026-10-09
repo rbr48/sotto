@@ -286,8 +286,7 @@ abstract final class ChatFrames {
         if (chunks != (size + fileChunkSize - 1) ~/ fileChunkSize) {
           throw const ChatFrameException('malformed');
         }
-        if (mime.runes.length > maxMimeChars ||
-            !_sha256Pattern.hasMatch(sha)) {
+        if (mime.runes.length > maxMimeChars || !_sha256Pattern.hasMatch(sha)) {
           throw const ChatFrameException('malformed');
         }
         return FileOfferFrame(

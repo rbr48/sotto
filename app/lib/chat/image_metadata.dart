@@ -11,16 +11,7 @@ enum ImageKind { jpeg, png }
 /// The type comes from the bytes, never from the MIME type. An image that is
 /// malformed throws [FormatException].
 abstract final class ImageMetadata {
-  static const _pngSignature = [
-    0x89,
-    0x50,
-    0x4E,
-    0x47,
-    0x0D,
-    0x0A,
-    0x1A,
-    0x0A,
-  ];
+  static const _pngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
   /// PNG chunks that carry metadata: text, compressed text, international text,
   /// the last modification time, and EXIF.
@@ -155,8 +146,7 @@ abstract final class ImageMetadata {
       0xEE => 'Adobe', // APP14: the Adobe colour transform.
       _ => null,
     };
-    return identifier != null &&
-        _startsWithText(bytes, start, end, identifier);
+    return identifier != null && _startsWithText(bytes, start, end, identifier);
   }
 
   /// The index of the marker that ends the entropy-coded data that starts at

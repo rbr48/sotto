@@ -7,10 +7,15 @@ import 'package:sotto/chat/chat_frames.dart';
 import 'package:sotto/chat/chat_session.dart';
 import 'package:sotto/chat/chat_store.dart';
 import 'package:sotto/chat/file_storage.dart';
+import 'package:sotto/chat/image_metadata.dart';
 import 'package:sotto/crypto/encoding.dart';
 import 'package:sotto/crypto/sotto_crypto.dart';
 
 String _id(int n) => b64Encode(List<int>.filled(16, n));
+
+/// A well-formed SHA-256 digest: 64 lowercase hex characters.
+const _digest =
+    '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
 /// One end of an in-memory data channel. Frames sent here arrive at [peer].
 class _Link implements ChatTransport {
@@ -20,9 +25,13 @@ class _Link implements ChatTransport {
   bool connected = true;
   bool closed = false;
 
+  /// Every text frame this end has sent, in order.
+  final sentFrames = <String>[];
+
   @override
   bool send(String frame) {
     if (closed || !connected || peer == null || peer!.closed) return false;
+    sentFrames.add(frame);
     peer!._incoming.add(frame);
     return true;
   }
@@ -475,7 +484,182 @@ void main() {
       expect(_contains(onDisk, bytes.sublist(0, 64)), isFalse);
     },
   );
+
+  test(
+    'an image is sent without its metadata, and the peer keeps the picture',
+    () async {
+      final sodium = await SottoCrypto.init();
+      final root = Directory.systemTemp.createTempSync('sotto_image_');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final files = ReceivedFileStore(
+        sodium: sodium,
+        directory: () async => root,
+      );
+
+      final (a, b) = _pair();
+      final alice = _Side('alice', 'bob', a, clock: clock)..start();
+      final bob = _Side(
+        'bob',
+        'alice',
+        b,
+        clock: clock,
+        sharedStore: ChatStore(MemorySecretStore(), files: files),
+      )..start();
+      await _settle();
+
+      final photo = _jpegWithGps();
+      final expected = ImageMetadata.clean(photo, 'image/jpeg');
+      final offer = await alice.session.offerFile(
+        name: 'photo.jpg',
+        bytes: photo,
+        mime: 'image/jpeg',
+      );
+      expect(offer.fileSize, expected.length);
+      await _settle();
+      await bob.session.acceptFile(offer.fileId!);
+
+      // Encrypting writes to disk, which the settle loop does not wait for.
+      var received = await bob.store.find('alice', offer.fileId!);
+      for (var i = 0; i < 400 && received?.fileStatus != 'completed'; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+        received = await bob.store.find('alice', offer.fileId!);
+      }
+
+      expect(received?.fileStatus, 'completed');
+      final sent = await bob.store.readFile(received!);
+      expect(sent, expected);
+      expect(_contains(sent, _ascii('GPSLatitude')), isFalse);
+      expect(sent.first, 0xFF);
+      expect(sent[1], 0xD8);
+    },
+  );
+
+  test('a file of a blocked type is refused, and nothing is sent', () async {
+    final (a, b) = _pair();
+    final alice = _Side('alice', 'bob', a, clock: clock)..start();
+    final bob = _Side('bob', 'alice', b, clock: clock)..start();
+    await _settle();
+    final sentBefore = a.sentFrames.length;
+
+    for (final name in ['run.EXE ', 'setup.exe.']) {
+      await expectLater(
+        alice.session.offerFile(
+          name: name,
+          bytes: Uint8List.fromList([1, 2, 3]),
+          mime: 'application/octet-stream',
+        ),
+        throwsA(isA<ArgumentError>()),
+        reason: name,
+      );
+    }
+    await _settle();
+
+    expect(a.sentFrames.length, sentBefore);
+    expect(await alice.store.messages('bob'), isEmpty);
+    expect(await bob.store.messages('alice'), isEmpty);
+  });
+
+  test('an offer of a blocked type is declined, and nothing is kept', () async {
+    final (a, b) = _pair();
+    _Side('alice', 'bob', a, clock: clock).start();
+    final bob = _Side('bob', 'alice', b, clock: clock)..start();
+    await _settle();
+
+    // A peer that does not check its own names sends one anyway.
+    final id = _id(60);
+    a.send(
+      ChatFrames.encode(
+        FileOfferFrame(
+          id: id,
+          name: 'malware.exe',
+          size: 100,
+          mime: 'application/octet-stream',
+          sha256: _digest,
+          chunks: 1,
+        ),
+      ),
+    );
+    await _settle();
+
+    expect((await bob.store.find('alice', id))?.fileStatus, 'declined');
+    expect(bob.ofType<FileOfferReceived>(), isEmpty);
+    expect(b.sentFrames, contains(ChatFrames.encode(FileDeclineFrame(id: id))));
+  });
+
+  test('an empty file and an image that cannot be read are refused', () async {
+    final (a, b) = _pair();
+    final alice = _Side('alice', 'bob', a, clock: clock)..start();
+    _Side('bob', 'alice', b, clock: clock).start();
+    await _settle();
+
+    await expectLater(
+      alice.session.offerFile(
+        name: 'empty.txt',
+        bytes: Uint8List(0),
+        mime: 'text/plain',
+      ),
+      throwsA(isA<ArgumentError>()),
+    );
+    // A JPEG whose first segment claims a length of one.
+    await expectLater(
+      alice.session.offerFile(
+        name: 'broken.jpg',
+        bytes: Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x01]),
+        mime: 'image/jpeg',
+      ),
+      throwsA(
+        isA<ArgumentError>().having(
+          (e) => e.message,
+          'message',
+          'Image could not be read',
+        ),
+      ),
+    );
+    await expectLater(
+      alice.session.offerFile(
+        name: 'animation.gif',
+        bytes: Uint8List.fromList('GIF89a'.codeUnits),
+        mime: 'image/gif',
+      ),
+      throwsA(isA<ArgumentError>()),
+    );
+    expect(await alice.store.messages('bob'), isEmpty);
+  });
 }
+
+/// A JPEG segment: its marker, its length, then its payload.
+Uint8List _segment(int marker, List<int> payload) {
+  final length = payload.length + 2;
+  return Uint8List.fromList([
+    0xFF,
+    marker,
+    length >> 8,
+    length & 0xFF,
+    ...payload,
+  ]);
+}
+
+/// The bytes of [parts], one after another.
+Uint8List _join(List<List<int>> parts) {
+  final builder = BytesBuilder(copy: false);
+  for (final part in parts) {
+    builder.add(part);
+  }
+  return builder.takeBytes();
+}
+
+Uint8List _ascii(String text) => Uint8List.fromList(text.codeUnits);
+
+/// A small JPEG with a GPS position in its APP1 (EXIF) segment.
+Uint8List _jpegWithGps() => _join([
+  [0xFF, 0xD8],
+  _segment(0xE0, [...'JFIF'.codeUnits, 0x00, 0x01, 0x01, 0, 0, 1, 0, 1, 0, 0]),
+  _segment(0xE1, 'GPSLatitude=51.5074'.codeUnits),
+  _segment(0xDB, List<int>.filled(65, 1)),
+  _segment(0xDA, [1, 1, 0, 0, 63, 0]),
+  [0x12, 0x34, 0xFF, 0x00, 0x56],
+  [0xFF, 0xD9],
+]);
 
 /// Whether [needle] appears in [haystack].
 bool _contains(Uint8List haystack, Uint8List needle) {
