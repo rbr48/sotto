@@ -158,140 +158,140 @@ class _HomeShellState extends State<HomeShell> {
         }
       },
       child: Scaffold(
-      appBar: AppBar(
-        toolbarHeight: 64,
-        titleSpacing: 4,
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 12),
-          child: Tooltip(
-            message: l10n.navSettings,
-            child: InkWell(
-              onTap: () => setState(() => _tab = 4),
-              customBorder: const CircleBorder(),
-              child: Center(
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    CircleAvatar(
-                      radius: 20,
-                      backgroundColor: theme.colorScheme.primary,
-                      foregroundColor: theme.colorScheme.onPrimary,
-                      child: Text(
-                        name.isEmpty ? 'S' : InitialsAvatar.initials(name),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      right: -1,
-                      bottom: -1,
-                      child: Container(
-                        width: 13,
-                        height: 13,
-                        decoration: BoxDecoration(
-                          color: statusColor,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: theme.colorScheme.surface,
-                            width: 2.5,
+        appBar: AppBar(
+          toolbarHeight: 64,
+          titleSpacing: 4,
+          leading: Padding(
+            padding: const EdgeInsets.only(left: 12),
+            child: Tooltip(
+              message: l10n.navSettings,
+              child: InkWell(
+                onTap: () => setState(() => _tab = 4),
+                customBorder: const CircleBorder(),
+                child: Center(
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      CircleAvatar(
+                        radius: 20,
+                        backgroundColor: theme.colorScheme.primary,
+                        foregroundColor: theme.colorScheme.onPrimary,
+                        child: Text(
+                          name.isEmpty ? 'S' : InitialsAvatar.initials(name),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                      Positioned(
+                        right: -1,
+                        bottom: -1,
+                        child: Container(
+                          width: 13,
+                          height: 13,
+                          decoration: BoxDecoration(
+                            color: statusColor,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: theme.colorScheme.surface,
+                              width: 2.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
+          leadingWidth: 60,
+          title: name.isEmpty
+              ? const SottoWordmark(height: 30)
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      name,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      [
+                        if (narrow) statusLabel,
+                        if (practice.isNotEmpty) practice,
+                      ].join(' · '),
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+          actions: [
+            if (app.lock.hasPin)
+              IconButton(
+                tooltip: 'Lock Sotto',
+                onPressed: app.lock.lock,
+                icon: const Icon(Icons.lock_outline),
+              ),
+            if (kIsWeb) ...[HeaderDownloadsAction(), const SizedBox(width: 8)],
+            if (narrow)
+              const SizedBox(width: 8)
+            else ...[
+              RelayStatusChip(status: calls.relayStatus),
+              const SizedBox(width: 8),
+            ],
+          ],
         ),
-        leadingWidth: 60,
-        title: name.isEmpty
-            ? const SottoWordmark(height: 30)
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    name,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
+        body: SafeArea(
+          child: wide
+              ? Row(
+                  children: [
+                    NavigationRail(
+                      leading: const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: SottoLogo(size: 36),
+                      ),
+                      selectedIndex: _tab,
+                      onDestinationSelected: (i) => setState(() => _tab = i),
+                      labelType: NavigationRailLabelType.all,
+                      destinations: [
+                        for (var i = 0; i < _destinations.length; i++)
+                          NavigationRailDestination(
+                            icon: icon(i, false),
+                            selectedIcon: icon(i, true),
+                            label: Text(_label(l10n, i)),
+                          ),
+                      ],
                     ),
-                  ),
-                  Text(
-                    [
-                      if (narrow) statusLabel,
-                      if (practice.isNotEmpty) practice,
-                    ].join(' · '),
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w500,
+                    const VerticalDivider(width: 1),
+                    Expanded(child: _constrained(body)),
+                  ],
+                )
+              : _constrained(body),
+        ),
+        bottomNavigationBar: wide
+            ? null
+            : NavigationBar(
+                selectedIndex: _tab,
+                onDestinationSelected: (i) => setState(() => _tab = i),
+                destinations: [
+                  for (var i = 0; i < _destinations.length; i++)
+                    NavigationDestination(
+                      icon: icon(i, false),
+                      selectedIcon: icon(i, true),
+                      label: _label(l10n, i),
                     ),
-                  ),
                 ],
               ),
-        actions: [
-          if (app.lock.hasPin)
-            IconButton(
-              tooltip: 'Lock Sotto',
-              onPressed: app.lock.lock,
-              icon: const Icon(Icons.lock_outline),
-            ),
-          if (kIsWeb) ...[HeaderDownloadsAction(), const SizedBox(width: 8)],
-          if (narrow)
-            const SizedBox(width: 8)
-          else ...[
-            RelayStatusChip(status: calls.relayStatus),
-            const SizedBox(width: 8),
-          ],
-        ],
       ),
-      body: SafeArea(
-        child: wide
-            ? Row(
-                children: [
-                  NavigationRail(
-                    leading: const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      child: SottoLogo(size: 36),
-                    ),
-                    selectedIndex: _tab,
-                    onDestinationSelected: (i) => setState(() => _tab = i),
-                    labelType: NavigationRailLabelType.all,
-                    destinations: [
-                      for (var i = 0; i < _destinations.length; i++)
-                        NavigationRailDestination(
-                          icon: icon(i, false),
-                          selectedIcon: icon(i, true),
-                          label: Text(_label(l10n, i)),
-                        ),
-                    ],
-                  ),
-                  const VerticalDivider(width: 1),
-                  Expanded(child: _constrained(body)),
-                ],
-              )
-            : _constrained(body),
-      ),
-      bottomNavigationBar: wide
-          ? null
-          : NavigationBar(
-              selectedIndex: _tab,
-              onDestinationSelected: (i) => setState(() => _tab = i),
-              destinations: [
-                for (var i = 0; i < _destinations.length; i++)
-                  NavigationDestination(
-                    icon: icon(i, false),
-                    selectedIcon: icon(i, true),
-                    label: _label(l10n, i),
-                  ),
-              ],
-            ),
-    ),
-  );
+    );
   }
 
   Widget _constrained(Widget child) => Align(

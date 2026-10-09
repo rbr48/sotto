@@ -327,7 +327,9 @@ class ChatSession {
     _outgoingFiles[id] = clean;
     await store.add(offered);
     // A voice note keeps its own copy, so the sender can play it back.
-    final message = voice && kept == null ? await store.keepVoice(offered, clean) : offered;
+    final message = voice && kept == null
+        ? await store.keepVoice(offered, clean)
+        : offered;
     _write(
       FileOfferFrame(
         id: id,

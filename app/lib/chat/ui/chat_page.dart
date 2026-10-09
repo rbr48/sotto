@@ -927,7 +927,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       final copy = await widget.chat.store.openCopy(message);
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
         try {
-          final mime = message.fileMime ??
+          final mime =
+              message.fileMime ??
               ChatFrames.detectMimeType(message.fileName ?? copy.path);
           const channel = MethodChannel('sotto/android');
           final ok = await channel.invokeMethod<bool>('openFile', {
@@ -1187,8 +1188,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     return l10n.chatRetentionMinutes(math.max(1, d.inMinutes));
   }
 
-
-
   /// An empty state that scrolls when the space is too short for it, so a
   /// large text size cannot run it into the composer.
   Widget _scrollableEmpty(Widget child) => LayoutBuilder(
@@ -1237,226 +1236,368 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         }
       },
       child: Scaffold(
-      backgroundColor: tokens.body,
-      appBar: AppBar(
-        titleSpacing: 0,
-        backgroundColor: tokens.header,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        surfaceTintColor: Colors.transparent,
-        iconTheme: IconThemeData(color: tokens.headerIcon),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1),
-          child: Container(height: 1, color: tokens.divider),
-        ),
-        title: _isSearching
-            ? TextField(
-                controller: _searchController,
-                autofocus: true,
-                decoration: InputDecoration(
-                  hintText: l10n.chatSearchHint,
-                  border: InputBorder.none,
-                ),
-                onChanged: (q) => setState(() => _searchQuery = q.trim()),
-              )
-            : Row(
-                children: [
-                  InitialsAvatar(name: widget.name, radius: 18),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Flexible(
-                              child: Text(
-                                widget.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: textTheme.titleMedium?.copyWith(
-                                  color: tokens.headerTitle,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                            if (widget.verified) ...[
-                              const SizedBox(width: 4),
-                              Semantics(
-                                label: l10n.chatVerifiedTooltip,
-                                child: Tooltip(
-                                  message: l10n.chatVerifiedTooltip,
-                                  excludeFromSemantics: true,
-                                  child: Icon(
-                                    Icons.verified,
-                                    size: 16,
-                                    color: tokens.verifiedIcon,
+        backgroundColor: tokens.body,
+        appBar: AppBar(
+          titleSpacing: 0,
+          backgroundColor: tokens.header,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          surfaceTintColor: Colors.transparent,
+          iconTheme: IconThemeData(color: tokens.headerIcon),
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(1),
+            child: Container(height: 1, color: tokens.divider),
+          ),
+          title: _isSearching
+              ? TextField(
+                  controller: _searchController,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    hintText: l10n.chatSearchHint,
+                    border: InputBorder.none,
+                  ),
+                  onChanged: (q) => setState(() => _searchQuery = q.trim()),
+                )
+              : Row(
+                  children: [
+                    InitialsAvatar(name: widget.name, radius: 18),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  widget.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: textTheme.titleMedium?.copyWith(
+                                    color: tokens.headerTitle,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
                               ),
+                              if (widget.verified) ...[
+                                const SizedBox(width: 4),
+                                Semantics(
+                                  label: l10n.chatVerifiedTooltip,
+                                  child: Tooltip(
+                                    message: l10n.chatVerifiedTooltip,
+                                    excludeFromSemantics: true,
+                                    child: Icon(
+                                      Icons.verified,
+                                      size: 16,
+                                      color: tokens.verifiedIcon,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
-                          ],
-                        ),
-                        Text(
-                          _peerIsTyping
-                              ? l10n.chatTyping(widget.name)
-                              : (widget.verified
-                                  ? 'verified contact'
-                                  : (widget.chat.hideIp()
-                                      ? 'relayed'
-                                      : 'online')),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: textTheme.bodySmall?.copyWith(
-                            color: _peerIsTyping
-                                ? tokens.verifiedIcon
-                                : tokens.headerSubtitle,
-                            fontSize: 12,
                           ),
+                          Text(
+                            _peerIsTyping
+                                ? l10n.chatTyping(widget.name)
+                                : (widget.verified
+                                      ? 'verified contact'
+                                      : (widget.chat.hideIp()
+                                            ? 'relayed'
+                                            : 'online')),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: textTheme.bodySmall?.copyWith(
+                              color: _peerIsTyping
+                                  ? tokens.verifiedIcon
+                                  : tokens.headerSubtitle,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+          leading: _isSearching
+              ? IconButton(
+                  style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () => setState(() {
+                    _isSearching = false;
+                    _searchQuery = '';
+                    _searchController.clear();
+                  }),
+                )
+              : null,
+          actions: [
+            if (_isSearching) ...[
+              if (_searchQuery.isNotEmpty)
+                IconButton(
+                  style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+                  icon: const Icon(Icons.clear),
+                  onPressed: () => setState(() {
+                    _searchQuery = '';
+                    _searchController.clear();
+                  }),
+                ),
+            ] else ...[
+              IconButton(
+                style: IconButton.styleFrom(minimumSize: const Size(44, 48)),
+                icon: const Icon(Icons.videocam),
+                tooltip: 'Video call ${widget.name}',
+                onPressed: _callActive || widget.calls == null
+                    ? null
+                    : () => unawaited(
+                        widget.calls?.callContactId(
+                          widget.contactId,
+                          video: true,
                         ),
+                      ),
+              ),
+              IconButton(
+                style: IconButton.styleFrom(minimumSize: const Size(44, 48)),
+                icon: const Icon(Icons.call),
+                tooltip: 'Voice call ${widget.name}',
+                onPressed: _callActive || widget.calls == null
+                    ? null
+                    : () => unawaited(
+                        widget.calls?.callContactId(
+                          widget.contactId,
+                          video: false,
+                        ),
+                      ),
+              ),
+              IconButton(
+                style: IconButton.styleFrom(minimumSize: const Size(44, 48)),
+                icon: const Icon(Icons.search),
+                tooltip: l10n.chatSearch,
+                onPressed: () => setState(() => _isSearching = true),
+              ),
+              IconButton(
+                style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+                icon: const Icon(Icons.timer_outlined),
+                tooltip: l10n.chatDisappearingTitle,
+                onPressed: () => unawaited(_chooseRetention(l10n)),
+              ),
+              PopupMenuButton<String>(
+                padding: const EdgeInsets.all(12),
+                onSelected: (value) {
+                  if (value == 'disappearing') {
+                    unawaited(_chooseRetention(l10n));
+                  } else if (value == 'delete') {
+                    unawaited(_deleteChat(l10n));
+                  }
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: 'disappearing',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.timer_outlined, size: 20),
+                        const SizedBox(width: 12),
+                        Text(l10n.chatDisappearingTitle),
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'delete',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.delete_outline, size: 20),
+                        const SizedBox(width: 12),
+                        Text(l10n.chatDeleteMenu),
                       ],
                     ),
                   ),
                 ],
               ),
-        leading: _isSearching
-            ? IconButton(
-                style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () => setState(() {
-                  _isSearching = false;
-                  _searchQuery = '';
-                  _searchController.clear();
-                }),
-              )
-            : null,
-        actions: [
-          if (_isSearching) ...[
-            if (_searchQuery.isNotEmpty)
-              IconButton(
-                style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
-                icon: const Icon(Icons.clear),
-                onPressed: () => setState(() {
-                  _searchQuery = '';
-                  _searchController.clear();
-                }),
-              ),
-          ] else ...[
-            IconButton(
-              style: IconButton.styleFrom(minimumSize: const Size(44, 48)),
-              icon: const Icon(Icons.videocam),
-              tooltip: 'Video call ${widget.name}',
-              onPressed: _callActive || widget.calls == null
-                  ? null
-                  : () => unawaited(
-                      widget.calls?.callContactId(
-                        widget.contactId,
-                        video: true,
-                      ),
-                    ),
-            ),
-            IconButton(
-              style: IconButton.styleFrom(minimumSize: const Size(44, 48)),
-              icon: const Icon(Icons.call),
-              tooltip: 'Voice call ${widget.name}',
-              onPressed: _callActive || widget.calls == null
-                  ? null
-                  : () => unawaited(
-                      widget.calls?.callContactId(
-                        widget.contactId,
-                        video: false,
-                      ),
-                    ),
-            ),
-            IconButton(
-              style: IconButton.styleFrom(minimumSize: const Size(44, 48)),
-              icon: const Icon(Icons.search),
-              tooltip: l10n.chatSearch,
-              onPressed: () => setState(() => _isSearching = true),
-            ),
-            IconButton(
-              style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
-              icon: const Icon(Icons.timer_outlined),
-              tooltip: l10n.chatDisappearingTitle,
-              onPressed: () => unawaited(_chooseRetention(l10n)),
-            ),
-            PopupMenuButton<String>(
-              padding: const EdgeInsets.all(12),
-              onSelected: (value) {
-                if (value == 'disappearing') {
-                  unawaited(_chooseRetention(l10n));
-                } else if (value == 'delete') {
-                  unawaited(_deleteChat(l10n));
-                }
-              },
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: 'disappearing',
-                  child: Row(
-                    children: [
-                      const Icon(Icons.timer_outlined, size: 20),
-                      const SizedBox(width: 12),
-                      Text(l10n.chatDisappearingTitle),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'delete',
-                  child: Row(
-                    children: [
-                      const Icon(Icons.delete_outline, size: 20),
-                      const SizedBox(width: 12),
-                      Text(l10n.chatDeleteMenu),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+            ],
           ],
-        ],
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            if (_retention case final r? when r > Duration.zero)
-              Padding(
-                padding: const EdgeInsetsDirectional.fromSTEB(0, 8, 0, 4),
-                child: Center(
-                  child: InkWell(
-                    onTap: () => unawaited(_chooseRetention(l10n)),
-                    borderRadius: BorderRadius.circular(16),
+        ),
+        body: SafeArea(
+          child: Column(
+            children: [
+              if (_retention case final r? when r > Duration.zero)
+                Padding(
+                  padding: const EdgeInsetsDirectional.fromSTEB(0, 8, 0, 4),
+                  child: Center(
+                    child: InkWell(
+                      onTap: () => unawaited(_chooseRetention(l10n)),
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        constraints: const BoxConstraints(minHeight: 48),
+                        padding: const EdgeInsetsDirectional.fromSTEB(
+                          14,
+                          6,
+                          14,
+                          6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: tokens.pillFill,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.hourglass_top,
+                              size: 14,
+                              color: tokens.pillIcon,
+                            ),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                l10n.chatDisappearingActive(
+                                  _retentionText(r, l10n),
+                                ),
+                                style: textTheme.labelMedium?.copyWith(
+                                  color: tokens.pillText,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (_problem case final problem?)
+                _ProblemBanner(
+                  text: _problemText(l10n, problem),
+                  dismiss: l10n.chatDismiss,
+                  onDismiss: () => setState(() => _problem = null),
+                ),
+              Expanded(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: () {
+                    if (_showEmoji) setState(() => _showEmoji = false);
+                  },
+                  child: _messages.isEmpty
+                      ? _scrollableEmpty(
+                          EmptyState(
+                            icon: Icons.chat_bubble_outline,
+                            title: l10n.chatMessage,
+                            message: widget.chat.hideIp()
+                                ? l10n.chatEmptyHintRelay
+                                : l10n.chatEmptyHint,
+                          ),
+                        )
+                      : displayed.isEmpty
+                      ? _scrollableEmpty(
+                          EmptyState(
+                            icon: Icons.search_off,
+                            title: l10n.chatSearch,
+                            message: l10n.chatSearchNoMatches,
+                          ),
+                        )
+                      : ListView.builder(
+                          controller: _scrollController,
+                          reverse: true,
+                          padding: const EdgeInsetsDirectional.fromSTEB(
+                            16,
+                            12,
+                            16,
+                            12,
+                          ),
+                          itemCount: displayed.length,
+                          itemBuilder: (context, index) {
+                            // The list is shown reversed, so index 0 is the newest
+                            // message. [displayed] runs oldest first.
+                            final j = displayed.length - 1 - index;
+                            final message = displayed[j];
+                            final previous = j > 0 ? displayed[j - 1] : null;
+                            final next = j < displayed.length - 1
+                                ? displayed[j + 1]
+                                : null;
+                            final dayStart = needsDaySeparator(
+                              previousClockMs: previous?.clockMs,
+                              clockMs: message.clockMs,
+                            );
+                            final sameRunAbove =
+                                !dayStart &&
+                                previous != null &&
+                                previous.outgoing == message.outgoing;
+                            final lastInRun =
+                                next == null ||
+                                next.outgoing != message.outgoing ||
+                                needsDaySeparator(
+                                  previousClockMs: message.clockMs,
+                                  clockMs: next.clockMs,
+                                );
+                            return Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (dayStart)
+                                  _DaySeparator(
+                                    day: DateTime.fromMillisecondsSinceEpoch(
+                                      message.clockMs,
+                                    ),
+                                    now: now,
+                                  ),
+                                Padding(
+                                  padding: EdgeInsetsDirectional.only(
+                                    top: sameRunAbove ? 2 : 10,
+                                  ),
+                                  child: _Bubble(
+                                    message: message,
+                                    lastInGroup: lastInRun,
+                                    contactName: widget.name,
+                                    l10n: l10n,
+                                    store: widget.chat.store,
+                                    onRetry: _retry,
+                                    onQueue: _queue,
+                                    onUnqueue: _unqueue,
+                                    onTapUrl: _handleUrlTap,
+                                    onCopy: () => _copyMessage(message),
+                                    onDelete: () => _deleteMessage(message),
+                                    onAccept: () => _acceptFile(message),
+                                    onDecline: () => _declineFile(message),
+                                    onOpen: () => _openFile(message),
+                                    onSaveAs: () => _saveFileAs(message),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                ),
+              ),
+              if (_peerIsTyping)
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Padding(
+                    padding: const EdgeInsetsDirectional.fromSTEB(16, 4, 16, 4),
                     child: Container(
-                      constraints: const BoxConstraints(minHeight: 48),
                       padding: const EdgeInsetsDirectional.fromSTEB(
-                        14,
+                        12,
                         6,
-                        14,
+                        12,
                         6,
                       ),
                       decoration: BoxDecoration(
-                        color: tokens.pillFill,
+                        color: tokens.typingFill,
                         borderRadius: BorderRadius.circular(16),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            Icons.hourglass_top,
-                            size: 14,
-                            color: tokens.pillIcon,
+                          SizedBox(
+                            width: 10,
+                            height: 10,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1.5,
+                              color: tokens.spinner,
+                            ),
                           ),
                           const SizedBox(width: 8),
-                          Flexible(
-                            child: Text(
-                              l10n.chatDisappearingActive(
-                                _retentionText(r, l10n),
-                              ),
-                              style: textTheme.labelMedium?.copyWith(
-                                color: tokens.pillText,
-                                fontWeight: FontWeight.w600,
-                              ),
+                          Text(
+                            l10n.chatTyping(widget.name),
+                            style: textTheme.labelMedium?.copyWith(
+                              color: tokens.typingText,
                             ),
                           ),
                         ],
@@ -1464,314 +1605,178 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                     ),
                   ),
                 ),
-              ),
-            if (_problem case final problem?)
-              _ProblemBanner(
-                text: _problemText(l10n, problem),
-                dismiss: l10n.chatDismiss,
-                onDismiss: () => setState(() => _problem = null),
-              ),
-            Expanded(
-              child: GestureDetector(
-                behavior: HitTestBehavior.translucent,
-                onTap: () {
-                  if (_showEmoji) setState(() => _showEmoji = false);
-                },
-                child: _messages.isEmpty
-                  ? _scrollableEmpty(
-                      EmptyState(
-                        icon: Icons.chat_bubble_outline,
-                        title: l10n.chatMessage,
-                        message: widget.chat.hideIp()
-                            ? l10n.chatEmptyHintRelay
-                            : l10n.chatEmptyHint,
-                      ),
-                    )
-                  : displayed.isEmpty
-                  ? _scrollableEmpty(
-                      EmptyState(
-                        icon: Icons.search_off,
-                        title: l10n.chatSearch,
-                        message: l10n.chatSearchNoMatches,
-                      ),
-                    )
-                  : ListView.builder(
-                      controller: _scrollController,
-                      reverse: true,
-                      padding: const EdgeInsetsDirectional.fromSTEB(
-                        16,
-                        12,
-                        16,
-                        12,
-                      ),
-                      itemCount: displayed.length,
-                      itemBuilder: (context, index) {
-                        // The list is shown reversed, so index 0 is the newest
-                        // message. [displayed] runs oldest first.
-                        final j = displayed.length - 1 - index;
-                        final message = displayed[j];
-                        final previous = j > 0 ? displayed[j - 1] : null;
-                        final next = j < displayed.length - 1
-                            ? displayed[j + 1]
-                            : null;
-                        final dayStart = needsDaySeparator(
-                          previousClockMs: previous?.clockMs,
-                          clockMs: message.clockMs,
-                        );
-                        final sameRunAbove =
-                            !dayStart &&
-                            previous != null &&
-                            previous.outgoing == message.outgoing;
-                        final lastInRun =
-                            next == null ||
-                            next.outgoing != message.outgoing ||
-                            needsDaySeparator(
-                              previousClockMs: message.clockMs,
-                              clockMs: next.clockMs,
-                            );
-                        return Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (dayStart)
-                              _DaySeparator(
-                                day: DateTime.fromMillisecondsSinceEpoch(
-                                  message.clockMs,
-                                ),
-                                now: now,
-                              ),
-                            Padding(
-                              padding: EdgeInsetsDirectional.only(
-                                top: sameRunAbove ? 2 : 10,
-                              ),
-                              child: _Bubble(
-                                message: message,
-                                lastInGroup: lastInRun,
-                                contactName: widget.name,
-                                l10n: l10n,
-                                store: widget.chat.store,
-                                onRetry: _retry,
-                                onQueue: _queue,
-                                onUnqueue: _unqueue,
-                                onTapUrl: _handleUrlTap,
-                                onCopy: () => _copyMessage(message),
-                                onDelete: () => _deleteMessage(message),
-                                onAccept: () => _acceptFile(message),
-                                onDecline: () => _declineFile(message),
-                                onOpen: () => _openFile(message),
-                                onSaveAs: () => _saveFileAs(message),
-                              ),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-              ),
-            ),
-            if (_peerIsTyping)
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: Padding(
-                  padding: const EdgeInsetsDirectional.fromSTEB(16, 4, 16, 4),
-                  child: Container(
-                    padding: const EdgeInsetsDirectional.fromSTEB(12, 6, 12, 6),
-                    decoration: BoxDecoration(
-                      color: tokens.typingFill,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox(
-                          width: 10,
-                          height: 10,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 1.5,
-                            color: tokens.spinner,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          l10n.chatTyping(widget.name),
-                          style: textTheme.labelMedium?.copyWith(
-                            color: tokens.typingText,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+              Container(
+                decoration: BoxDecoration(
+                  color: tokens.footer,
+                  border: Border(top: BorderSide(color: tokens.divider)),
                 ),
-              ),
-            Container(
-              decoration: BoxDecoration(
-                color: tokens.footer,
-                border: Border(top: BorderSide(color: tokens.divider)),
-              ),
-              padding: const EdgeInsetsDirectional.fromSTEB(12, 8, 12, 12),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    // With Hide my IP on, messages are relayed, not sent direct.
-                    widget.chat.hideIp()
-                        ? l10n.chatRelayNote
-                        : l10n.chatDirectNote,
-                    textAlign: TextAlign.center,
-                    style: textTheme.bodySmall?.copyWith(
-                      color: tokens.footerNote,
+                padding: const EdgeInsetsDirectional.fromSTEB(12, 8, 12, 12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      // With Hide my IP on, messages are relayed, not sent direct.
+                      widget.chat.hideIp()
+                          ? l10n.chatRelayNote
+                          : l10n.chatDirectNote,
+                      textAlign: TextAlign.center,
+                      style: textTheme.bodySmall?.copyWith(
+                        color: tokens.footerNote,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  if (_voiceActive)
-                    _recordingRow(l10n, tokens, textTheme)
-                  else
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: tokens.fieldFill,
-                              borderRadius: BorderRadius.circular(24),
-                              border: Border.all(
-                                color: tokens.divider,
-                                width: 0.8,
+                    const SizedBox(height: 4),
+                    if (_voiceActive)
+                      _recordingRow(l10n, tokens, textTheme)
+                    else
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: tokens.fieldFill,
+                                borderRadius: BorderRadius.circular(24),
+                                border: Border.all(
+                                  color: tokens.divider,
+                                  width: 0.8,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.04),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 1),
+                                  ),
+                                ],
                               ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.04),
-                                  blurRadius: 4,
-                                  offset: const Offset(0, 1),
-                                ),
-                              ],
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                 IconButton(
-                                  tooltip: _showEmoji ? 'Keyboard' : 'Emoji',
-                                  style: IconButton.styleFrom(
-                                    minimumSize: const Size(40, 48),
-                                  ),
-                                  icon: Icon(
-                                    _showEmoji
-                                        ? Icons.keyboard_alt_outlined
-                                        : Icons.emoji_emotions_outlined,
-                                    color: tokens.attachIcon,
-                                    size: 24,
-                                  ),
-                                  onPressed: _toggleEmojiPicker,
-                                ),
-                                Expanded(
-                                  child: TextField(
-                                    controller: _input,
-                                    focusNode: _inputFocusNode,
-                                    onTap: () {
-                                      if (_showEmoji) {
-                                        setState(() => _showEmoji = false);
-                                      }
-                                    },
-                                    minLines: 1,
-                                    maxLines: 5,
-                                    maxLength: maxTextChars,
-                                    buildCounter: (
-                                      _, {
-                                      required currentLength,
-                                      required isFocused,
-                                      maxLength,
-                                    }) => null,
-                                    style: textTheme.bodyLarge?.copyWith(
-                                      color: tokens.fieldText,
-                                      fontSize: 15,
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  IconButton(
+                                    tooltip: _showEmoji ? 'Keyboard' : 'Emoji',
+                                    style: IconButton.styleFrom(
+                                      minimumSize: const Size(40, 48),
                                     ),
-                                    textInputAction: TextInputAction.send,
-                                    onSubmitted: (_) => _send(),
-                                    decoration: InputDecoration(
-                                      hintText: l10n.chatWriteHint,
-                                      hintStyle: textTheme.bodyLarge?.copyWith(
-                                        color: tokens.fieldHint,
-                                        fontSize: 15,
-                                      ),
-                                      border: InputBorder.none,
-                                      enabledBorder: InputBorder.none,
-                                      disabledBorder: InputBorder.none,
-                                      focusedBorder: InputBorder.none,
-                                      contentPadding:
-                                          const EdgeInsetsDirectional.fromSTEB(
-                                            0,
-                                            12,
-                                            8,
-                                            12,
-                                          ),
-                                    ),
-                                  ),
-                                ),
-                                IconButton(
-                                  tooltip: l10n.chatAttachFile,
-                                  style: IconButton.styleFrom(
-                                    minimumSize: const Size(40, 48),
-                                  ),
-                                  icon: Transform.rotate(
-                                    angle: -0.5,
-                                    child: Icon(
-                                      Icons.attach_file,
+                                    icon: Icon(
+                                      _showEmoji
+                                          ? Icons.keyboard_alt_outlined
+                                          : Icons.emoji_emotions_outlined,
                                       color: tokens.attachIcon,
                                       size: 24,
                                     ),
+                                    onPressed: _toggleEmojiPicker,
                                   ),
-                                  onPressed: () => _showAttachmentMenu(l10n),
-                                ),
-                              ],
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _input,
+                                      focusNode: _inputFocusNode,
+                                      onTap: () {
+                                        if (_showEmoji) {
+                                          setState(() => _showEmoji = false);
+                                        }
+                                      },
+                                      minLines: 1,
+                                      maxLines: 5,
+                                      maxLength: maxTextChars,
+                                      buildCounter: (
+                                        _, {
+                                        required currentLength,
+                                        required isFocused,
+                                        maxLength,
+                                      }) => null,
+                                      style: textTheme.bodyLarge?.copyWith(
+                                        color: tokens.fieldText,
+                                        fontSize: 15,
+                                      ),
+                                      textInputAction: TextInputAction.send,
+                                      onSubmitted: (_) => _send(),
+                                      decoration: InputDecoration(
+                                        hintText: l10n.chatWriteHint,
+                                        hintStyle: textTheme.bodyLarge
+                                            ?.copyWith(
+                                              color: tokens.fieldHint,
+                                              fontSize: 15,
+                                            ),
+                                        border: InputBorder.none,
+                                        enabledBorder: InputBorder.none,
+                                        disabledBorder: InputBorder.none,
+                                        focusedBorder: InputBorder.none,
+                                        contentPadding:
+                                            const EdgeInsetsDirectional.fromSTEB(
+                                              0,
+                                              12,
+                                              8,
+                                              12,
+                                            ),
+                                      ),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: l10n.chatAttachFile,
+                                    style: IconButton.styleFrom(
+                                      minimumSize: const Size(40, 48),
+                                    ),
+                                    icon: Transform.rotate(
+                                      angle: -0.5,
+                                      child: Icon(
+                                        Icons.attach_file,
+                                        color: tokens.attachIcon,
+                                        size: 24,
+                                      ),
+                                    ),
+                                    onPressed: () => _showAttachmentMenu(l10n),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        ValueListenableBuilder<TextEditingValue>(
-                          valueListenable: _input,
-                          builder: (context, value, _) {
-                            final style = IconButton.styleFrom(
-                              backgroundColor: tokens.sendFill,
-                              foregroundColor: tokens.sendIcon,
-                              minimumSize: const Size(48, 48),
-                              elevation: 2,
-                            );
-                            if (value.text.trim().isEmpty) {
-                              final blocked = _callActive || _voiceBusy;
-                              return IconButton.filled(
-                                tooltip: _callActive
-                                    ? l10n.chatVoiceInCall
-                                    : l10n.chatVoiceMessage,
-                                style: style,
-                                icon: const Icon(Icons.mic, size: 22),
-                                onPressed: blocked
-                                    ? null
-                                    : () => unawaited(_startVoiceRecording()),
+                          const SizedBox(width: 8),
+                          ValueListenableBuilder<TextEditingValue>(
+                            valueListenable: _input,
+                            builder: (context, value, _) {
+                              final style = IconButton.styleFrom(
+                                backgroundColor: tokens.sendFill,
+                                foregroundColor: tokens.sendIcon,
+                                minimumSize: const Size(48, 48),
+                                elevation: 2,
                               );
-                            }
-                            return IconButton.filled(
-                              tooltip: l10n.chatSend,
-                              style: style,
-                              icon: const Icon(Icons.send, size: 20),
-                              onPressed: _send,
-                            );
-                          },
-                        ),
-                      ],
-                    ),
-                ],
+                              if (value.text.trim().isEmpty) {
+                                final blocked = _callActive || _voiceBusy;
+                                return IconButton.filled(
+                                  tooltip: _callActive
+                                      ? l10n.chatVoiceInCall
+                                      : l10n.chatVoiceMessage,
+                                  style: style,
+                                  icon: const Icon(Icons.mic, size: 22),
+                                  onPressed: blocked
+                                      ? null
+                                      : () => unawaited(_startVoiceRecording()),
+                                );
+                              }
+                              return IconButton.filled(
+                                tooltip: l10n.chatSend,
+                                style: style,
+                                icon: const Icon(Icons.send, size: 20),
+                                onPressed: _send,
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
               ),
-            ),
-            if (_showEmoji)
-              _EmojiPickerPanel(
-                tokens: tokens,
-                onEmojiSelected: _onEmojiSelected,
-                onBackspace: _onEmojiBackspace,
-              ),
-          ],
+              if (_showEmoji)
+                _EmojiPickerPanel(
+                  tokens: tokens,
+                  onEmojiSelected: _onEmojiSelected,
+                  onBackspace: _onEmojiBackspace,
+                ),
+            ],
+          ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 }
 
 /// Names the day of the messages below it.
@@ -2467,7 +2472,9 @@ class _FileCard extends StatelessWidget {
             TextButton.icon(
               style: TextButton.styleFrom(
                 minimumSize: const Size(48, 48),
-                foregroundColor: outgoing ? tokens.sentText : tokens.receivedText,
+                foregroundColor: outgoing
+                    ? tokens.sentText
+                    : tokens.receivedText,
               ),
               icon: const Icon(Icons.open_in_new, size: 18),
               label: Text(l10n.chatFileOpen),
@@ -2551,9 +2558,19 @@ class _ImageThumbnailState extends State<_ImageThumbnail> {
   Future<void> _load() async {
     try {
       final b = await widget.store.readFile(widget.message);
-      if (mounted) setState(() { _bytes = b; _loading = false; });
+      if (mounted) {
+        setState(() {
+          _bytes = b;
+          _loading = false;
+        });
+      }
     } catch (_) {
-      if (mounted) setState(() { _error = true; _loading = false; });
+      if (mounted) {
+        setState(() {
+          _error = true;
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -2582,11 +2599,11 @@ class _ImageThumbnailState extends State<_ImageThumbnail> {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 260, minWidth: double.infinity),
-          child: Image.memory(
-            _bytes!,
-            fit: BoxFit.cover,
+          constraints: const BoxConstraints(
+            maxHeight: 260,
+            minWidth: double.infinity,
           ),
+          child: Image.memory(_bytes!, fit: BoxFit.cover),
         ),
       ),
     );
@@ -2624,9 +2641,18 @@ class _ImageViewerPageState extends State<_ImageViewerPage> {
   Future<void> _load() async {
     try {
       final b = await widget.store.readFile(widget.message);
-      if (mounted) setState(() { _bytes = b; _loading = false; });
+      if (mounted) {
+        setState(() {
+          _bytes = b;
+          _loading = false;
+        });
+      }
     } catch (_) {
-      if (mounted) setState(() { _loading = false; });
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -2656,15 +2682,15 @@ class _ImageViewerPageState extends State<_ImageViewerPage> {
         child: _loading
             ? const CircularProgressIndicator(color: Colors.white)
             : _bytes == null
-                ? const Text('Could not load image', style: TextStyle(color: Colors.white70))
-                : InteractiveViewer(
-                    minScale: 0.5,
-                    maxScale: 4.0,
-                    child: Image.memory(
-                      _bytes!,
-                      fit: BoxFit.contain,
-                    ),
-                  ),
+            ? const Text(
+                'Could not load image',
+                style: TextStyle(color: Colors.white70),
+              )
+            : InteractiveViewer(
+                minScale: 0.5,
+                maxScale: 4.0,
+                child: Image.memory(_bytes!, fit: BoxFit.contain),
+              ),
       ),
     );
   }
@@ -2703,9 +2729,8 @@ class _AttachmentOption extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(fontWeight: FontWeight.w500),
             ),
           ],
         ),
@@ -3138,103 +3163,708 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel>
       icon: Icons.sentiment_satisfied_alt_outlined,
       label: 'Smileys',
       emojis: [
-        '😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊',
-        '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '😋', '😛', '😜', '🤪',
-        '😝', '🤑', '🤗', '🤭', '🤫', '🤔', '🤐', '🤨', '😐', '😑', '😶', '😏',
-        '😒', '🙄', '😬', '🤥', '😌', '😔', '😪', '🤤', '😴', '😷', '🤒', '🤕',
-        '🤢', '🤮', '🤧', '🥵', '🥶', '🥴', '😵', '🤯', '🤠', '🥳', '🥸', '😎',
-        '🤓', '🧐', '😕', '😟', '🙁', '☹️', '😮', '😯', '😲', '😳', '🥺', '😦',
-        '😧', '😨', '😰', '😥', '😢', '😭', '😱', '😖', '😣', '😞', '😓', '😩',
-        '😫', '🥱', '😤', '😡', '😠', '🤬', '💀', '💩', '🤡', '👻', '👽', '🤖',
+        '😀',
+        '😃',
+        '😄',
+        '😁',
+        '😆',
+        '😅',
+        '🤣',
+        '😂',
+        '🙂',
+        '🙃',
+        '😉',
+        '😊',
+        '😇',
+        '🥰',
+        '😍',
+        '🤩',
+        '😘',
+        '😗',
+        '😚',
+        '😙',
+        '😋',
+        '😛',
+        '😜',
+        '🤪',
+        '😝',
+        '🤑',
+        '🤗',
+        '🤭',
+        '🤫',
+        '🤔',
+        '🤐',
+        '🤨',
+        '😐',
+        '😑',
+        '😶',
+        '😏',
+        '😒',
+        '🙄',
+        '😬',
+        '🤥',
+        '😌',
+        '😔',
+        '😪',
+        '🤤',
+        '😴',
+        '😷',
+        '🤒',
+        '🤕',
+        '🤢',
+        '🤮',
+        '🤧',
+        '🥵',
+        '🥶',
+        '🥴',
+        '😵',
+        '🤯',
+        '🤠',
+        '🥳',
+        '🥸',
+        '😎',
+        '🤓',
+        '🧐',
+        '😕',
+        '😟',
+        '🙁',
+        '☹️',
+        '😮',
+        '😯',
+        '😲',
+        '😳',
+        '🥺',
+        '😦',
+        '😧',
+        '😨',
+        '😰',
+        '😥',
+        '😢',
+        '😭',
+        '😱',
+        '😖',
+        '😣',
+        '😞',
+        '😓',
+        '😩',
+        '😫',
+        '🥱',
+        '😤',
+        '😡',
+        '😠',
+        '🤬',
+        '💀',
+        '💩',
+        '🤡',
+        '👻',
+        '👽',
+        '🤖',
       ],
     ),
     (
       icon: Icons.front_hand_outlined,
       label: 'People',
       emojis: [
-        '👋', '🤚', '🖐️', '✋', '🖖', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️',
-        '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝', '🙏',
-        '✍️', '💅', '🤳', '💪', '🦾', '🦿', '🦵', '🦶', '👂', '🦻', '👃', '🧠',
-        '🫀', '🫁', '🦷', '🦴', '👀', '👁️', '👅', '👄', '👶', '🧒', '👦', '👧',
-        '🧑', '👱', '👨', '🧔', '👩', '🧓', '👴', '👵', '🙍', '🙎', '🙅', '🙆',
-        '💁', '🙋', '🧏', '🙇', '🤦', '🤷', '🧑‍⚕️', '🧑‍🎓', '🧑‍🏫', '🧑‍⚖️', '🧑‍🌾', '🧑‍🍳',
+        '👋',
+        '🤚',
+        '🖐️',
+        '✋',
+        '🖖',
+        '🤙',
+        '👈',
+        '👉',
+        '👆',
+        '🖕',
+        '👇',
+        '☝️',
+        '👍',
+        '👎',
+        '✊',
+        '👊',
+        '🤛',
+        '🤜',
+        '👏',
+        '🙌',
+        '👐',
+        '🤲',
+        '🤝',
+        '🙏',
+        '✍️',
+        '💅',
+        '🤳',
+        '💪',
+        '🦾',
+        '🦿',
+        '🦵',
+        '🦶',
+        '👂',
+        '🦻',
+        '👃',
+        '🧠',
+        '🫀',
+        '🫁',
+        '🦷',
+        '🦴',
+        '👀',
+        '👁️',
+        '👅',
+        '👄',
+        '👶',
+        '🧒',
+        '👦',
+        '👧',
+        '🧑',
+        '👱',
+        '👨',
+        '🧔',
+        '👩',
+        '🧓',
+        '👴',
+        '👵',
+        '🙍',
+        '🙎',
+        '🙅',
+        '🙆',
+        '💁',
+        '🙋',
+        '🧏',
+        '🙇',
+        '🤦',
+        '🤷',
+        '🧑‍⚕️',
+        '🧑‍🎓',
+        '🧑‍🏫',
+        '🧑‍⚖️',
+        '🧑‍🌾',
+        '🧑‍🍳',
       ],
     ),
     (
       icon: Icons.pets_outlined,
       label: 'Animals',
       emojis: [
-        '🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮',
-        '🐷', '🐽', '🐸', '🐵', '🙈', '🙉', '🙊', '🐒', '🐔', '🐧', '🐦', '🐤',
-        '🐣', '🐥', '🦆', '🦅', '🦉', '🦇', '🐺', '🐗', '🐴', '🦄', '🐝', '🐛',
-        '🦋', '🐌', '🐞', '🐜', '🦟', '🐢', '🐍', '🦎', '🐙', '🦑', '🦐', '🦞',
-        '🦀', '🐡', '🐠', '🐟', '🐬', '🐳', '🐋', '🦈', '🐊', '🐅', '🐆', '🦓',
-        '🐘', '🦛', '🦏', '🐪', '🐫', '🦒', '🦘', '🌲', '🌳', '🌴', '🌵', '🌱',
-        '🌿', '🍀', '🍁', '🍂', '🍃', '🌸', '💮', '🌹', '🌺', '🌻', '🌼', '🌷',
+        '🐶',
+        '🐱',
+        '🐭',
+        '🐹',
+        '🐰',
+        '🦊',
+        '🐻',
+        '🐼',
+        '🐨',
+        '🐯',
+        '🦁',
+        '🐮',
+        '🐷',
+        '🐽',
+        '🐸',
+        '🐵',
+        '🙈',
+        '🙉',
+        '🙊',
+        '🐒',
+        '🐔',
+        '🐧',
+        '🐦',
+        '🐤',
+        '🐣',
+        '🐥',
+        '🦆',
+        '🦅',
+        '🦉',
+        '🦇',
+        '🐺',
+        '🐗',
+        '🐴',
+        '🦄',
+        '🐝',
+        '🐛',
+        '🦋',
+        '🐌',
+        '🐞',
+        '🐜',
+        '🦟',
+        '🐢',
+        '🐍',
+        '🦎',
+        '🐙',
+        '🦑',
+        '🦐',
+        '🦞',
+        '🦀',
+        '🐡',
+        '🐠',
+        '🐟',
+        '🐬',
+        '🐳',
+        '🐋',
+        '🦈',
+        '🐊',
+        '🐅',
+        '🐆',
+        '🦓',
+        '🐘',
+        '🦛',
+        '🦏',
+        '🐪',
+        '🐫',
+        '🦒',
+        '🦘',
+        '🌲',
+        '🌳',
+        '🌴',
+        '🌵',
+        '🌱',
+        '🌿',
+        '🍀',
+        '🍁',
+        '🍂',
+        '🍃',
+        '🌸',
+        '💮',
+        '🌹',
+        '🌺',
+        '🌻',
+        '🌼',
+        '🌷',
       ],
     ),
     (
       icon: Icons.fastfood_outlined,
       label: 'Food',
       emojis: [
-        '🍏', '🍎', '🍐', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🫐', '🍈', '🍒',
-        '🍑', '🥭', '🍍', '🥥', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌶️',
-        '🌽', '🥕', '🧄', '🧅', '🥔', '🍠', '🥐', '🍞', '🥖', '🥨', '🧀', '🥚',
-        '🍳', '🧈', '🥞', '🧇', '🥓', '🥩', '🍗', '🍖', '🌭', '🍔', '🍟', '🍕',
-        '🥪', '🥙', '🌮', '🌯', '🥗', '🥘', '🥫', '🍝', '🍜', '🍲', '🍛', '🍣',
-        '🍱', '🥟', '🍤', '🍙', '🍚', '🍢', '🍡', '🍧', '🍨', '🍦', '🍰', '🎂',
-        '🍮', '🍭', '🍬', '🍫', '🍿', '🍩', '🍪', '🌰', '🥜', '🥛', '☕', '🫖',
+        '🍏',
+        '🍎',
+        '🍐',
+        '🍊',
+        '🍋',
+        '🍌',
+        '🍉',
+        '🍇',
+        '🍓',
+        '🫐',
+        '🍈',
+        '🍒',
+        '🍑',
+        '🥭',
+        '🍍',
+        '🥥',
+        '🥝',
+        '🍅',
+        '🍆',
+        '🥑',
+        '🥦',
+        '🥬',
+        '🥒',
+        '🌶️',
+        '🌽',
+        '🥕',
+        '🧄',
+        '🧅',
+        '🥔',
+        '🍠',
+        '🥐',
+        '🍞',
+        '🥖',
+        '🥨',
+        '🧀',
+        '🥚',
+        '🍳',
+        '🧈',
+        '🥞',
+        '🧇',
+        '🥓',
+        '🥩',
+        '🍗',
+        '🍖',
+        '🌭',
+        '🍔',
+        '🍟',
+        '🍕',
+        '🥪',
+        '🥙',
+        '🌮',
+        '🌯',
+        '🥗',
+        '🥘',
+        '🥫',
+        '🍝',
+        '🍜',
+        '🍲',
+        '🍛',
+        '🍣',
+        '🍱',
+        '🥟',
+        '🍤',
+        '🍙',
+        '🍚',
+        '🍢',
+        '🍡',
+        '🍧',
+        '🍨',
+        '🍦',
+        '🍰',
+        '🎂',
+        '🍮',
+        '🍭',
+        '🍬',
+        '🍫',
+        '🍿',
+        '🍩',
+        '🍪',
+        '🌰',
+        '🥜',
+        '🥛',
+        '☕',
+        '🫖',
       ],
     ),
     (
       icon: Icons.sports_soccer_outlined,
       label: 'Activities',
       emojis: [
-        '⚽', '🏀', '🏈', '⚾', '🥎', '🎾', '🏐', '🏉', '🥏', '🎱', '🪀', '🏓',
-        '🏸', '🏒', '🏑', '🏏', '🥅', '⛳', '🪁', '🏹', '🎣', '🥊', '🥋', '🛹',
-        '🛼', '🛷', '⛸️', '🎿', '🏂', '🏋️', '🤼', '🤸', '⛹️', '🤺', '🏄', '🏊',
-        '🤽', '🚣', '🧗', '🚵', '🚴', '🏆', '🥇', '🥈', '🥉', '🏅', '🎖️', '🎗️',
-        '🎫', '🎟️', '🎪', '🎭', '🎨', '🎬', '🎤', '🎧', '🎼', '🎵', '🎶', '🥁',
-        '🎷', '🎺', '🎸', '🎻', '🎲', '♟️', '🎯', '🎳', '🎮', '🎰', '🧩', '🃏',
+        '⚽',
+        '🏀',
+        '🏈',
+        '⚾',
+        '🥎',
+        '🎾',
+        '🏐',
+        '🏉',
+        '🥏',
+        '🎱',
+        '🪀',
+        '🏓',
+        '🏸',
+        '🏒',
+        '🏑',
+        '🏏',
+        '🥅',
+        '⛳',
+        '🪁',
+        '🏹',
+        '🎣',
+        '🥊',
+        '🥋',
+        '🛹',
+        '🛼',
+        '🛷',
+        '⛸️',
+        '🎿',
+        '🏂',
+        '🏋️',
+        '🤼',
+        '🤸',
+        '⛹️',
+        '🤺',
+        '🏄',
+        '🏊',
+        '🤽',
+        '🚣',
+        '🧗',
+        '🚵',
+        '🚴',
+        '🏆',
+        '🥇',
+        '🥈',
+        '🥉',
+        '🏅',
+        '🎖️',
+        '🎗️',
+        '🎫',
+        '🎟️',
+        '🎪',
+        '🎭',
+        '🎨',
+        '🎬',
+        '🎤',
+        '🎧',
+        '🎼',
+        '🎵',
+        '🎶',
+        '🥁',
+        '🎷',
+        '🎺',
+        '🎸',
+        '🎻',
+        '🎲',
+        '♟️',
+        '🎯',
+        '🎳',
+        '🎮',
+        '🎰',
+        '🧩',
+        '🃏',
       ],
     ),
     (
       icon: Icons.directions_car_outlined,
       label: 'Travel',
       emojis: [
-        '🚗', '🚕', '🚙', '🚌', '🚎', '🏎️', '🚓', '🚑', '🚒', '🚐', '🚚', '🚛',
-        '🚜', '🛴', '🚲', '🛵', '🏍️', '🛺', '🚨', '🚔', '🚍', '🚘', '🚖', '🚡',
-        '🚠', '🚟', '🚃', '🚋', '🚞', '🚝', '🚄', '🚅', '🚈', '🚂', '🚆', '🚇',
-        '🚊', '🚉', '✈️', '🛫', '🛬', '💺', '🛰️', '🚀', '🛸', '🚁', '🛶', '⛵',
-        '🚤', '🛳️', '⛴️', '🚢', '⚓', '⛽', '🚧', '🚥', '🚦', '🛑', '🗼', '🗽',
-        '⛪', '🕌', '🛕', '🕍', '⛩️', '🕋', '⛲', '⛺', '🌁', '🌃', '🏙️', '🌄',
+        '🚗',
+        '🚕',
+        '🚙',
+        '🚌',
+        '🚎',
+        '🏎️',
+        '🚓',
+        '🚑',
+        '🚒',
+        '🚐',
+        '🚚',
+        '🚛',
+        '🚜',
+        '🛴',
+        '🚲',
+        '🛵',
+        '🏍️',
+        '🛺',
+        '🚨',
+        '🚔',
+        '🚍',
+        '🚘',
+        '🚖',
+        '🚡',
+        '🚠',
+        '🚟',
+        '🚃',
+        '🚋',
+        '🚞',
+        '🚝',
+        '🚄',
+        '🚅',
+        '🚈',
+        '🚂',
+        '🚆',
+        '🚇',
+        '🚊',
+        '🚉',
+        '✈️',
+        '🛫',
+        '🛬',
+        '💺',
+        '🛰️',
+        '🚀',
+        '🛸',
+        '🚁',
+        '🛶',
+        '⛵',
+        '🚤',
+        '🛳️',
+        '⛴️',
+        '🚢',
+        '⚓',
+        '⛽',
+        '🚧',
+        '🚥',
+        '🚦',
+        '🛑',
+        '🗼',
+        '🗽',
+        '⛪',
+        '🕌',
+        '🛕',
+        '🕍',
+        '⛩️',
+        '🕋',
+        '⛲',
+        '⛺',
+        '🌁',
+        '🌃',
+        '🏙️',
+        '🌄',
       ],
     ),
     (
       icon: Icons.lightbulb_outlined,
       label: 'Objects',
       emojis: [
-        '⌚', '📱', '📲', '💻', '⌨️', '🖥️', '🖨️', '🖱️', '🕹️', '💾', '💿', '📀',
-        '📷', '📸', '📹', '🎥', '📽️', '📞', '☎️', '📟', '📠', '📺', '📻', '🎙️',
-        '⏱️', '⏲️', '⏰', '🕰️', '⌛', '⏳', '📡', '🔋', '🔌', '💡', '🔦', '🕯️',
-        '🧯', '💸', '💵', '💴', '💶', '💷', '🪙', '💰', '💳', '💎', '⚖️', '🧰',
-        '🔧', '🔨', '⚒️', '🛠️', '⛏️', '🪓', '🔩', '⚙️', '🧲', '🔫', '💣', '🔪',
-        '🛡️', '🔮', '📿', '💈', '🔬', '🔭', '🩺', '💊', '💉', '🩹', '🧬', '🔑',
+        '⌚',
+        '📱',
+        '📲',
+        '💻',
+        '⌨️',
+        '🖥️',
+        '🖨️',
+        '🖱️',
+        '🕹️',
+        '💾',
+        '💿',
+        '📀',
+        '📷',
+        '📸',
+        '📹',
+        '🎥',
+        '📽️',
+        '📞',
+        '☎️',
+        '📟',
+        '📠',
+        '📺',
+        '📻',
+        '🎙️',
+        '⏱️',
+        '⏲️',
+        '⏰',
+        '🕰️',
+        '⌛',
+        '⏳',
+        '📡',
+        '🔋',
+        '🔌',
+        '💡',
+        '🔦',
+        '🕯️',
+        '🧯',
+        '💸',
+        '💵',
+        '💴',
+        '💶',
+        '💷',
+        '🪙',
+        '💰',
+        '💳',
+        '💎',
+        '⚖️',
+        '🧰',
+        '🔧',
+        '🔨',
+        '⚒️',
+        '🛠️',
+        '⛏️',
+        '🪓',
+        '🔩',
+        '⚙️',
+        '🧲',
+        '🔫',
+        '💣',
+        '🔪',
+        '🛡️',
+        '🔮',
+        '📿',
+        '💈',
+        '🔬',
+        '🔭',
+        '🩺',
+        '💊',
+        '💉',
+        '🩹',
+        '🧬',
+        '🔑',
       ],
     ),
     (
       icon: Icons.favorite_outline,
       label: 'Symbols',
       emojis: [
-        '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❤️‍🔥', '❤️‍🩹',
-        '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '☮️', '✝️', '☪️', '🕉️',
-        '☸️', '✡️', '🔯', '🕎', '☯️', '☦️', '🛐', '⛎', '♈', '♉', '♊', '♋',
-        '♌', '♍', '♎', '♏', '♐', '♑', '♒', '♓', '🆔', '⚛️', '🉑', '📴',
-        '📳', '🈶', '🈚', '🈸', '🈺', '🈷️', '✴️', '📶', '🈹', '🈲', '🔞', '🔟',
-        '🔤', '🔢', '🔣', '🔲', '🔳', '🔴', '🟠', '🟡', '🟢', '🔵', '🟣', '⚫',
-        '⚪', '🟥', '🟧', '🟨', '🟩', '🟦', '🟪', '⬛', '⬜', '🔶', '🔷', '🔸',
-        '🔹', '🔺', '🔻', '💠', '🔘', '🏁', '🚩', '🎌', '🏴', '🏳️', '✨', '⭐',
-        '🌟', '💫', '⚡', '☄️', '💥', '🔥', '🎉', '🎊', '🎈', '🎁', '💯', '✅',
+        '❤️',
+        '🧡',
+        '💛',
+        '💚',
+        '💙',
+        '💜',
+        '🖤',
+        '🤍',
+        '🤎',
+        '💔',
+        '❤️‍🔥',
+        '❤️‍🩹',
+        '💕',
+        '💞',
+        '💓',
+        '💗',
+        '💖',
+        '💘',
+        '💝',
+        '💟',
+        '☮️',
+        '✝️',
+        '☪️',
+        '🕉️',
+        '☸️',
+        '✡️',
+        '🔯',
+        '🕎',
+        '☯️',
+        '☦️',
+        '🛐',
+        '⛎',
+        '♈',
+        '♉',
+        '♊',
+        '♋',
+        '♌',
+        '♍',
+        '♎',
+        '♏',
+        '♐',
+        '♑',
+        '♒',
+        '♓',
+        '🆔',
+        '⚛️',
+        '🉑',
+        '📴',
+        '📳',
+        '🈶',
+        '🈚',
+        '🈸',
+        '🈺',
+        '🈷️',
+        '✴️',
+        '📶',
+        '🈹',
+        '🈲',
+        '🔞',
+        '🔟',
+        '🔤',
+        '🔢',
+        '🔣',
+        '🔲',
+        '🔳',
+        '🔴',
+        '🟠',
+        '🟡',
+        '🟢',
+        '🔵',
+        '🟣',
+        '⚫',
+        '⚪',
+        '🟥',
+        '🟧',
+        '🟨',
+        '🟩',
+        '🟦',
+        '🟪',
+        '⬛',
+        '⬜',
+        '🔶',
+        '🔷',
+        '🔸',
+        '🔹',
+        '🔺',
+        '🔻',
+        '💠',
+        '🔘',
+        '🏁',
+        '🚩',
+        '🎌',
+        '🏴',
+        '🏳️',
+        '✨',
+        '⭐',
+        '🌟',
+        '💫',
+        '⚡',
+        '☄️',
+        '💥',
+        '🔥',
+        '🎉',
+        '🎊',
+        '🎈',
+        '🎁',
+        '💯',
+        '✅',
       ],
     ),
   ];
@@ -3257,9 +3887,7 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel>
       height: 270,
       decoration: BoxDecoration(
         color: widget.tokens.footer,
-        border: Border(
-          top: BorderSide(color: widget.tokens.divider),
-        ),
+        border: Border(top: BorderSide(color: widget.tokens.divider)),
       ),
       child: Column(
         children: [
