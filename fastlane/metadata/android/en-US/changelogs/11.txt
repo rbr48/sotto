@@ -1,0 +1,6 @@
+Sotto 0.3.0
+- Redesigned executive UI: Modern frosted Glassmorphic Call HUD and status indicators
+- Dedicated Chats tab in bottom navigation with real-time badges, presence, and search
+- Smart rich link previews with automatic metadata detection and secure previews
+- Quick action pills, voice memo toggles, and audio route controls
+- Enhanced desktop navigation rail and responsive layout improvements
