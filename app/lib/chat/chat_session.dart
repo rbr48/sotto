@@ -148,6 +148,15 @@ class ChatSession {
     return message;
   }
 
+  /// Sends again a message from an earlier attempt. It keeps its id, so the
+  /// other side stores it once.
+  void resend(ChatMessage message) {
+    _ensureOpen();
+    _outbox[message.id] = message.withState(ChatState.sending);
+    _unsent.add(message.id);
+    _sendOutbox();
+  }
+
   /// Ends the session from this side.
   Future<void> close() async {
     if (_ended) return;

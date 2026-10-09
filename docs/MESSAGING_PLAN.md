@@ -1,6 +1,6 @@
 # Plan: peer-to-peer encrypted messaging
 
-Status: **approved, and in progress.** The protocol, session logic and store are built with tests (`app/lib/chat/`). The WebRTC data-channel engine, the screens, notifications and end-to-end tests are not built yet.
+Status: **approved, and in progress.** Built with tests: the protocol, session logic, store, the WebRTC connection, and the chat screen (Message on each contact; `app/lib/chat/`, `app/lib/chat/ui/`). Not built yet: notifications for new messages, and an end-to-end browser test of the data channel.
 
 **Change from the plan:** offers, answers and candidates use `chat.offer`, `chat.answer` and `chat.ice`, not `sdp.*`, and carry the winning device's tag, so only that device applies them. The rest is as written below. `PROTOCOL.md` §5.10 has the wire format.
 

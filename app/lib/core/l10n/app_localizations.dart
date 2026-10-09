@@ -165,6 +165,120 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Settings'**
   String get navSettings;
+
+  /// No description provided for @chatMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Message'**
+  String get chatMessage;
+
+  /// No description provided for @chatWriteHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Write a message'**
+  String get chatWriteHint;
+
+  /// No description provided for @chatSend.
+  ///
+  /// In en, this message translates to:
+  /// **'Send'**
+  String get chatSend;
+
+  /// No description provided for @chatRetry.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get chatRetry;
+
+  /// No description provided for @chatStatusSending.
+  ///
+  /// In en, this message translates to:
+  /// **'Sending'**
+  String get chatStatusSending;
+
+  /// No description provided for @chatStatusDelivered.
+  ///
+  /// In en, this message translates to:
+  /// **'Delivered'**
+  String get chatStatusDelivered;
+
+  /// No description provided for @chatStatusNotSent.
+  ///
+  /// In en, this message translates to:
+  /// **'Not sent'**
+  String get chatStatusNotSent;
+
+  /// No description provided for @chatEmptyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'No messages yet. Messages go directly to them while you are both online.'**
+  String get chatEmptyHint;
+
+  /// No description provided for @chatDirectNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Messages go directly between your devices while you are both online. Nothing is stored on a server.'**
+  String get chatDirectNote;
+
+  /// No description provided for @chatDeleteMenu.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete chat'**
+  String get chatDeleteMenu;
+
+  /// No description provided for @chatDeleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete this chat?'**
+  String get chatDeleteTitle;
+
+  /// No description provided for @chatDeleteBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The messages are removed from this device. The other person keeps their copy.'**
+  String get chatDeleteBody;
+
+  /// No description provided for @chatCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get chatCancel;
+
+  /// No description provided for @chatDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get chatDelete;
+
+  /// No description provided for @chatFailConnection.
+  ///
+  /// In en, this message translates to:
+  /// **'The connection could not be made. Your messages were not sent; you can retry.'**
+  String get chatFailConnection;
+
+  /// No description provided for @chatFailDeclined.
+  ///
+  /// In en, this message translates to:
+  /// **'They cannot receive messages from you.'**
+  String get chatFailDeclined;
+
+  /// No description provided for @chatFailNoRelay.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide my IP address is on, but this server has no relay for chats. Turn it off, or ask the operator to add one.'**
+  String get chatFailNoRelay;
+
+  /// No description provided for @chatEnded.
+  ///
+  /// In en, this message translates to:
+  /// **'The chat has ended.'**
+  String get chatEnded;
+
+  /// No description provided for @chatDismiss.
+  ///
+  /// In en, this message translates to:
+  /// **'OK'**
+  String get chatDismiss;
 }
 
 class _AppLocalizationsDelegate

@@ -153,6 +153,37 @@ class ChatManager {
     return message;
   }
 
+  /// Sends again a message that was not sent. It is the same message (same
+  /// id), so the history gains no copy.
+  Future<void> retry(String contact, String messageId) async {
+    if (!isContact(contact)) {
+      throw ArgumentError.value(contact, 'contact', 'is not a contact');
+    }
+    final message = await store.find(contact, messageId);
+    if (message == null ||
+        !message.outgoing ||
+        message.state != ChatState.notSent) {
+      return;
+    }
+    _ensureTicker();
+    final again = message.withState(ChatState.sending);
+    final live = _activeFor(contact);
+    final session = live?.session;
+    if (session != null && !session.isEnded) {
+      await store.setState(contact, messageId, ChatState.sending);
+      session.resend(again);
+    } else if (live != null) {
+      await store.setState(contact, messageId, ChatState.sending);
+      live.resend.add(again);
+    } else {
+      await store.setState(contact, messageId, ChatState.sending);
+      (_waiting[contact] ??= []).add(again);
+      if (!_signalling.isOpening(contact)) {
+        _perform(_signalling.open(contact, clock()));
+      }
+    }
+  }
+
   /// Ends the chat with [contact] from this side.
   Future<void> close(String contact) async {
     final live = _activeFor(contact);

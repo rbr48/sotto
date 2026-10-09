@@ -467,4 +467,33 @@ void main() {
     expect(net.rtcs['alice'] ?? const <_FakeRtc>[], isEmpty);
     expect(net.sent.where((s) => s.type == 'chat.offer'), isEmpty);
   });
+
+  test('a message that was not sent goes out when retried, once', () async {
+    final aliceStore = ChatStore(MemorySecretStore());
+    final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+    final message = await alice.sendText('bob', 'retry me');
+    await _settle();
+    // Bob is not online yet: the chat fails.
+    now = now.add(const Duration(seconds: 21));
+    await alice.tick();
+    await _settle();
+    expect(
+      (await aliceStore.find('bob', message.id))!.state,
+      ChatState.notSent,
+    );
+
+    // Bob comes online, and the same message is sent again.
+    final bobStore = ChatStore(MemorySecretStore());
+    device('bob', contacts: {'alice'}, store: bobStore);
+    await alice.retry('bob', message.id);
+    await _settle();
+
+    expect(
+      (await aliceStore.find('bob', message.id))!.state,
+      ChatState.delivered,
+    );
+    final received = await bobStore.messages('alice');
+    expect(received.map((m) => m.text), ['retry me']);
+    expect(await aliceStore.messages('bob'), hasLength(1));
+  });
 }
