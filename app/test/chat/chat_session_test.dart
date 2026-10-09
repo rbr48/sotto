@@ -1,12 +1,14 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sotto/chat/chat_frames.dart';
 import 'package:sotto/chat/chat_session.dart';
 import 'package:sotto/chat/chat_store.dart';
+import 'package:sotto/chat/file_storage.dart';
 import 'package:sotto/crypto/encoding.dart';
-import 'package:sotto/crypto/identity_store.dart';
+import 'package:sotto/crypto/sotto_crypto.dart';
 
 String _id(int n) => b64Encode(List<int>.filled(16, n));
 
@@ -421,6 +423,70 @@ void main() {
     final readEvent = alice.events.whereType<MessagesRead>().lastOrNull;
     expect(readEvent?.ids, [sent.id]);
   });
+
+  test(
+    'a received file is kept encrypted, with its key on the message',
+    () async {
+      final sodium = await SottoCrypto.init();
+      final root = Directory.systemTemp.createTempSync('sotto_received_');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final files = ReceivedFileStore(
+        sodium: sodium,
+        directory: () async => root,
+      );
+
+      final (a, b) = _pair();
+      final alice = _Side('alice', 'bob', a, clock: clock)..start();
+      final bob = _Side(
+        'bob',
+        'alice',
+        b,
+        clock: clock,
+        sharedStore: ChatStore(MemorySecretStore(), files: files),
+      )..start();
+      await _settle();
+
+      // Several chunks, so the file really is streamed.
+      final bytes = Uint8List.fromList(
+        List.generate(40000, (i) => (i * 7) % 251),
+      );
+      final offer = await alice.session.offerFile(
+        name: 'notes.txt',
+        bytes: bytes,
+        mime: 'text/plain',
+      );
+      await _settle();
+      await bob.session.acceptFile(offer.fileId!);
+
+      // Encrypting writes to disk, which the settle loop does not wait for.
+      var received = await bob.store.find('alice', offer.fileId!);
+      for (var i = 0; i < 400 && received?.fileStatus != 'completed'; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+        received = await bob.store.find('alice', offer.fileId!);
+      }
+
+      expect(received?.fileStatus, 'completed');
+      expect(received?.fileKey, isNotNull);
+      final done = received!;
+      expect(await bob.store.readFile(done), bytes);
+
+      final onDisk = File('${root.path}/${done.filePath}').readAsBytesSync();
+      expect(onDisk.length, greaterThan(bytes.length));
+      expect(_contains(onDisk, bytes.sublist(0, 64)), isFalse);
+    },
+  );
+}
+
+/// Whether [needle] appears in [haystack].
+bool _contains(Uint8List haystack, Uint8List needle) {
+  for (var i = 0; i + needle.length <= haystack.length; i++) {
+    var same = true;
+    for (var j = 0; j < needle.length && same; j++) {
+      same = haystack[i + j] == needle[j];
+    }
+    if (same) return true;
+  }
+  return false;
 }
 
 /// A store whose writes can be held, to end a session in the middle of one.

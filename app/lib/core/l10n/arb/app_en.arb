@@ -125,6 +125,8 @@
     }
   },
   "chatFileReceived": "Received file",
+  "chatFileUnavailable": "This file is no longer on this device.",
+  "chatFileUnreadable": "This file could not be opened.",
   "chatFileSent": "Sent file",
   "chatFileOpen": "Open",
   "chatFileSaveAs": "Save to…",

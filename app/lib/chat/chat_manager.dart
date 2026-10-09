@@ -112,6 +112,8 @@ class ChatManager {
     _ensureTicker();
     await recoverInterrupted();
     await store.sweepExpired(clock: clock);
+    await store.encryptLegacyFiles();
+    await store.files?.clearOpenCopies();
   }
 
   /// Messages still "sending" from an earlier run of the app can never go:
@@ -127,7 +129,8 @@ class ChatManager {
       }
       for (final message in await store.messages(contact)) {
         final fileStatus = message.fileStatus;
-        final pendingFile = fileStatus == 'offered' || fileStatus == 'transferring';
+        final pendingFile =
+            fileStatus == 'offered' || fileStatus == 'transferring';
         if (pendingFile) {
           final next = !message.outgoing && fileStatus == 'offered'
               ? 'expired'

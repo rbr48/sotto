@@ -241,6 +241,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get chatFileReceived => 'Received file';
 
   @override
+  String get chatFileUnavailable => 'This file is no longer on this device.';
+
+  @override
+  String get chatFileUnreadable => 'This file could not be opened.';
+
+  @override
   String get chatFileSent => 'Sent file';
 
   @override

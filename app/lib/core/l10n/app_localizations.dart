@@ -514,6 +514,18 @@ abstract class AppLocalizations {
   /// **'Received file'**
   String get chatFileReceived;
 
+  /// No description provided for @chatFileUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'This file is no longer on this device.'**
+  String get chatFileUnavailable;
+
+  /// No description provided for @chatFileUnreadable.
+  ///
+  /// In en, this message translates to:
+  /// **'This file could not be opened.'**
+  String get chatFileUnreadable;
+
   /// No description provided for @chatFileSent.
   ///
   /// In en, this message translates to:

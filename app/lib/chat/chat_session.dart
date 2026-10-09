@@ -5,7 +5,6 @@ import 'package:crypto/crypto.dart';
 
 import 'chat_frames.dart';
 import 'chat_store.dart';
-import 'file_storage.dart';
 
 /// The data channel of one chat session, as the session needs it. The WebRTC
 /// engine provides it; tests use an in-memory pair.
@@ -655,19 +654,24 @@ class ChatSession {
           _events.add(FileTransferFailed(id, 'damaged'));
           return;
         }
-        final savedPath = await ChatFileStorage.saveReceivedBlob(
-          fileId: id,
-          name: transfer.name,
-          bytes: fullBytes,
-        );
+        // The browser keeps nothing, so its message gets a `web:` path (FR-05).
+        final files = store.files;
+        final kept = files == null ? null : await files.save(fullBytes);
         _write(FileAckFrame(id: id));
         final existing = await store.find(contactId, id);
         if (existing != null) {
           await store.updateMessage(
-            existing.copyWith(fileStatus: 'completed', filePath: savedPath),
+            existing.copyWith(
+              fileStatus: 'completed',
+              filePath: kept?.name ?? 'web:$id',
+              fileKey: kept?.key,
+            ),
           );
+        } else {
+          // Deleted while it was arriving: don't keep a file nobody can see.
+          await files?.remove(kept?.name);
         }
-        _events.add(FileTransferCompleted(id, savedPath));
+        _events.add(FileTransferCompleted(id, kept?.name));
       case FileAckFrame(:final id):
         if (!_peerHello) return;
         _outgoingFiles.remove(id);

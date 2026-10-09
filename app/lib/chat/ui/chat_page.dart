@@ -12,6 +12,7 @@ import '../chat_frames.dart';
 import '../chat_manager.dart';
 import '../chat_session.dart';
 import '../chat_store.dart';
+import '../file_storage.dart';
 
 /// One chat with a contact: the messages, a box to write in, and what
 /// happened when the connection was made.
@@ -285,34 +286,45 @@ class _ChatPageState extends State<ChatPage> {
     await _load();
   }
 
+  /// Opens a received file in another app. The file is kept encrypted, so
+  /// the app opens a decrypted copy.
   Future<void> _openFile(ChatMessage message) async {
-    final path = message.filePath;
-    if (path == null) return;
     try {
-      await launchUrl(Uri.file(path));
+      final copy = await widget.chat.store.openCopy(message);
+      await launchUrl(Uri.file(copy.path));
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Could not open file ($e)')));
+      _showFileError(e, 'Could not open file');
     }
   }
 
   Future<void> _saveFileAs(ChatMessage message) async {
-    final path = message.filePath;
-    if (path == null) return;
     try {
+      final bytes = await widget.chat.store.readFile(message);
       final location = await getSaveLocation(suggestedName: message.fileName);
       if (location == null) return;
-      await XFile(path).saveTo(location.path);
+      await XFile.fromData(
+        bytes,
+        name: message.fileName,
+        mimeType: message.fileMime,
+      ).saveTo(location.path);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppLocalizations.of(context).chatFileReceived)),
       );
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Could not save file ($e)')));
+      _showFileError(e, 'Could not save file');
     }
+  }
+
+  void _showFileError(Object error, String fallback) {
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
+    final text = switch (error) {
+      ReceivedFileException(reason: 'missing') => l10n.chatFileUnavailable,
+      ReceivedFileException() => l10n.chatFileUnreadable,
+      _ => '$fallback ($error)',
+    };
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
   Future<void> _retry(ChatMessage message) async {

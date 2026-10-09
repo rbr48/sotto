@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'dart:io';
+import 'dart:typed_data';
+
 import '../crypto/identity_store.dart';
 import 'file_storage.dart';
 
@@ -27,6 +30,7 @@ class ChatMessage {
     this.fileSha256,
     this.fileStatus,
     this.filePath,
+    this.fileKey,
     this.arrivedAt,
   });
 
@@ -59,7 +63,13 @@ class ChatMessage {
   final String? fileMime;
   final String? fileSha256;
   final String? fileStatus;
+
+  /// Where the received file is kept (see [ReceivedFileStore]).
   final String? filePath;
+
+  /// The key that opens the file at [filePath]. It lives in this record, so
+  /// deleting the message also makes the file unreadable.
+  final String? fileKey;
 
   /// When an incoming message arrived on this device, in milliseconds since
   /// the epoch. Disappearing messages expire from this time, so a sender's
@@ -90,6 +100,7 @@ class ChatMessage {
     fileSha256: fileSha256,
     fileStatus: fileStatus,
     filePath: filePath,
+    fileKey: fileKey,
     arrivedAt: arrivedAt,
   );
 
@@ -109,6 +120,7 @@ class ChatMessage {
     String? fileSha256,
     String? fileStatus,
     String? filePath,
+    String? fileKey,
     int? arrivedAt,
   }) => ChatMessage(
     id: id ?? this.id,
@@ -126,6 +138,7 @@ class ChatMessage {
     fileSha256: fileSha256 ?? this.fileSha256,
     fileStatus: fileStatus ?? this.fileStatus,
     filePath: filePath ?? this.filePath,
+    fileKey: fileKey ?? this.fileKey,
     arrivedAt: arrivedAt ?? this.arrivedAt,
   );
 
@@ -144,6 +157,7 @@ class ChatMessage {
     if (fileSha256 != null) 'fileSha256': fileSha256,
     if (fileStatus != null) 'fileStatus': fileStatus,
     if (filePath != null) 'filePath': filePath,
+    if (fileKey != null) 'fileKey': fileKey,
     if (arrivedAt != null) 'arrivedAt': arrivedAt,
   };
 
@@ -162,6 +176,7 @@ class ChatMessage {
     final fileSha256 = json['fileSha256'];
     final fileStatus = json['fileStatus'];
     final filePath = json['filePath'];
+    final fileKey = json['fileKey'];
     final arrivedAt = json['arrivedAt'];
     if (id is! String ||
         outgoing is! bool ||
@@ -177,6 +192,7 @@ class ChatMessage {
         (fileSha256 != null && fileSha256 is! String) ||
         (fileStatus != null && fileStatus is! String) ||
         (filePath != null && filePath is! String) ||
+        (fileKey != null && fileKey is! String) ||
         (arrivedAt != null && arrivedAt is! int)) {
       throw const ChatStoreException('unreadable');
     }
@@ -196,6 +212,7 @@ class ChatMessage {
       fileSha256: fileSha256 as String?,
       fileStatus: fileStatus as String?,
       filePath: filePath as String?,
+      fileKey: fileKey as String?,
       arrivedAt: arrivedAt as int?,
     );
   }
@@ -217,7 +234,11 @@ class ChatStoreException implements Exception {
 /// with a directory index under `sotto.chats.contacts.v1`.
 /// Legacy monolithic stores (`sotto.chats.v1`) are automatically migrated.
 class ChatStore {
-  ChatStore(this._store);
+  ChatStore(this._store, {this.files});
+
+  /// Where received files are kept, encrypted. Null in the browser, which
+  /// keeps none.
+  final ReceivedFileStore? files;
 
   /// Legacy storage key for monolithic chat storage.
   static const storageKey = 'sotto.chats.v1';
@@ -455,7 +476,54 @@ class ChatStore {
   /// stored.
   Future<void> _discardFiles(Iterable<ChatMessage> messages) async {
     for (final message in messages) {
-      await ChatFileStorage.deleteFile(message.filePath);
+      await files?.remove(message.filePath);
+    }
+  }
+
+  /// The decrypted bytes of a received file. Throws [ReceivedFileException]
+  /// when the file is not on this device or cannot be opened.
+  Future<Uint8List> readFile(ChatMessage message) async {
+    final store = files;
+    final name = message.filePath;
+    final key = message.fileKey;
+    if (store == null || name == null || key == null) {
+      throw const ReceivedFileException('missing');
+    }
+    return store.read(name: name, key: key);
+  }
+
+  /// A decrypted copy of a received file, for another app to open. The copy
+  /// is plaintext in the temporary folder until the app next starts.
+  Future<File> openCopy(ChatMessage message) async {
+    final store = files;
+    if (store == null) throw const ReceivedFileException('missing');
+    final bytes = await readFile(message);
+    return store.writeOpenCopy(message.fileName ?? 'file', bytes);
+  }
+
+  /// Moves received files that earlier versions kept as plaintext into the
+  /// encrypted store. A file that cannot be moved is left as it is and opens
+  /// as unavailable.
+  Future<void> encryptLegacyFiles() async {
+    final store = files;
+    if (store == null) return;
+    for (final contactId in await contactIds()) {
+      final list = await _tryLoad(contactId) ?? const <ChatMessage>[];
+      for (final message in list) {
+        final path = message.filePath;
+        if (path == null ||
+            message.fileKey != null ||
+            path.startsWith('web:')) {
+          continue;
+        }
+        try {
+          final sealed = await store.save(await File(path).readAsBytes());
+          await updateMessage(
+            message.copyWith(filePath: sealed.name, fileKey: sealed.key),
+          );
+          await store.remove(path);
+        } catch (_) {}
+      }
     }
   }
 
@@ -539,8 +607,13 @@ class ChatStore {
 
   /// Sweeps expired messages across all chats (or only [contactId]).
   /// Returns the number of purged messages.
-  Future<int> sweepExpired({String? contactId, DateTime Function()? clock}) async {
-    final result = await _inOrder(() => _sweepInternal(contactId: contactId, clock: clock));
+  Future<int> sweepExpired({
+    String? contactId,
+    DateTime Function()? clock,
+  }) async {
+    final result = await _inOrder(
+      () => _sweepInternal(contactId: contactId, clock: clock),
+    );
     await _discardFiles(result.removed);
     return result.count;
   }
@@ -566,7 +639,9 @@ class ChatStore {
       } on ChatStoreException {
         continue;
       }
-      final expired = list.where((m) => (nowMs - m.clockMs) > maxAgeMs).toList();
+      final expired = list
+          .where((m) => (nowMs - m.clockMs) > maxAgeMs)
+          .toList();
       if (expired.isEmpty) continue;
       removed.addAll(expired);
       list.removeWhere((m) => (nowMs - m.clockMs) > maxAgeMs);

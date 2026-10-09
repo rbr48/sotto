@@ -340,6 +340,8 @@ plaintext = JSON {"v":1, "values": {"<key>": "<string>", …}}
 - A file whose key is missing, or that fails to decrypt, is never silently replaced: the app explains the problem and offers to start with empty storage (keeping the identity) or to restore a backup.
 - In the browser, the same vault lives in memory and disappears with the tab, unless the user turns on **Remember me on this browser** (below).
 
+**Received files** are not in the vault file. Each one is a separate blob in `received_files/` under the app's private support directory, named by 16 random bytes in hex (never the sender's file id or name). It is sealed with XChaCha20-Poly1305 under its own random 256-bit key, with the stored name as additional data. The key and the blob's name are kept in the chat record, so they are in the vault and are deleted with the message. Files from earlier versions, which were plaintext, are moved into this form the next time the app starts. "Open" writes a decrypted copy into the temporary folder for another app to open; that copy is removed when the app next starts, and on erase. The browser keeps no received files.
+
 | Key | Contents |
 |---|---|
 | `sotto.profile.v1` | Name and practice |

@@ -30,6 +30,7 @@ import '../chat/chat_manager.dart';
 import '../chat/chat_rtc.dart';
 import '../chat/chat_session.dart';
 import '../chat/chat_store.dart';
+import '../chat/file_storage.dart';
 
 /// Everything the call screens need: the relay connection, the current
 /// call, guest links and the waiting room.
@@ -399,7 +400,10 @@ class CallController extends ChangeNotifier {
       if (contacts != null) {
         final chat = _chat = ChatManager(
           myId: identity.id,
-          store: ChatStore(_settings),
+          store: ChatStore(
+            _settings,
+            files: kIsWeb ? null : ReceivedFileStore(sodium: sodium),
+          ),
           isContact: _isContactId,
           send: _sendChatEnvelope,
           iceServers: _iceServersForCall,
