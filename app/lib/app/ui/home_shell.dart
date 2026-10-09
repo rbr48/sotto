@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../call/call_controller.dart';
 import '../../call/call_manager.dart';
 import '../../call/ui/common.dart';
+import '../../chat/ui/chat_page.dart';
 import '../../contacts/profile_exchange.dart';
 import '../../contacts/ui/contact_dialogs.dart';
 import '../../contacts/ui/contacts_tab.dart';
@@ -322,6 +323,78 @@ class _HomeTabState extends State<HomeTab> {
     }
   }
 
+  Future<void> _message() async {
+    final text = _linkField.text.trim();
+    if (text.isEmpty) {
+      setState(() => _linkError = 'Please enter a contact link or call link.');
+      return;
+    }
+    setState(() => _linkError = null);
+    try {
+      final invite = await widget.calls.resolveLink(text);
+      if (invite.identity.id == widget.calls.ownId) {
+        setState(() => _linkError = 'That is your own link.');
+        return;
+      }
+
+      var contact = widget.app.contacts.contacts
+          .where((c) => c.identity.id == invite.identity.id)
+          .firstOrNull;
+
+      if (contact == null && mounted) {
+        await showDialog<void>(
+          context: context,
+          builder: (_) => AddContactDialog(
+            safetyNumber: widget.calls.safetyNumberWith(invite.identity),
+            name: invite.name ?? '',
+            organisation: invite.organisation ?? '',
+            onSave: (name, organisation, verified) async {
+              await widget.app.contacts.add(
+                invite.identity,
+                name: name.trim().isEmpty ? 'Contact' : name,
+                organisation: organisation,
+                verified: verified,
+              );
+            },
+          ),
+        );
+        contact = widget.app.contacts.contacts
+            .where((c) => c.identity.id == invite.identity.id)
+            .firstOrNull;
+      }
+
+      if (contact != null && mounted) {
+        final chat = widget.calls.chat;
+        if (chat != null) {
+          await Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => ChatPage(
+                chat: chat,
+                contactId: contact!.identity.id,
+                name: contact.name,
+                sendTyping: widget.calls.sendTyping,
+                sendReadReceipts: widget.calls.sendReadReceipts,
+              ),
+            ),
+          );
+        }
+      }
+    } on InvalidIdentityException catch (e) {
+      setState(
+        () => _linkError = e.message == 'that is your own call link'
+            ? 'That is your own link.'
+            : 'That is not a valid Sotto call link or contact link.',
+      );
+    } on ProfileUnavailableException {
+      setState(
+        () =>
+            _linkError = 'They are not online right now. Try again in a while.',
+      );
+    } catch (e) {
+      setState(() => _linkError = '$e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -392,13 +465,13 @@ class _HomeTabState extends State<HomeTab> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Call a link',
+                            'Call or message a link',
                             style: theme.textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.bold,
                             ),
                           ),
                           Text(
-                            'Paste a colleague\'s contact link or call link. To call your contacts, use the Contacts tab.',
+                            'Paste a colleague\'s contact link or call link. To call or message your contacts, use the Contacts tab.',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
                             ),
@@ -427,15 +500,32 @@ class _HomeTabState extends State<HomeTab> {
                       child: FilledButton.icon(
                         onPressed: () => _call(video: true),
                         icon: const Icon(Icons.videocam),
-                        label: const Text('Video call'),
+                        label: const FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text('Video call'),
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: OutlinedButton.icon(
                         onPressed: () => _call(video: false),
                         icon: const Icon(Icons.call),
-                        label: const Text('Voice call'),
+                        label: const FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text('Voice call'),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _message,
+                        icon: const Icon(Icons.chat_bubble_outline),
+                        label: const FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text('Message'),
+                        ),
                       ),
                     ),
                   ],
