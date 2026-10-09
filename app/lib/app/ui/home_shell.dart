@@ -59,7 +59,7 @@ class _HomeShellState extends State<HomeShell> {
     final body = Column(
       children: [
         if (app.availableUpdate case final update?)
-          UpdateBanner(update: update, onLater: app.dismissUpdate),
+          UpdateBanner(app: app, update: update, onLater: app.dismissUpdate),
         Expanded(child: tab),
       ],
     );
@@ -468,27 +468,103 @@ class _LastCallCard extends StatelessWidget {
   }
 }
 
-/// "Sotto 0.1.3 is available": opens the release page (the app never
-/// downloads or installs anything by itself).
+/// Informs the user of an available update and offers in-app background
+/// installation (or external download link when in-app update is unavailable).
 class UpdateBanner extends StatelessWidget {
-  const UpdateBanner({super.key, required this.update, required this.onLater});
+  const UpdateBanner({
+    super.key,
+    required this.app,
+    required this.update,
+    required this.onLater,
+  });
 
+  final AppController app;
   final UpdateInfo update;
   final VoidCallback onLater;
 
   @override
-  Widget build(BuildContext context) => MaterialBanner(
-    leading: const Icon(Icons.system_update_alt),
-    content: Text(
-      'Sotto ${update.version} is available. You have $sottoVersion.',
-    ),
-    actions: [
-      TextButton(onPressed: onLater, child: const Text('Not now')),
-      FilledButton.tonal(
-        onPressed: () =>
-            launchUrl(update.url, mode: LaunchMode.externalApplication),
-        child: const Text('Download'),
+  Widget build(BuildContext context) {
+    if (app.isDownloadingUpdate) {
+      final progress = app.updateProgress ?? 0.0;
+      final percent = (progress * 100).toInt();
+      return MaterialBanner(
+        leading: const SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2.5),
+        ),
+        content: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Downloading Sotto ${update.version}... ($percent%)'),
+            const SizedBox(height: 8),
+            LinearProgressIndicator(value: progress > 0 ? progress : null),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: app.cancelUpdateDownload,
+            child: const Text('Cancel'),
+          ),
+        ],
+      );
+    }
+
+    if (app.downloadedUpdateFile != null) {
+      return MaterialBanner(
+        leading: const Icon(Icons.check_circle_outline, color: Colors.green),
+        content: Text(
+          'Sotto ${update.version} is downloaded and ready to install.',
+        ),
+        actions: [
+          TextButton(onPressed: onLater, child: const Text('Later')),
+          FilledButton(
+            onPressed: app.applyUpdate,
+            child: const Text('Restart to Update'),
+          ),
+        ],
+      );
+    }
+
+    if (app.updateError != null) {
+      return MaterialBanner(
+        leading: const Icon(Icons.error_outline, color: Colors.red),
+        content: Text('Update failed: ${app.updateError}'),
+        actions: [
+          TextButton(onPressed: onLater, child: const Text('Dismiss')),
+          TextButton(
+            onPressed: () =>
+                launchUrl(update.url, mode: LaunchMode.externalApplication),
+            child: const Text('Download Page'),
+          ),
+          FilledButton.tonal(
+            onPressed: app.startUpdateDownload,
+            child: const Text('Retry'),
+          ),
+        ],
+      );
+    }
+
+    return MaterialBanner(
+      leading: const Icon(Icons.system_update_alt),
+      content: Text(
+        'Sotto ${update.version} is available. You have $sottoVersion.',
       ),
-    ],
-  );
+      actions: [
+        TextButton(onPressed: onLater, child: const Text('Not now')),
+        if (update.canInstallInApp)
+          FilledButton(
+            onPressed: app.startUpdateDownload,
+            child: const Text('Update Now'),
+          )
+        else
+          FilledButton.tonal(
+            onPressed: () =>
+                launchUrl(update.url, mode: LaunchMode.externalApplication),
+            child: const Text('Download'),
+          ),
+      ],
+    );
+  }
 }

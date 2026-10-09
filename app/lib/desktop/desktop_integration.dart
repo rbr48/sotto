@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:local_notifier/local_notifier.dart';
@@ -48,11 +49,25 @@ class DesktopIntegration with TrayListener, WindowListener {
   /// Whether the window is in front (set from the app lifecycle).
   bool inFront = true;
 
+  /// Default companion window dimensions (portrait mobile/dialer layout).
+  static const defaultWindowSize = Size(420, 680);
+
+  /// Minimum usable dimensions before content gets uncomfortably cramped.
+  static const minWindowSize = Size(360, 520);
+
   Future<void> start() async {
     SingleInstance.onActivate = () => unawaited(_showWindow());
     try {
       await windowManager.ensureInitialized();
       windowManager.addListener(this);
+      await windowManager.setMinimumSize(minWindowSize);
+      final isMax = await windowManager.isMaximized();
+      if (!isMax) {
+        final size = await windowManager.getSize();
+        if (size.width >= 1000) {
+          await windowManager.setSize(defaultWindowSize);
+        }
+      }
     } catch (e) {
       debugPrint('Window manager unavailable: $e');
     }

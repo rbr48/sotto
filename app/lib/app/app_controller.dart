@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:sodium/sodium.dart';
+
+import '../desktop/desktop_updater.dart';
 
 import '../android/android_integration.dart';
 import '../call/call_controller.dart';
@@ -215,9 +218,14 @@ class AppController extends ChangeNotifier {
 
   /// `null` in the browser (its server always serves the current version).
   final UpdateChecker? _updates;
+  final DesktopUpdater _updater = DesktopUpdater();
   Timer? _updateTimer;
   UpdateInfo? _update;
   String? _dismissedUpdate;
+  double? _updateProgress;
+  File? _downloadedUpdateFile;
+  bool _isDownloadingUpdate = false;
+  String? _updateError;
 
   /// A newer release, unless the user dismissed it.
   UpdateInfo? get availableUpdate =>
@@ -225,6 +233,62 @@ class AppController extends ChangeNotifier {
 
   /// Whether this app can check for updates (native apps).
   bool get canCheckUpdates => _updates?.endpoint != null;
+
+  /// Progress of the update download (`0.0` to `1.0`), or `null` if not downloading.
+  double? get updateProgress => _updateProgress;
+
+  /// Whether an update download is currently active.
+  bool get isDownloadingUpdate => _isDownloadingUpdate;
+
+  /// Downloaded installer package ready to be applied.
+  File? get downloadedUpdateFile => _downloadedUpdateFile;
+
+  /// Error message if the update download failed.
+  String? get updateError => _updateError;
+
+  /// Starts downloading the update package in the background.
+  Future<void> startUpdateDownload() async {
+    final update = availableUpdate;
+    if (update == null || update.assetUrl == null) return;
+    _isDownloadingUpdate = true;
+    _updateProgress = 0.0;
+    _updateError = null;
+    notifyListeners();
+
+    try {
+      final file = await _updater.download(
+        update,
+        onProgress: (p) {
+          _updateProgress = p;
+          notifyListeners();
+        },
+      );
+      _downloadedUpdateFile = file;
+      _isDownloadingUpdate = false;
+      _updateProgress = 1.0;
+      notifyListeners();
+    } catch (e) {
+      _isDownloadingUpdate = false;
+      _updateProgress = null;
+      _updateError = e.toString();
+      notifyListeners();
+    }
+  }
+
+  /// Cancels an in-progress update download.
+  void cancelUpdateDownload() {
+    _updater.cancel();
+    _isDownloadingUpdate = false;
+    _updateProgress = null;
+    notifyListeners();
+  }
+
+  /// Silently installs the downloaded update and relaunches the app.
+  Future<void> applyUpdate() async {
+    final file = _downloadedUpdateFile;
+    if (file == null) return;
+    await DesktopUpdater.applyAndRestart(file);
+  }
 
   /// Now, then once a day, while "Check for updates" is on.
   void _scheduleUpdateChecks() {
@@ -245,6 +309,9 @@ class AppController extends ChangeNotifier {
     final update = await _updates?.check();
     if (update?.version != _update?.version) {
       _update = update;
+      _downloadedUpdateFile = null;
+      _updateProgress = null;
+      _updateError = null;
       notifyListeners();
     }
   }
@@ -599,6 +666,7 @@ class AppController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _updater.cancel();
     _updateTimer?.cancel();
     _purgeTimer?.cancel();
     _calls?.dispose();

@@ -409,6 +409,25 @@ class SettingsTab extends StatelessWidget {
             subtitle: app.availableUpdate != null
                 ? Text('Version ${app.availableUpdate!.version} is available.')
                 : null,
+            trailing: app.availableUpdate != null
+                ? (app.isDownloadingUpdate
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2.5),
+                        )
+                      : (app.downloadedUpdateFile != null
+                            ? FilledButton(
+                                onPressed: app.applyUpdate,
+                                child: const Text('Restart to Update'),
+                              )
+                            : (app.availableUpdate!.canInstallInApp
+                                  ? FilledButton.tonal(
+                                      onPressed: app.startUpdateDownload,
+                                      child: const Text('Update Now'),
+                                    )
+                                  : null)))
+                : null,
           ),
           if (app.canCheckUpdates)
             SwitchListTile(

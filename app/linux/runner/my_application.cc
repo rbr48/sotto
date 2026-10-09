@@ -52,7 +52,7 @@ static void my_application_activate(GApplication* application) {
     gtk_window_set_title(window, "Sotto");
   }
 
-  gtk_window_set_default_size(window, 1280, 720);
+  gtk_window_set_default_size(window, 420, 680);
 
   // Window icon (taskbars, Alt+Tab): the app icon bundled with the Flutter
   // assets, next to the executable.
