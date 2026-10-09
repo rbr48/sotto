@@ -1,0 +1,14 @@
+{
+  "@@locale": "en",
+  "appName": "Sotto",
+  "languageSetting": "Language",
+  "languageSystem": "Device language",
+  "languageEnglish": "English",
+  "languageBangla": "বাংলা",
+  "languageArabic": "العربية",
+  "languageHelp": "Changes the language of the app. Your contacts and calls are not affected.",
+  "navHome": "Home",
+  "navContacts": "Contacts",
+  "navHistory": "History",
+  "navSettings": "Settings"
+}

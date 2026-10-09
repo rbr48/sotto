@@ -11,6 +11,8 @@ import 'call/call_controller.dart';
 import 'call/ui/quick_call_page.dart';
 import 'contacts/contact_link.dart';
 import 'core/config.dart';
+import 'core/l10n/app_localizations.dart';
+import 'core/l10n/language.dart';
 import 'core/theme.dart';
 import 'desktop/autostart.dart';
 import 'desktop/desktop_integration.dart';
@@ -35,6 +37,7 @@ Future<void> main(List<String> args) async {
       debugPrint('Single-instance check skipped: $e');
     }
   }
+  await loadAppLanguage();
   runApp(SottoApp(startHidden: args.contains(Autostart.hiddenFlag)));
 }
 
@@ -91,21 +94,29 @@ class _SottoAppState extends State<SottoApp> {
   }
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: 'Sotto',
-    debugShowCheckedModeBanner: false,
-    theme: SottoTheme.light(),
-    darkTheme: SottoTheme.dark(),
-    home: switch (_mode) {
-      _Mode.selfTest => const CryptoSelfTestPage(),
-      _Mode.guest => GuestPage(controller: _calls!),
-      _Mode.quickCall => QuickCallPage(
-        controller: _calls!,
-        link: Uri.base.toString(),
-        dialImmediately: Uri.base.queryParameters.containsKey('call'),
-      ),
-      _Mode.app => AppRoot(app: _app!, startHidden: widget.startHidden),
-    },
+  Widget build(BuildContext context) => ValueListenableBuilder(
+    valueListenable: appLanguage,
+    builder: (context, language, _) => MaterialApp(
+      debugShowCheckedModeBanner: false,
+      // Null follows the device. Arabic mirrors the layout (right to left)
+      // through the Material localisations below.
+      locale: language.locale,
+      supportedLocales: AppLanguage.supported,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      onGenerateTitle: (context) => AppLocalizations.of(context).appName,
+      theme: SottoTheme.light(),
+      darkTheme: SottoTheme.dark(),
+      home: switch (_mode) {
+        _Mode.selfTest => const CryptoSelfTestPage(),
+        _Mode.guest => GuestPage(controller: _calls!),
+        _Mode.quickCall => QuickCallPage(
+          controller: _calls!,
+          link: Uri.base.toString(),
+          dialImmediately: Uri.base.queryParameters.containsKey('call'),
+        ),
+        _Mode.app => AppRoot(app: _app!, startHidden: widget.startHidden),
+      },
+    ),
   );
 }
 
