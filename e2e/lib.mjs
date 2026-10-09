@@ -1,4 +1,5 @@
 // Shared helpers for the browser end-to-end tests.
+import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
@@ -180,6 +181,39 @@ export async function openApp(context, label, name, options) {
   await onboard(page, name, options);
   await titleIncludes(page, 'Ready');
   return page;
+}
+
+/** Shares this person's contact link (from the Contacts tab). */
+export async function shareContactLink(page) {
+  await openTab(page, 'Contacts');
+  await clickButton(page, 'Share my contact');
+  await enableSemantics(page);
+  await page
+    .getByText('QR code of your contact link')
+    .or(page.locator('[aria-label="QR code of your contact link"]'))
+    .first()
+    .waitFor();
+  const link = await readAttribute(page, 'contact-link');
+  assert.ok(link.includes('/#c='), 'contact link keeps details in the fragment');
+  await clickButton(page, 'Done');
+  return link;
+}
+
+/** Adds a contact from someone's contact link. */
+export async function addContact(page, link, name) {
+  await openTab(page, 'Contacts');
+  await clickButton(page, 'Add contact');
+  await typeInto(page, 'Contact link', link);
+  await clickButton(page, 'Next');
+  await clickButton(page, 'Save contact');
+  await page.getByRole('button', { name: new RegExp(`^${name}`) }).first().waitFor();
+}
+
+/** Opens the chat with a contact from the Contacts tab. */
+export async function openChat(page, name) {
+  await openTab(page, 'Contacts');
+  await clickButton(page, new RegExp(`^Message: ${name}`));
+  await page.getByRole('textbox', { name: 'Write a message' }).first().waitFor();
 }
 
 export const dataAttribute = (page, name, value) =>
