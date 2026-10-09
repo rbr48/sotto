@@ -10,6 +10,16 @@ class AppLocalizationsAr extends AppLocalizations {
   AppLocalizationsAr([String locale = 'ar']) : super(locale);
 
   @override
+  String chatFilesTooMany(int max) {
+    return 'أُرسلت أول $max ملفات فقط. اختر $max ملفات على الأكثر في كل مرة.';
+  }
+
+  @override
+  String chatFilesSkipped(int count, String names) {
+    return 'لم تُرسل $count ملفات: $names';
+  }
+
+  @override
   String get appName => 'Sotto';
 
   @override

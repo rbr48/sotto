@@ -1,4 +1,6 @@
 {
+  "chatFilesTooMany": "শুধু প্রথম {max}টি ফাইল পাঠানো হয়েছে। একবারে সর্বোচ্চ {max}টি বেছে নিন।",
+  "chatFilesSkipped": "{count}টি ফাইল পাঠানো হয়নি: {names}",
   "@@locale": "bn",
   "appName": "Sotto",
   "languageSetting": "ভাষা",

@@ -1,4 +1,6 @@
 {
+  "chatFilesTooMany": "أُرسلت أول {max} ملفات فقط. اختر {max} ملفات على الأكثر في كل مرة.",
+  "chatFilesSkipped": "لم تُرسل {count} ملفات: {names}",
   "@@locale": "ar",
   "appName": "Sotto",
   "languageSetting": "اللغة",

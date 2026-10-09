@@ -10,6 +10,16 @@ class AppLocalizationsBn extends AppLocalizations {
   AppLocalizationsBn([String locale = 'bn']) : super(locale);
 
   @override
+  String chatFilesTooMany(int max) {
+    return 'শুধু প্রথম $maxটি ফাইল পাঠানো হয়েছে। একবারে সর্বোচ্চ $maxটি বেছে নিন।';
+  }
+
+  @override
+  String chatFilesSkipped(int count, String names) {
+    return '$countটি ফাইল পাঠানো হয়নি: $names';
+  }
+
+  @override
   String get appName => 'Sotto';
 
   @override

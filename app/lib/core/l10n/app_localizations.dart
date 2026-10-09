@@ -100,6 +100,18 @@ abstract class AppLocalizations {
     Locale('en'),
   ];
 
+  /// No description provided for @chatFilesTooMany.
+  ///
+  /// In en, this message translates to:
+  /// **'Only the first {max} files were sent. Pick up to {max} at a time.'**
+  String chatFilesTooMany(int max);
+
+  /// No description provided for @chatFilesSkipped.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} files were not sent: {names}'**
+  String chatFilesSkipped(int count, String names);
+
   /// No description provided for @appName.
   ///
   /// In en, this message translates to:

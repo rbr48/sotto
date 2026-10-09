@@ -1,4 +1,17 @@
 {
+  "chatFilesTooMany": "Only the first {max} files were sent. Pick up to {max} at a time.",
+  "@chatFilesTooMany": {
+    "placeholders": {
+      "max": { "type": "int" }
+    }
+  },
+  "chatFilesSkipped": "{count} files were not sent: {names}",
+  "@chatFilesSkipped": {
+    "placeholders": {
+      "count": { "type": "int" },
+      "names": { "type": "String" }
+    }
+  },
   "@@locale": "en",
   "appName": "Sotto",
   "languageSetting": "Language",

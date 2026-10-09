@@ -10,6 +10,16 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String chatFilesTooMany(int max) {
+    return 'Only the first $max files were sent. Pick up to $max at a time.';
+  }
+
+  @override
+  String chatFilesSkipped(int count, String names) {
+    return '$count files were not sent: $names';
+  }
+
+  @override
   String get appName => 'Sotto';
 
   @override

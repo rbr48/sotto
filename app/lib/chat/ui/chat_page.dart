@@ -33,6 +33,41 @@ bool needsDaySeparator({required int? previousClockMs, required int clockMs}) {
   );
 }
 
+/// The most files sent from one pick of the attach button.
+const maxFilesPerPick = 10;
+
+/// Offers each picked file in turn, the first [maxFilesPerPick] in the order
+/// picked. A file that is refused (a blocked type, an unreadable image, one
+/// that is too large) is skipped and the rest still go. Returns the skipped
+/// files with the reason each was refused.
+Future<List<({String name, Object error})>> sendPickedFiles({
+  required List<
+    ({String name, Future<Uint8List> Function() read, String? mime})
+  >
+  picked,
+  required Future<Object?> Function(String name, Uint8List bytes, String mime)
+  offer,
+  Future<void> Function()? onSent,
+}) async {
+  final skipped = <({String name, Object error})>[];
+  for (final file in picked.take(maxFilesPerPick)) {
+    try {
+      if (ChatFrames.isBlockedFileType(file.name) ||
+          ChatFrames.isBlockedFileType(ChatFrames.cleanFileName(file.name))) {
+        throw ArgumentError('Blocked file type: ${file.name}');
+      }
+      // No size check here: offerFile removes an image's metadata first, and
+      // the limit applies to what is sent. It refuses a file over the limit.
+      final bytes = await file.read();
+      await offer(file.name, bytes, file.mime ?? 'application/octet-stream');
+      await onSent?.call();
+    } catch (e) {
+      skipped.add((name: file.name, error: e));
+    }
+  }
+  return skipped;
+}
+
 /// The message to show when [ChatSession.offerFile] refuses a file. Its
 /// refusals for a blocked type, the size limit and the two image errors are
 /// translated. Any other error is shown as it is.
@@ -615,31 +650,46 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   Future<void> _attachFile() async {
     final l10n = AppLocalizations.of(context);
+    final List<XFile> picked;
     try {
-      final file = await openFile();
-      if (file == null) return;
-      if (ChatFrames.isBlockedFileType(file.name) ||
-          ChatFrames.isBlockedFileType(ChatFrames.cleanFileName(file.name))) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(l10n.chatFileBlocked)));
-        return;
-      }
-      final bytes = await file.readAsBytes();
-      // No size check here: offerFile removes an image's metadata first, and
-      // the limit applies to what is sent. It refuses a file over the limit.
-      await widget.chat.offerFile(
-        contact: widget.contactId,
-        name: file.name,
-        bytes: bytes,
-        mime: file.mimeType ?? 'application/octet-stream',
-      );
-      await _load();
+      picked = await openFiles();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(offerErrorMessage(l10n, e))));
+      return;
     }
+    if (picked.isEmpty) return;
+    final skipped = await sendPickedFiles(
+      picked: [
+        for (final file in picked)
+          (name: file.name, read: file.readAsBytes, mime: file.mimeType),
+      ],
+      offer: (name, bytes, mime) => widget.chat.offerFile(
+        contact: widget.contactId,
+        name: name,
+        bytes: bytes,
+        mime: mime,
+      ),
+      onSent: _load,
+    );
+    if (!mounted) return;
+    await _load();
+    if (!mounted) return;
+    final notes = <String>[
+      if (picked.length > maxFilesPerPick)
+        l10n.chatFilesTooMany(maxFilesPerPick),
+      if (skipped.length == 1)
+        '${skipped.single.name}: ${offerErrorMessage(l10n, skipped.single.error)}'
+      else if (skipped.isNotEmpty)
+        l10n.chatFilesSkipped(
+          skipped.length,
+          skipped.map((s) => s.name).join(', '),
+        ),
+    ];
+    if (notes.isEmpty) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(notes.join('\n'))));
   }
 
   Future<void> _acceptFile(ChatMessage message) async {
