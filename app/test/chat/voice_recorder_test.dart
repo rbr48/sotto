@@ -218,9 +218,10 @@ void main() {
       final voice = recorder();
 
       final starting = voice.start();
-      await voice.dispose();
+      final disposed = voice.dispose();
       record.permissionPrompt!.complete(true);
       await starting;
+      await disposed;
 
       expect(voice.isRecording, isFalse);
       expect(record.calls, isNot(contains('start')));
@@ -249,7 +250,8 @@ void main() {
     });
 
     test('a platform that adjusts the capture to a format the receiver refuses records nothing', () async {
-      // The stream route, which is the Linux route and the test host's default.
+      // The stream route, which is the Linux route.
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
       record.adjusted = RecordConfig(
         encoder: AudioEncoder.pcm16bits,
         sampleRate: 16000,
@@ -342,6 +344,7 @@ void main() {
     });
 
     test('a stream recording is a WAV file of the audio it captured', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
       final voice = VoiceRecorder(files: null, onLimit: () {});
       await voice.start();
       record.pcm!.add(Uint8List.fromList(List.filled(3200, 5)));

@@ -53,14 +53,17 @@ ChatMessage _file({
   arrivedAt: outgoing ? null : _ms(2026, 10, 9, 9),
 );
 
-ChatManager _chatWith({ChatStore? store, DateTime Function()? clock}) =>
-    ChatManager(
+ChatManager _chatWith({
+  ChatStore? store,
+  DateTime Function()? clock,
+  bool Function()? hideIp,
+}) => ChatManager(
       myId: 'alice',
       store: store ?? ChatStore(MemorySecretStore()),
       isContact: {'bob'}.contains,
       send: (to, type, body, callId) {},
       iceServers: () async => const [],
-      hideIp: () => false,
+      hideIp: hideIp ?? () => false,
       createRtc: ({required iceServers, required relayOnly}) async =>
           throw StateError('no connection in this test'),
       clock: clock ?? () => DateTime(2026, 10, 9, 12),
@@ -104,6 +107,38 @@ Future<void> _pump(
     () => Future<void>.delayed(const Duration(milliseconds: 20)),
   );
   await tester.pump();
+}
+
+/// A voice note, or an audio file that is not one, sent or received.
+ChatMessage _audio({
+  required bool outgoing,
+  required String name,
+  required String mime,
+  required bool voiceNote,
+  String status = 'completed',
+}) => ChatMessage(
+  id: ChatFrames.newId(),
+  contactId: 'bob',
+  outgoing: outgoing,
+  ts: _ms(2026, 10, 9, 9),
+  text: name,
+  state: outgoing ? ChatState.delivered : ChatState.received,
+  fileId: ChatFrames.newId(),
+  fileName: name,
+  fileSize: 1000,
+  fileMime: mime,
+  fileStatus: status,
+  filePath: 'web:$name',
+  voiceNote: voiceNote,
+  arrivedAt: outgoing ? null : _ms(2026, 10, 9, 9),
+);
+
+/// Sets the screen to [width] by [height] logical pixels, and restores it after.
+void _setScreen(WidgetTester tester, double width, double height) {
+  tester.view.physicalSize = Size(width, height);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
 }
 
 /// Takes the page off screen, so its timers and streams are cancelled.
@@ -624,6 +659,253 @@ void main() {
       });
       await _pump(tester, chat, textScale: 1.3, direction: TextDirection.rtl);
       expect(tester.takeException(), isNull);
+      await _unmount(tester, chat);
+    });
+
+    testWidgets('with Hide my IP on, the footer and empty hint say messages are relayed', (
+      tester,
+    ) async {
+      final relayChat = _chatWith(hideIp: () => true);
+      await _pump(tester, relayChat);
+
+      expect(
+        find.text(
+          'Hide my IP is on, so messages go through the Sotto server instead '
+          'of directly between your devices.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          'No messages yet. Hide my IP is on, so messages go through the Sotto '
+          'server.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('go directly'), findsNothing);
+      await _unmount(tester, relayChat);
+    });
+
+    for (final (label, locale) in [
+      ('English', const Locale('en')),
+      ('Arabic', const Locale('ar')),
+      ('Bengali', const Locale('bn')),
+    ]) {
+      testWidgets('an empty chat fits 320 by 568 at text scale 1.3, in $label', (
+        tester,
+      ) async {
+        _setScreen(tester, 320, 568);
+        await _pump(tester, chat, locale: locale, textScale: 1.3);
+        expect(tester.takeException(), isNull);
+        await _unmount(tester, chat);
+      });
+    }
+
+    for (final width in [280.0, 300.0, 320.0]) {
+      testWidgets('a completed voice note fits a $width dp phone', (tester) async {
+        _setScreen(tester, width, 640);
+        await tester.runAsync(() async {
+          final note = _audio(
+            outgoing: false,
+            name: 'voice-1.wav',
+            mime: 'audio/wav',
+            voiceNote: true,
+          );
+          await store.add(note);
+          store.rememberVoice(note.id, Uint8List(44));
+        });
+        await _pump(tester, chat);
+        expect(tester.takeException(), isNull);
+        await _unmount(tester, chat);
+      });
+    }
+
+    testWidgets('an offered voice note is a voice message, an audio file its name', (
+      tester,
+    ) async {
+      await tester.runAsync(
+        () => store.add(
+          _audio(
+            outgoing: false,
+            name: 'voice-1.m4a',
+            mime: 'audio/mp4',
+            voiceNote: true,
+            status: 'offered',
+          ),
+        ),
+      );
+      await _pump(tester, chat);
+      expect(find.text('Voice message'), findsOneWidget);
+      expect(find.text('voice-1.m4a'), findsNothing);
+      await _unmount(tester, chat);
+    });
+
+    testWidgets('an offered audio file that is not a voice note keeps its name', (
+      tester,
+    ) async {
+      await tester.runAsync(
+        () => store.add(
+          _audio(
+            outgoing: false,
+            name: 'holiday-song.m4a',
+            mime: 'audio/mp4',
+            voiceNote: false,
+            status: 'offered',
+          ),
+        ),
+      );
+      await _pump(tester, chat);
+      expect(find.text('holiday-song.m4a'), findsOneWidget);
+      expect(find.text('Voice message'), findsNothing);
+      await _unmount(tester, chat);
+    });
+
+    testWidgets('a chat left open past midnight names the new day without a rebuild', (
+      tester,
+    ) async {
+      var now = DateTime(2026, 10, 9, 23, 59, 59, 999);
+      final clockChat = _chatWith(clock: () => now);
+      await tester.runAsync(
+        () => clockChat.store.add(
+          _message(
+            'evening',
+            outgoing: true,
+            state: ChatState.delivered,
+            ts: _ms(2026, 10, 9, 22),
+          ),
+        ),
+      );
+      await _pump(tester, clockChat);
+      expect(find.text('Today'), findsOneWidget);
+
+      // The clock passes midnight, and nothing else on the page changes.
+      now = DateTime(2026, 10, 10, 0, 0, 1);
+      await tester.pump(const Duration(minutes: 5));
+
+      expect(find.text('Yesterday'), findsOneWidget);
+      expect(find.text('Today'), findsNothing);
+      await _unmount(tester, clockChat);
+    });
+
+    testWidgets('each day chip sits above the first message of its day', (
+      tester,
+    ) async {
+      await tester.runAsync(() async {
+        await store.add(
+          _message(
+            'last night',
+            outgoing: true,
+            state: ChatState.delivered,
+            ts: _ms(2026, 10, 8, 22),
+          ),
+        );
+        await store.add(
+          _message(
+            'early',
+            outgoing: true,
+            state: ChatState.delivered,
+            ts: _ms(2026, 10, 9, 6),
+          ),
+        );
+        await store.add(
+          _message(
+            'this morning',
+            outgoing: true,
+            state: ChatState.delivered,
+            ts: _ms(2026, 10, 9, 9),
+          ),
+        );
+      });
+      await _pump(tester, chat);
+
+      double top(String text) => tester.getTopLeft(find.text(text)).dy;
+      expect(top('Yesterday'), lessThan(top('last night')));
+      expect(top('last night'), lessThan(top('Today')));
+      expect(top('Today'), lessThan(top('early')));
+      expect(top('early'), lessThan(top('this morning')));
+      await _unmount(tester, chat);
+    });
+
+    testWidgets('a search keeps a chip above each day it shows', (tester) async {
+      await tester.runAsync(() async {
+        await store.add(
+          _message(
+            'alpha',
+            outgoing: true,
+            state: ChatState.delivered,
+            ts: _ms(2026, 10, 8, 9),
+          ),
+        );
+        await store.add(
+          _message(
+            'beta',
+            outgoing: true,
+            state: ChatState.delivered,
+            ts: _ms(2026, 10, 9, 9),
+          ),
+        );
+        await store.add(
+          _message(
+            'alpha again',
+            outgoing: true,
+            state: ChatState.delivered,
+            ts: _ms(2026, 10, 9, 20),
+          ),
+        );
+      });
+      await _pump(tester, chat);
+
+      await tester.tap(find.byIcon(Icons.search));
+      await tester.pump();
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.byType(TextField),
+        ),
+        'alpha',
+      );
+      await tester.pump();
+
+      // The middle message is filtered out; the two days still have chips.
+      expect(find.text('beta'), findsNothing);
+      expect(find.text('Yesterday'), findsOneWidget);
+      expect(find.text('Today'), findsOneWidget);
+      await _unmount(tester, chat);
+    });
+
+    testWidgets('an older page that loads adds its day chip in the right place', (
+      tester,
+    ) async {
+      await tester.runAsync(() async {
+        // Ten messages on the day before, then fifty on today: the first page
+        // shows only today.
+        for (var i = 0; i < 60; i++) {
+          await store.add(
+            _message(
+              'message $i',
+              outgoing: true,
+              state: ChatState.delivered,
+              ts: i < 10
+                  ? _ms(2026, 10, 8, 9, i)
+                  : _ms(2026, 10, 9, 9, i - 10),
+            ),
+          );
+        }
+      });
+      await _pump(tester, chat);
+      expect(find.text('Yesterday'), findsNothing);
+      expect(find.text('Today'), findsOneWidget);
+
+      // Scroll to the oldest end, which loads the next page.
+      await tester.drag(find.byType(ListView), const Offset(0, -4000));
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump();
+
+      expect(find.text('Yesterday'), findsOneWidget);
+      expect(find.text('Today'), findsOneWidget);
       await _unmount(tester, chat);
     });
   });
