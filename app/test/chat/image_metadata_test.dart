@@ -121,6 +121,32 @@ Future<(int, int)> _size(Uint8List bytes) async {
   }
 }
 
+/// A big-endian 32-bit number, as PNG lengths are written.
+List<int> _u32(int value) => [
+  (value >> 24) & 0xFF,
+  (value >> 16) & 0xFF,
+  (value >> 8) & 0xFF,
+  value & 0xFF,
+];
+
+/// The CRC-32 that PNG chunks carry, over their type and data.
+int _crc32(List<int> bytes) {
+  var crc = 0xFFFFFFFF;
+  for (final byte in bytes) {
+    crc ^= byte;
+    for (var bit = 0; bit < 8; bit++) {
+      crc = (crc & 1) == 1 ? (crc >> 1) ^ 0xEDB88320 : crc >> 1;
+    }
+  }
+  return crc ^ 0xFFFFFFFF;
+}
+
+/// A PNG chunk with a correct CRC, as an encoder writes it.
+Uint8List _realChunk(String type, List<int> data) {
+  final body = [...type.codeUnits, ...data];
+  return _join([_u32(data.length), body, _u32(_crc32(body))]);
+}
+
 void main() {
   test('the type is read from the first bytes, not from anything else', () {
     expect(ImageMetadata.kindOf(_jpeg()), ImageKind.jpeg);
@@ -251,6 +277,89 @@ void main() {
       ]);
       expect(() => ImageMetadata.stripJpeg(jpeg), throwsFormatException);
     });
+
+    test('a segment length below 2 is refused', () {
+      for (final length in [0, 1]) {
+        final jpeg = _join([
+          [0xFF, 0xD8],
+          [0xFF, 0xE1, length >> 8, length & 0xFF],
+          _scan,
+          [0xFF, 0xD9],
+        ]);
+        expect(
+          () => ImageMetadata.stripJpeg(jpeg),
+          throwsFormatException,
+          reason: 'length $length',
+        );
+      }
+    });
+
+    test('an APP0 segment that is not JFIF is dropped', () {
+      final jpeg = _join([
+        [0xFF, 0xD8],
+        // JFIF with no zero byte after it, and a JFXX extension.
+        _segment(0xE0, 'JFIF'.codeUnits),
+        _segment(0xE0, 'JFXX\u0000secret'.codeUnits),
+        _segment(0xDB, List<int>.filled(65, 1)),
+        _segment(0xDA, [1, 1, 0, 0, 63, 0]),
+        _scan,
+        [0xFF, 0xD9],
+      ]);
+
+      final out = ImageMetadata.clean(jpeg, 'image/jpeg');
+
+      expect(_contains(out, _ascii('JFIF')), isFalse);
+      expect(_contains(out, _ascii('JFXX')), isFalse);
+      expect(_contains(out, _ascii('secret')), isFalse);
+      expect(_contains(out, [0xFF, 0xE0]), isFalse);
+      expect(_contains(out, [0xFF, 0xDB]), isTrue);
+    });
+
+    test(
+      'fill bytes before a marker, and at the end of the scan, are handled',
+      () {
+        final jpeg = _join([
+          [0xFF, 0xD8],
+          [0xFF, 0xFF],
+          _segment(0xE1, 'GPSLatitude'.codeUnits),
+          [0xFF, 0xFF, 0xFF],
+          _segment(0xDB, List<int>.filled(65, 1)),
+          [0xFF, 0xFF],
+          _segment(0xDA, [1, 1, 0, 0, 63, 0]),
+          _scan,
+          [0xFF, 0xFF, 0xFF, 0xD9],
+        ]);
+
+        final out = ImageMetadata.clean(jpeg, 'image/jpeg');
+
+        expect(out.sublist(0, 2), [0xFF, 0xD8]);
+        expect(out.sublist(out.length - 2), [0xFF, 0xD9]);
+        expect(_contains(out, _ascii('GPSLatitude')), isFalse);
+        expect(_contains(out, [0xFF, 0xDB]), isTrue);
+        expect(_contains(out, [0xFF, 0xDA]), isTrue);
+        expect(_contains(out, _scan), isTrue);
+      },
+    );
+
+    test('markers with no length field are copied as they are', () {
+      final jpeg = _join([
+        [0xFF, 0xD8],
+        [0xFF, 0x01],
+        [0xFF, 0xD0],
+        _segment(0xFE, 'secret'.codeUnits),
+        _segment(0xDB, List<int>.filled(65, 1)),
+        [0xFF, 0xD8],
+        _segment(0xDA, [1, 1, 0, 0, 63, 0]),
+        _scan,
+        [0xFF, 0xD9],
+      ]);
+
+      final out = ImageMetadata.clean(jpeg, 'image/jpeg');
+
+      expect(out.sublist(0, 6), [0xFF, 0xD8, 0xFF, 0x01, 0xFF, 0xD0]);
+      expect(_contains(out, _ascii('secret')), isFalse);
+      expect(_count(out, [0xFF, 0xD8]), 2);
+    });
   });
 
   group('PNG', () {
@@ -314,6 +423,50 @@ void main() {
       ]);
       expect(() => ImageMetadata.stripPng(png), throwsFormatException);
     });
+
+    test('a chunk whose whole header runs past the end is refused', () {
+      final png = _join([
+        _pngSignature,
+        // A complete 12-byte header (length, type, CRC) and a length of 100.
+        [0, 0, 0, 100],
+        _ascii('IDAT'),
+        [0, 0, 0, 0],
+      ]);
+      expect(() => ImageMetadata.stripPng(png), throwsFormatException);
+    });
+
+    test('the CRC used for real chunks is the standard one', () {
+      // The CRC of the IEND chunk's type, as every PNG file carries it.
+      expect(_crc32(_ascii('IEND')), 0xAE426082);
+    });
+
+    test(
+      'a real PNG with text and EXIF chunks comes back as the original file',
+      () async {
+        final original = Uint8List.fromList(
+          File('assets/brand/logo.png').readAsBytesSync(),
+        );
+        // IHDR comes first, and the metadata chunks go right after it.
+        final ihdrEnd =
+            8 + 12 + ByteData.sublistView(original).getUint32(8, Endian.big);
+        final withMetadata = _join([
+          original.sublist(0, ihdrEnd),
+          _realChunk('tEXt', 'Comment\x00GPSLatitude=51.5074'.codeUnits),
+          _realChunk('zTXt', 'Comment\x00\x00secret'.codeUnits),
+          _realChunk('iTXt', 'Comment\x00\x00\x00\x00\x00secret'.codeUnits),
+          _realChunk('eXIf', 'GPSLatitude'.codeUnits),
+          original.sublist(ihdrEnd),
+        ]);
+        expect(withMetadata.length, greaterThan(original.length));
+
+        final cleaned = ImageMetadata.clean(withMetadata, 'image/png');
+
+        // Only the four metadata chunks were added, so cleaning removes exactly
+        // them and every byte of the picture comes back unchanged.
+        expect(cleaned, original);
+        expect(await _size(cleaned), await _size(original));
+      },
+    );
 
     test(
       'a real PNG decodes to the same size before and after cleaning',

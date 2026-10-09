@@ -68,8 +68,8 @@ class AppLocalizationsBn extends AppLocalizations {
   String get chatStatusNotSent => 'পাঠানো যায়নি';
 
   @override
-  String chatStatusNotSentOffline(String name) {
-    return 'পাঠানো যায়নি: $name অফলাইনে আছেন';
+  String chatStatusNotSentNoAnswer(String name) {
+    return 'পাঠানো যায়নি: $name সাড়া দেননি।';
   }
 
   @override
@@ -78,7 +78,7 @@ class AppLocalizationsBn extends AppLocalizations {
 
   @override
   String get chatDirectNote =>
-      'আপনারা দুজনেই অনলাইন থাকলে বার্তা সরাসরি আপনাদের ডিভাইসের মধ্যে যায়। কোনো সার্ভারে কিছু জমা থাকে না।';
+      'আপনারা দুজনেই অনলাইন থাকলে বার্তা সরাসরি আপনাদের ডিভাইসের মধ্যে যায়।';
 
   @override
   String get chatDeleteMenu => 'চ্যাট মুছুন';
@@ -165,6 +165,75 @@ class AppLocalizationsBn extends AppLocalizations {
 
   @override
   String get chatStatusRead => 'পড়া হয়েছে';
+
+  @override
+  String get chatDayToday => 'আজ';
+
+  @override
+  String get chatDayYesterday => 'গতকাল';
+
+  @override
+  String get chatVerifiedTooltip => 'আপনি এই নিরাপত্তা নম্বরটি নিশ্চিত করেছেন';
+
+  @override
+  String chatDisappearingActive(String duration) {
+    return 'স্বয়ংক্রিয়ভাবে মুছে যাওয়া বার্তা: $duration টাইমার চালু';
+  }
+
+  @override
+  String chatRetentionMinutes(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count মিনিট',
+      one: '$count মিনিট',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String chatRetentionHours(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ঘণ্টা',
+      one: '$count ঘণ্টা',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String chatRetentionDays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count দিন',
+      one: '$count দিন',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get chatFileOpenFailed => 'ফাইলটি খোলা যায়নি';
+
+  @override
+  String get chatFileSaveFailed => 'ফাইলটি সংরক্ষণ করা যায়নি';
+
+  @override
+  String chatBubbleSemanticsOwn(String time, String status, String text) {
+    return 'আপনি, $time, $status: $text';
+  }
+
+  @override
+  String chatBubbleSemanticsOther(String name, String time, String text) {
+    return '$name, $time: $text';
+  }
+
+  @override
+  String get chatVoiceMessage => 'ভয়েস বার্তা';
+
+  @override
+  String get chatStatusReceiving => 'আনা হচ্ছে';
 
   @override
   String chatTyping(String name) {
@@ -271,4 +340,51 @@ class AppLocalizationsBn extends AppLocalizations {
   @override
   String get chatFileBlocked =>
       'এক্সিকিউটেবল এবং স্ক্রিপ্ট ফাইল পাঠানো যাবে না';
+
+  @override
+  String get chatImageUnreadable =>
+      'এই ছবিটি পড়া যায়নি, তাই ফাইলটি পাঠানো হয়নি।';
+
+  @override
+  String get chatImageUnsupported =>
+      'এই ধরনের ছবি পাঠানো যাবে না। ছবিটি JPEG বা PNG হিসেবে সেভ করে আবার চেষ্টা করুন।';
+
+  @override
+  String chatVoiceRecording(String time) {
+    return 'রেকর্ড হচ্ছে $time';
+  }
+
+  @override
+  String get chatVoiceCancel => 'রেকর্ড বাতিল করুন';
+
+  @override
+  String get chatVoiceSend => 'ভয়েস বার্তা পাঠান';
+
+  @override
+  String get chatVoiceTooLong =>
+      '৫ মিনিটের সীমায় রেকর্ড থেমেছে। পাঠান বা বাতিল করুন।';
+
+  @override
+  String get chatVoicePermission =>
+      'ভয়েস বার্তার জন্য Sotto-কে মাইক্রোফোন ব্যবহারের অনুমতি দিতে হবে। ডিভাইসের সেটিংসে অনুমতি দিয়ে আবার চেষ্টা করুন।';
+
+  @override
+  String get chatVoiceMicPrivacy =>
+      'মাইক্রোফোন থেকে কোনো শব্দ আসেনি। Windows-এর মাইক্রোফোন গোপনীয়তা সেটিংস দেখুন, তারপর আবার চেষ্টা করুন। কিছুই পাঠানো হয়নি।';
+
+  @override
+  String get chatVoiceUnavailable => 'ভয়েস বার্তা উপলব্ধ নেই';
+
+  @override
+  String get chatVoiceNeedsParecord =>
+      'Linux-এ ভয়েস বার্তার জন্য pulseaudio-utils প্যাকেজ লাগবে, যাতে parecord থাকে। সেটি ইনস্টল করে আবার চেষ্টা করুন।';
+
+  @override
+  String get chatVoiceInCall => 'কল চলাকালীন ভয়েস বার্তা পাওয়া যায় না।';
+
+  @override
+  String get chatVoicePlay => 'ভয়েস বার্তা চালান';
+
+  @override
+  String get chatVoicePause => 'ভয়েস বার্তা থামান';
 }

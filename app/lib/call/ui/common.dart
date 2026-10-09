@@ -538,6 +538,10 @@ class _CallControls extends StatelessWidget {
                                     sendTyping: controller.sendTyping,
                                     sendReadReceipts:
                                         controller.sendReadReceipts,
+                                    verified:
+                                        controller.peerContact?.verified ??
+                                        false,
+                                    calls: controller,
                                   ),
                                 ),
                               ),

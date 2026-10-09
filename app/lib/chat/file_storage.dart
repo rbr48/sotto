@@ -43,6 +43,14 @@ class ReceivedFileStore {
 
   static const _openFolder = 'received_open';
 
+  /// The folder under [_openFolder] for voice recordings in progress.
+  static const _recordingFolder = 'rec';
+
+  /// The random folder [writeOpenCopy] makes for each copy: 8 bytes in hex.
+  static final _openCopyFolder = RegExp(r'^[0-9a-f]{16}$');
+
+  static String _lastSegment(String path) => path.split(RegExp(r'[\\/]')).last;
+
   static Future<Directory> _defaultDirectory() async {
     final support = await getApplicationSupportDirectory();
     return Directory('${support.path}/received_files');
@@ -146,6 +154,35 @@ class ReceivedFileStore {
     final file = File('${folder.path}/$fileName');
     await file.writeAsBytes(bytes, flush: true);
     return file;
+  }
+
+  /// Deletes the decrypted copy [writeOpenCopy] made, and its folder.
+  Future<void> removeOpenCopy(File copy) async {
+    try {
+      if (await copy.exists()) await copy.delete();
+      final folder = copy.parent;
+      if (_openCopyFolder.hasMatch(_lastSegment(folder.path))) {
+        await folder.delete();
+      }
+    } catch (_) {}
+  }
+
+  /// A new file in the temporary folder for a voice recording. It is removed
+  /// with [discardRecording], or by [clearOpenCopies] after a crash.
+  Future<File> recordingFile(String extension) async {
+    final root = await getTemporaryDirectory();
+    final folder = Directory('${root.path}/$_openFolder/$_recordingFolder');
+    await folder.create(recursive: true);
+    final name = _hex(sodium.randombytes.buf(16));
+    return File('${folder.path}/$name.$extension');
+  }
+
+  /// Deletes a recording made into [recordingFile]. A file already gone is
+  /// fine.
+  Future<void> discardRecording(File file) async {
+    try {
+      if (await file.exists()) await file.delete();
+    } catch (_) {}
   }
 
   /// Removes decrypted copies left by [writeOpenCopy].

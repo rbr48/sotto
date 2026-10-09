@@ -34,6 +34,10 @@ DEPENDS=$(cd "$WORK/shlibs" && dpkg-shlibdeps -O -l"$PKG/opt/sotto/lib" "${ELFS[
 # Built on Ubuntu 24.04, some names carry the "t64" suffix of the 64-bit
 # time transition; accept the older names too (Debian 12, Ubuntu 22.04).
 DEPENDS=$(printf '%s' "$DEPENDS" | sed -E 's/([a-z0-9.+-]+)t64( \([^)]*\))?/\1t64\2 | \1\2/g')
+# Run-time helpers that no binary links against, so dpkg-shlibdeps cannot find
+# them: parecord (voice messages on Linux), GStreamer's WAV and AAC decoders
+# (playing voice messages).
+DEPENDS="${DEPENDS:+$DEPENDS, }pulseaudio-utils, gstreamer1.0-plugins-good, gstreamer1.0-libav"
 
 SIZE=$(du -sk "$PKG/opt" | cut -f1)
 cat >"$PKG/DEBIAN/control" <<CONTROL

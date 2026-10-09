@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'chat_frames.dart';
 import 'chat_store.dart';
 import 'image_metadata.dart';
+import 'voice/voice_format.dart';
 
 /// The data channel of one chat session, as the session needs it. The WebRTC
 /// engine provides it; tests use an in-memory pair.
@@ -287,10 +288,14 @@ class ChatSession {
     if (clean.length > maxFileSizeNative) {
       throw ArgumentError('File exceeds max size limit');
     }
+    final voice = isVoiceMime(mime);
+    if (voice && clean.length > maxVoiceBytes) {
+      throw ArgumentError('Voice note exceeds the size limit');
+    }
     final hash = sha256.convert(clean).toString();
     final chunks = (clean.length / fileChunkSize).ceil();
     final id = _newId();
-    final message = ChatMessage(
+    final offered = ChatMessage(
       id: id,
       contactId: contactId,
       outgoing: true,
@@ -305,7 +310,9 @@ class ChatSession {
       fileStatus: 'offered',
     );
     _outgoingFiles[id] = clean;
-    await store.add(message);
+    await store.add(offered);
+    // A voice note keeps its own copy, so the sender can play it back.
+    final message = voice ? await store.keepVoice(offered, clean) : offered;
     _write(
       FileOfferFrame(
         id: id,
@@ -320,10 +327,17 @@ class ChatSession {
   }
 
   /// Accepts an offered file from the contact.
+  ///
+  /// An offer of a blocked type is declined instead. That covers an offer
+  /// stored before the type was blocked.
   Future<void> acceptFile(String fileId) async {
     _ensureOpen();
     final msg = await store.find(contactId, fileId);
     if (msg == null || msg.fileName == null) return;
+    if (ChatFrames.isBlockedFileType(msg.fileName!)) {
+      await declineFile(fileId);
+      return;
+    }
     final totalChunks = ((msg.fileSize ?? 0) / fileChunkSize).ceil();
     _incomingFiles[fileId] = _IncomingFileTransfer(
       id: fileId,
@@ -584,6 +598,7 @@ class ChatSession {
         :final size,
         :final mime,
         :final sha256,
+        :final blocked,
       ):
         if (!_peerHello) return;
         if (!_contactNow) {
@@ -592,9 +607,12 @@ class ChatSession {
           return;
         }
         if (!await store.contains(contactId, id)) {
-          // Too large, or of a blocked type: declined, and nothing is kept.
+          // Too large, of a blocked type, or audio that is not a voice note
+          // (or a voice note over its cap): declined, and nothing is kept.
           final declined =
-              size > maxFileBytes || ChatFrames.isBlockedFileType(name);
+              size > maxFileBytes ||
+              blocked ||
+              voiceOfferRefused(mime: mime, size: size);
           final message = ChatMessage(
             id: id,
             contactId: contactId,
@@ -669,7 +687,12 @@ class ChatSession {
         }
         final fullBytes = builder.takeBytes();
         final computedHash = sha256.convert(fullBytes).toString();
-        if (computedHash != transfer.sha256) {
+        // A voice note that does not look like its format is damaged, and is
+        // never saved or played.
+        final voiceDamaged =
+            isVoiceMime(transfer.mime) &&
+            !voiceBytesLookRight(transfer.mime, fullBytes);
+        if (computedHash != transfer.sha256 || voiceDamaged) {
           _write(FileCancelFrame(id: id, reason: 'damaged'));
           final existing = await store.find(contactId, id);
           if (existing != null) {
@@ -681,6 +704,10 @@ class ChatSession {
         // The browser keeps nothing, so its message gets a `web:` path (FR-05).
         final files = store.files;
         final kept = files == null ? null : await files.save(fullBytes);
+        // The browser holds a received voice note for this tab only.
+        if (kept == null && isVoiceMime(transfer.mime)) {
+          store.rememberVoice(id, fullBytes);
+        }
         _write(FileAckFrame(id: id));
         final existing = await store.find(contactId, id);
         if (existing != null) {
@@ -694,6 +721,7 @@ class ChatSession {
         } else {
           // Deleted while it was arriving: don't keep a file nobody can see.
           await files?.remove(kept?.name);
+          store.forgetVoice(id);
         }
         _events.add(FileTransferCompleted(id, kept?.name));
       case FileAckFrame(:final id):

@@ -240,6 +240,10 @@ class ChatStore {
   /// keeps none.
   final ReceivedFileStore? files;
 
+  /// Voice notes the browser holds for the life of the tab, by message id.
+  /// Never in the vault or in browser storage, so a reload loses them.
+  final _browserVoice = <String, Uint8List>{};
+
   /// Legacy storage key for monolithic chat storage.
   static const storageKey = 'sotto.chats.v1';
 
@@ -477,6 +481,7 @@ class ChatStore {
   Future<void> _discardFiles(Iterable<ChatMessage> messages) async {
     for (final message in messages) {
       await files?.remove(message.filePath);
+      _browserVoice.remove(message.id);
     }
   }
 
@@ -487,9 +492,47 @@ class ChatStore {
     final name = message.filePath;
     final key = message.fileKey;
     if (store == null || name == null || key == null) {
+      final held = _browserVoice[message.id];
+      if (held != null) return held;
       throw const ReceivedFileException('missing');
     }
     return store.read(name: name, key: key);
+  }
+
+  /// Whether the bytes of a voice note are still here to play: in the file
+  /// store, or held by the browser for this tab.
+  bool hasVoice(ChatMessage message) =>
+      _browserVoice.containsKey(message.id) ||
+      (files != null && message.filePath != null && message.fileKey != null);
+
+  /// Keeps the bytes of a voice note the sender offered, so its own bubble
+  /// can play it. Native: an encrypted file, like a received one. Browser:
+  /// memory for this tab. Returns the message with its file recorded.
+  Future<ChatMessage> keepVoice(ChatMessage message, Uint8List bytes) async {
+    final store = files;
+    if (store == null) {
+      _browserVoice[message.id] = bytes;
+      return message;
+    }
+    try {
+      final kept = await store.save(bytes);
+      final updated = message.copyWith(filePath: kept.name, fileKey: kept.key);
+      await updateMessage(updated);
+      return updated;
+    } catch (_) {
+      // The offer still goes; only the sender's own playback is lost.
+      return message;
+    }
+  }
+
+  /// Keeps a voice note the browser received, for this tab (see [readFile]).
+  void rememberVoice(String id, Uint8List bytes) {
+    _browserVoice[id] = bytes;
+  }
+
+  /// Drops a voice note the browser held, when its message is gone.
+  void forgetVoice(String id) {
+    _browserVoice.remove(id);
   }
 
   /// A decrypted copy of a received file, for another app to open. The copy

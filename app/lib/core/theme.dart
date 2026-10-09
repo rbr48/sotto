@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 
+import '../chat/ui/chat_tokens.dart';
+
 /// Sotto's calm, professional look: neutral surfaces, white (or deep grey)
 /// cards, the brand violet for what you act on.
 abstract final class SottoTheme {
   static const Color seed = Color(0xFF5B4B8A);
 
-  static ThemeData light() => _build(Brightness.light);
-  static ThemeData dark() => _build(Brightness.dark);
+  static ThemeData light() =>
+      _build(Brightness.light).copyWith(extensions: const [ChatTokens.light]);
+  static ThemeData dark() =>
+      _build(Brightness.dark).copyWith(extensions: const [ChatTokens.dark]);
 
   static ThemeData _build(Brightness brightness) {
     final light = brightness == Brightness.light;

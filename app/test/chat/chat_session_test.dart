@@ -534,6 +534,38 @@ void main() {
     },
   );
 
+  test('an image over the size limit is offered when its metadata makes it '
+      'fit', () async {
+    final (a, b) = _pair();
+    final alice = _Side('alice', 'bob', a, clock: clock)..start();
+    _Side('bob', 'alice', b, clock: clock).start();
+    await _settle();
+
+    // More than the limit, nearly all of it APP1 metadata: each segment is the
+    // largest a JPEG segment can be. Once the metadata is removed, the image
+    // is four bytes, so the limit applies to what is sent, not to the raw file.
+    final segment = Uint8List(65537)
+      ..fillRange(0, 65537, 0x20)
+      ..[0] = 0xFF
+      ..[1] = 0xE1
+      ..[2] = 0xFF
+      ..[3] = 0xFF;
+    final count = maxFileSizeNative ~/ segment.length + 2;
+    final photo = _join([
+      [0xFF, 0xD8],
+      for (var i = 0; i < count; i++) segment,
+      [0xFF, 0xD9],
+    ]);
+    expect(photo.length, greaterThan(maxFileSizeNative));
+
+    final offer = await alice.session.offerFile(
+      name: 'big.jpg',
+      bytes: photo,
+      mime: 'image/jpeg',
+    );
+    expect(offer.fileSize, 4);
+  });
+
   test('a file of a blocked type is refused, and nothing is sent', () async {
     final (a, b) = _pair();
     final alice = _Side('alice', 'bob', a, clock: clock)..start();
@@ -541,7 +573,13 @@ void main() {
     await _settle();
     final sentBefore = a.sentFrames.length;
 
-    for (final name in ['run.EXE ', 'setup.exe.']) {
+    for (final name in [
+      'run.EXE ',
+      'setup.exe.',
+      'setup.msixbundle',
+      'deck.ppsm',
+      'tool.xlam',
+    ]) {
       await expectLater(
         alice.session.offerFile(
           name: name,
@@ -557,6 +595,27 @@ void main() {
     expect(a.sentFrames.length, sentBefore);
     expect(await alice.store.messages('bob'), isEmpty);
     expect(await bob.store.messages('alice'), isEmpty);
+  });
+
+  test('a colon in a name is kept as a plain name, not a stream', () async {
+    final (a, b) = _pair();
+    final alice = _Side('alice', 'bob', a, clock: clock)..start();
+    _Side('bob', 'alice', b, clock: clock).start();
+    await _settle();
+
+    final note = await alice.session.offerFile(
+      name: 'Notes for acme.com: final.pdf',
+      bytes: Uint8List.fromList([1, 2, 3]),
+      mime: 'application/pdf',
+    );
+    expect(note.fileName, 'Notes for acme.com_ final.pdf');
+
+    final stream = await alice.session.offerFile(
+      name: r'setup.exe::$DATA',
+      bytes: Uint8List.fromList([1, 2, 3]),
+      mime: 'application/octet-stream',
+    );
+    expect(stream.fileName, r'setup.exe__$DATA');
   });
 
   test('an offer of a blocked type is declined, and nothing is kept', () async {
@@ -625,6 +684,168 @@ void main() {
     );
     expect(await alice.store.messages('bob'), isEmpty);
   });
+
+  test(
+    'a name blocked only once cleaned is refused and nothing is sent',
+    () async {
+      final (a, b) = _pair();
+      final alice = _Side('alice', 'bob', a, clock: clock)..start();
+      _Side('bob', 'alice', b, clock: clock).start();
+      await _settle();
+      final sentBefore = a.sentFrames.length;
+
+      for (final name in ['${'x' * 100}.exe${' ' * 40}x']) {
+        await expectLater(
+          alice.session.offerFile(
+            name: name,
+            bytes: Uint8List.fromList([1, 2, 3]),
+            mime: 'application/octet-stream',
+          ),
+          throwsA(isA<ArgumentError>()),
+          reason: name,
+        );
+      }
+      await _settle();
+
+      expect(a.sentFrames.length, sentBefore);
+      expect(await alice.store.messages('bob'), isEmpty);
+    },
+  );
+
+  test('an offer whose name is blocked as sent, but not once cleaned, is '
+      'declined', () async {
+    final (a, b) = _pair();
+    _Side('alice', 'bob', a, clock: clock).start();
+    final bob = _Side('bob', 'alice', b, clock: clock)..start();
+    await _settle();
+
+    // A peer that does not check its own names sends this anyway. Cleaning
+    // turns "..exe" into "exe", which is not blocked, so the name as sent is
+    // what must be judged.
+    final names = ['..exe'];
+    for (var i = 0; i < names.length; i++) {
+      final id = _id(70 + i);
+      a.send(
+        ChatFrames.encode(
+          FileOfferFrame(
+            id: id,
+            name: names[i],
+            size: 100,
+            mime: 'application/octet-stream',
+            sha256: _digest,
+            chunks: 1,
+          ),
+        ),
+      );
+      await _settle();
+
+      expect(
+        (await bob.store.find('alice', id))?.fileStatus,
+        'declined',
+        reason: names[i],
+      );
+      expect(
+        b.sentFrames,
+        contains(ChatFrames.encode(FileDeclineFrame(id: id))),
+        reason: names[i],
+      );
+    }
+    expect(bob.ofType<FileOfferReceived>(), isEmpty);
+  });
+
+  test(
+    'an offer stored under a blocked name is declined when accepted',
+    () async {
+      final (a, b) = _pair();
+      _Side('alice', 'bob', a, clock: clock).start();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+
+      // An offer kept by an older build, which did not block this type.
+      final id = _id(80);
+      await bob.store.add(
+        ChatMessage(
+          id: id,
+          contactId: 'alice',
+          outgoing: false,
+          ts: clock().millisecondsSinceEpoch,
+          text: 'page.html',
+          state: ChatState.received,
+          read: false,
+          fileId: id,
+          fileName: 'page.html',
+          fileSize: 100,
+          fileMime: 'text/html',
+          fileSha256: _digest,
+          fileStatus: 'offered',
+        ),
+      );
+      await bob.session.acceptFile(id);
+      await _settle();
+
+      expect((await bob.store.find('alice', id))?.fileStatus, 'declined');
+      expect(
+        b.sentFrames,
+        contains(ChatFrames.encode(FileDeclineFrame(id: id))),
+      );
+      expect(
+        b.sentFrames,
+        isNot(contains(ChatFrames.encode(FileAcceptFrame(id: id)))),
+      );
+    },
+  );
+
+  test(
+    'a declined offer keeps nothing on disk, and its chunks are ignored',
+    () async {
+      final sodium = await SottoCrypto.init();
+      final root = Directory.systemTemp.createTempSync('sotto_declined_');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final files = ReceivedFileStore(
+        sodium: sodium,
+        directory: () async => root,
+      );
+
+      final (a, b) = _pair();
+      _Side('alice', 'bob', a, clock: clock).start();
+      final bob = _Side(
+        'bob',
+        'alice',
+        b,
+        clock: clock,
+        sharedStore: ChatStore(MemorySecretStore(), files: files),
+      )..start();
+      await _settle();
+
+      final id = _id(90);
+      a.send(
+        ChatFrames.encode(
+          FileOfferFrame(
+            id: id,
+            name: 'malware.exe',
+            size: 100,
+            mime: 'application/octet-stream',
+            sha256: _digest,
+            chunks: 1,
+          ),
+        ),
+      );
+      await _settle();
+      // The sender carries on as if the offer had been accepted.
+      a.sendBinary(
+        ChatFrames.encodeChunk(
+          fileId: id,
+          chunkIndex: 0,
+          payload: List<int>.filled(100, 7),
+        ),
+      );
+      a.send(ChatFrames.encode(FileDoneFrame(id: id)));
+      await _settle();
+
+      expect((await bob.store.find('alice', id))?.fileStatus, 'declined');
+      expect(root.listSync(recursive: true).whereType<File>(), isEmpty);
+    },
+  );
 }
 
 /// A JPEG segment: its marker, its length, then its payload.

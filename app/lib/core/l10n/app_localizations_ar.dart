@@ -68,8 +68,8 @@ class AppLocalizationsAr extends AppLocalizations {
   String get chatStatusNotSent => 'لم تُرسل';
 
   @override
-  String chatStatusNotSentOffline(String name) {
-    return 'لم تُرسل: $name غير متصل';
+  String chatStatusNotSentNoAnswer(String name) {
+    return 'لم تُرسل: $name لم يرد.';
   }
 
   @override
@@ -78,7 +78,7 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get chatDirectNote =>
-      'تُرسل الرسائل مباشرة بين جهازيكما عندما تكونان متصلين. لا يُحفظ شيء على أي خادم.';
+      'تُرسل الرسائل مباشرة بين جهازيكما عندما تكونان متصلين.';
 
   @override
   String get chatDeleteMenu => 'حذف المحادثة';
@@ -165,6 +165,87 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get chatStatusRead => 'تمت القراءة';
+
+  @override
+  String get chatDayToday => 'اليوم';
+
+  @override
+  String get chatDayYesterday => 'أمس';
+
+  @override
+  String get chatVerifiedTooltip => 'أكّدتَ رقم الأمان هذا';
+
+  @override
+  String chatDisappearingActive(String duration) {
+    return 'الرسائل ذاتية الاختفاء: المؤقت $duration مفعّل';
+  }
+
+  @override
+  String chatRetentionMinutes(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count دقيقة',
+      many: '$count دقيقة',
+      few: '$count دقائق',
+      two: 'دقيقتان',
+      one: 'دقيقة واحدة',
+      zero: '$count دقيقة',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String chatRetentionHours(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ساعة',
+      many: '$count ساعة',
+      few: '$count ساعات',
+      two: 'ساعتان',
+      one: 'ساعة واحدة',
+      zero: '$count ساعة',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String chatRetentionDays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count يوم',
+      many: '$count يومًا',
+      few: '$count أيام',
+      two: 'يومان',
+      one: 'يوم واحد',
+      zero: '$count يوم',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get chatFileOpenFailed => 'تعذّر فتح الملف';
+
+  @override
+  String get chatFileSaveFailed => 'تعذّر حفظ الملف';
+
+  @override
+  String chatBubbleSemanticsOwn(String time, String status, String text) {
+    return 'أنت، $time، $status: $text';
+  }
+
+  @override
+  String chatBubbleSemanticsOther(String name, String time, String text) {
+    return '$name، $time: $text';
+  }
+
+  @override
+  String get chatVoiceMessage => 'رسالة صوتية';
+
+  @override
+  String get chatStatusReceiving => 'جارٍ الاستلام';
 
   @override
   String chatTyping(String name) {
@@ -271,4 +352,50 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get chatFileBlocked =>
       'لا يمكن إرسال الملفات القابلة للتنفيذ أو البرمجية';
+
+  @override
+  String get chatImageUnreadable => 'تعذّرت قراءة هذه الصورة، فلم يُرسل الملف.';
+
+  @override
+  String get chatImageUnsupported =>
+      'لا يمكن إرسال نوع الصورة هذا. احفظها بصيغة JPEG أو PNG ثم حاول مرة أخرى.';
+
+  @override
+  String chatVoiceRecording(String time) {
+    return 'جارٍ التسجيل $time';
+  }
+
+  @override
+  String get chatVoiceCancel => 'إلغاء التسجيل';
+
+  @override
+  String get chatVoiceSend => 'إرسال الرسالة الصوتية';
+
+  @override
+  String get chatVoiceTooLong =>
+      'توقف التسجيل عند الحد الأقصى وهو 5 دقائق. أرسله أو ألغِه.';
+
+  @override
+  String get chatVoicePermission =>
+      'يحتاج Sotto إلى إذن لاستخدام الميكروفون. اسمح بذلك من إعدادات الجهاز ثم حاول مرة أخرى.';
+
+  @override
+  String get chatVoiceMicPrivacy =>
+      'لم يصل أي صوت من الميكروفون. تحقق من إعدادات خصوصية الميكروفون في Windows ثم حاول مرة أخرى. لم يُرسل شيء.';
+
+  @override
+  String get chatVoiceUnavailable => 'الرسالة الصوتية غير متاحة';
+
+  @override
+  String get chatVoiceNeedsParecord =>
+      'تحتاج الرسائل الصوتية على Linux إلى الحزمة pulseaudio-utils، وهي توفر الأمر parecord. ثبّتها ثم حاول مرة أخرى.';
+
+  @override
+  String get chatVoiceInCall => 'الرسائل الصوتية غير متاحة أثناء المكالمة.';
+
+  @override
+  String get chatVoicePlay => 'تشغيل الرسالة الصوتية';
+
+  @override
+  String get chatVoicePause => 'إيقاف الرسالة الصوتية مؤقتاً';
 }

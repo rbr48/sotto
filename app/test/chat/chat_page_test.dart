@@ -6,6 +6,7 @@ import 'package:sotto/chat/chat_frames.dart';
 import 'package:sotto/chat/chat_manager.dart';
 import 'package:sotto/chat/chat_store.dart';
 import 'package:sotto/chat/ui/chat_page.dart';
+import 'package:sotto/chat/ui/chat_tokens.dart';
 import 'package:sotto/core/l10n/app_localizations.dart';
 import 'package:sotto/core/l10n/language.dart';
 import 'package:sotto/core/theme.dart';
@@ -128,6 +129,8 @@ void main() {
     await pumpPage(tester);
 
     await tester.enterText(find.byType(TextField), 'Salaam');
+    // The send button replaces the microphone once there is text.
+    await tester.pump();
     await tester.tap(find.byTooltip('Send'));
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 20)),
@@ -169,7 +172,7 @@ void main() {
     await pumpPage(tester);
 
     // Nobody answered the open: the plan's wording, with the name.
-    expect(find.text('Not sent: Bob is offline'), findsOneWidget);
+    expect(find.text('Not sent: Bob did not answer.'), findsOneWidget);
     // Any other failure says only "Not sent"; the banner explains it.
     expect(find.text('Not sent'), findsOneWidget);
   });
@@ -195,7 +198,7 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('Retry'), findsOneWidget);
     expect(
-      find.text('Not sent: Muhammad Abdul Rahman Al-Hashimi is offline'),
+      find.text('Not sent: Muhammad Abdul Rahman Al-Hashimi did not answer.'),
       findsOneWidget,
     );
   });
@@ -211,7 +214,7 @@ void main() {
 
       for (final theme in [SottoTheme.light(), SottoTheme.dark()]) {
         await pumpPage(tester, theme: theme);
-        final scheme = theme.colorScheme;
+        final tokens = theme.extension<ChatTokens>()!;
 
         // What is painted, not what the button is configured with: the label's
         // text colour, and the fill of the bubble behind it (its nearest
@@ -231,11 +234,11 @@ void main() {
             .first
             .color;
         expect(label, isNotNull, reason: 'the Retry label has no colour');
-        expect(label, scheme.onPrimary);
+        expect(label, tokens.sentText);
         expect(
           background,
-          scheme.primary,
-          reason: 'the bubble is not the primary colour',
+          tokens.sentFill,
+          reason: 'the bubble is not the sent-message fill',
         );
         expect(_contrastRatio(label!, background!), greaterThanOrEqualTo(4.5));
 
@@ -305,5 +308,40 @@ void main() {
     expect(find.text('Message to delete'), findsNothing);
     final remaining = await tester.runAsync(() => store.messages('bob'));
     expect(remaining, isEmpty);
+  });
+
+  test('a refused file gives its error in the app language', () {
+    for (final locale in [const Locale('en'), const Locale('ar')]) {
+      final l10n = lookupAppLocalizations(locale);
+      expect(
+        offerErrorMessage(l10n, ArgumentError('Image could not be read')),
+        l10n.chatImageUnreadable,
+        reason: '$locale',
+      );
+      expect(
+        offerErrorMessage(
+          l10n,
+          ArgumentError('Image type not supported for sharing'),
+        ),
+        l10n.chatImageUnsupported,
+        reason: '$locale',
+      );
+      expect(
+        offerErrorMessage(l10n, ArgumentError('File exceeds max size limit')),
+        l10n.chatFileTooLarge,
+        reason: '$locale',
+      );
+      expect(
+        offerErrorMessage(l10n, ArgumentError('Blocked file type: setup.exe')),
+        l10n.chatFileBlocked,
+        reason: '$locale',
+      );
+    }
+    // Any other error keeps its text, as before.
+    final l10n = lookupAppLocalizations(const Locale('en'));
+    expect(
+      offerErrorMessage(l10n, StateError('Peer is offline')),
+      'Bad state: Peer is offline',
+    );
   });
 }

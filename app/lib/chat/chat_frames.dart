@@ -76,15 +76,23 @@ final class FileOfferFrame extends ChatFrame {
     required this.mime,
     required this.sha256,
     required this.chunks,
+    this.blocked = false,
   });
 
   /// 16 random bytes, unpadded base64url.
   final String id;
+
+  /// The name after cleaning.
   final String name;
   final int size;
   final String mime;
   final String sha256;
   final int chunks;
+
+  /// Whether the name as sent, or the name after cleaning, has a blocked type.
+  /// Set when the frame is decoded; a frame that is not decoded is not blocked
+  /// unless it says so.
+  final bool blocked;
 }
 
 /// The receiver accepts the offered file transfer.
@@ -289,13 +297,17 @@ abstract final class ChatFrames {
         if (mime.runes.length > maxMimeChars || !_sha256Pattern.hasMatch(sha)) {
           throw const ChatFrameException('malformed');
         }
+        final name = cleanFileName(rawName);
         return FileOfferFrame(
           id: id,
-          name: cleanFileName(rawName),
+          name: name,
           size: size,
           mime: cleanText(mime),
           sha256: sha,
           chunks: chunks,
+          // Judged on the name as sent too: cleaning can hide a blocked type
+          // from the cleaned name, and the sender refuses such a name.
+          blocked: isBlockedFileType(rawName) || isBlockedFileType(name),
         );
       case 'file.accept':
         return FileAcceptFrame(id: _id(json['id']));
@@ -349,11 +361,16 @@ abstract final class ChatFrames {
     return (fileId: fileId, chunkIndex: chunkIndex, payload: payload);
   }
 
+  /// The device names Windows reserves, in upper case. The superscript digits
+  /// are the ones Windows also treats as COM and LPT ports.
   static final _reservedWindowsNames = {
     'CON',
     'PRN',
     'AUX',
     'NUL',
+    'CONIN\$',
+    'CONOUT\$',
+    'COM0',
     'COM1',
     'COM2',
     'COM3',
@@ -363,6 +380,10 @@ abstract final class ChatFrames {
     'COM7',
     'COM8',
     'COM9',
+    'COM¹',
+    'COM²',
+    'COM³',
+    'LPT0',
     'LPT1',
     'LPT2',
     'LPT3',
@@ -372,6 +393,9 @@ abstract final class ChatFrames {
     'LPT7',
     'LPT8',
     'LPT9',
+    'LPT¹',
+    'LPT²',
+    'LPT³',
   };
 
   /// File types that are never shared: executables, installers, scripts and
@@ -435,6 +459,26 @@ abstract final class ChatFrames {
     '.img',
     '.vhd',
     '.vhdx',
+    // Windows app packages (installers), update packages and script components.
+    '.msix',
+    '.msixbundle',
+    '.appx',
+    '.appxbundle',
+    '.msu',
+    '.sct',
+    '.wsc',
+    '.ws',
+    '.jnlp',
+    '.application',
+    '.appref-ms',
+    '.library-ms',
+    // Office add-ins and macro-enabled templates and slide shows.
+    '.xlam',
+    '.xla',
+    '.ppam',
+    '.ppsm',
+    '.potm',
+    '.xltm',
   };
 
   /// Whether [rune] is a control or an invisible format character: U+0000 to
@@ -456,6 +500,9 @@ abstract final class ChatFrames {
   /// case is folded. So a path, a trailing dot or space, a control character
   /// or a direction override cannot hide the type. A name with no dot is not
   /// blocked.
+  ///
+  /// A colon is not special here. [cleanFileName] turns it into an underscore,
+  /// so "setup.exe::$DATA" is stored as the plain name "setup.exe__$DATA".
   static bool isBlockedFileType(String filename) {
     final name = _normalisedName(filename);
     final dot = name.lastIndexOf('.');
@@ -463,6 +510,8 @@ abstract final class ChatFrames {
     return _blockedExtensions.contains(name.substring(dot));
   }
 
+  /// The last path segment of [filename], without invisible characters, with
+  /// trailing spaces and dots stripped, in lower case.
   static String _normalisedName(String filename) {
     final segment = filename.split(RegExp(r'[\\/]')).last;
     final visible = StringBuffer();
@@ -478,40 +527,47 @@ abstract final class ChatFrames {
 
   /// Cleans a file name for storing and showing.
   ///
-  /// Path separators become `_`. Control characters and lone surrogates are
-  /// removed, and so are the direction overrides that [cleanText] removes.
-  /// Leading dots are dropped, and an empty name becomes `file`. A base name
-  /// that is a reserved Windows device name gets `file_` in front.
+  /// Path separators become `_`, and so do colons, which Windows reads as the
+  /// start of a stream name. Control, invisible and direction-changing
+  /// characters, and lone surrogates, are removed. Leading dots are dropped,
+  /// and a name with nothing left becomes `file`. A base name that is a
+  /// reserved Windows device name gets `file_` in front.
   ///
   /// The result is at most [maxFileNameBytes] UTF-8 bytes. The stem is cut at a
   /// character boundary, and the extension (from the last dot) is kept whole,
   /// unless it is longer than [maxExtensionBytes], when it is cut to that
-  /// length. The result never contains a slash, a backslash or a control
-  /// character.
+  /// length. The reserved-name check comes after the cut, which can leave a
+  /// bare reserved name. The result never contains a slash, a backslash, a
+  /// colon, an invisible character or a control character, and cleaning it
+  /// again changes nothing.
   static String cleanFileName(String filename) {
     var name = filename.replaceAll(RegExp(r'\.*[\\/]'), '_');
-    name = cleanText(_withoutControls(name));
+    name = _withoutInvisible(name).replaceAll(':', '_').trim();
     while (name.startsWith('.')) {
       name = name.substring(1).trim();
     }
     if (name.isEmpty) name = 'file';
-    final base = name.split('.').first.trimRight().toUpperCase();
-    if (_reservedWindowsNames.contains(base)) {
-      name = 'file_$name';
+    name = _capBytes(name, maxFileNameBytes);
+    if (_isReservedName(name)) {
+      name = _capBytes('file_$name', maxFileNameBytes);
     }
-    return _capBytes(name, maxFileNameBytes);
+    return name;
   }
 
-  /// [input] without control characters (U+0000 to U+001F and U+007F to
-  /// U+009F, line breaks and tabs included) and without lone surrogates.
-  static String _withoutControls(String input) {
+  /// Whether the base of [name] (the text before the first dot) is a reserved
+  /// Windows device name.
+  static bool _isReservedName(String name) {
+    final base = name.split('.').first.trimRight().toUpperCase();
+    return _reservedWindowsNames.contains(base);
+  }
+
+  /// [input] without the characters [_isInvisible] names (control characters
+  /// included, line breaks and tabs too) and without lone surrogates.
+  static String _withoutInvisible(String input) {
     final buffer = StringBuffer();
     for (final rune in input.runes) {
-      final control =
-          rune < 0x20 ||
-          (rune >= 0x7F && rune <= 0x9F) ||
-          (rune >= 0xD800 && rune <= 0xDFFF);
-      if (!control) buffer.writeCharCode(rune);
+      final dropped = _isInvisible(rune) || (rune >= 0xD800 && rune <= 0xDFFF);
+      if (!dropped) buffer.writeCharCode(rune);
     }
     return buffer.toString();
   }
@@ -523,7 +579,10 @@ abstract final class ChatFrames {
     final stem = dot > 0 ? name.substring(0, dot) : name;
     var ext = dot > 0 ? name.substring(dot) : '';
     if (_byteLength(ext) > maxExtensionBytes) {
-      ext = _cutBytes(ext, maxExtensionBytes);
+      // A cut that ends in spaces loses them, so a second clean changes
+      // nothing. A lone dot left by the cut is dropped as well.
+      ext = _cutBytes(ext, maxExtensionBytes).trimRight();
+      if (ext == '.') ext = '';
     }
     final room = maxBytes - _byteLength(ext);
     return '${_cutBytes(stem, room).trimRight()}$ext';

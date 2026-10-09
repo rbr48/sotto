@@ -19,8 +19,8 @@
   "chatStatusSending": "Sending",
   "chatStatusDelivered": "Delivered",
   "chatStatusNotSent": "Not sent",
-  "chatStatusNotSentOffline": "Not sent: {name} is offline",
-  "@chatStatusNotSentOffline": {
+  "chatStatusNotSentNoAnswer": "Not sent: {name} did not answer.",
+  "@chatStatusNotSentNoAnswer": {
     "placeholders": {
       "name": {
         "type": "String",
@@ -29,7 +29,7 @@
     }
   },
   "chatEmptyHint": "No messages yet. Messages go directly to them while you are both online.",
-  "chatDirectNote": "Messages go directly between your devices while you are both online. Nothing is stored on a server.",
+  "chatDirectNote": "Messages go directly between your devices while you are both online.",
   "chatDeleteMenu": "Delete chat",
   "chatDeleteTitle": "Delete this chat?",
   "chatDeleteBody": "The messages are removed from this device. The other person keeps their copy.",
@@ -72,6 +72,83 @@
   "chatCancelQueue": "Cancel queue",
   "chatCallCompanionTooltip": "In-call chat",
   "chatStatusRead": "Read",
+  "chatDayToday": "Today",
+  "chatDayYesterday": "Yesterday",
+  "chatVerifiedTooltip": "You confirmed this safety number",
+  "chatDisappearingActive": "Disappearing messages: {duration} timer active",
+  "@chatDisappearingActive": {
+    "placeholders": {
+      "duration": {
+        "type": "String",
+        "example": "24 hours"
+      }
+    }
+  },
+  "chatRetentionMinutes": "{count, plural, one {{count} minute} other {{count} minutes}}",
+  "@chatRetentionMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "30"
+      }
+    }
+  },
+  "chatRetentionHours": "{count, plural, one {{count} hour} other {{count} hours}}",
+  "@chatRetentionHours": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "24"
+      }
+    }
+  },
+  "chatRetentionDays": "{count, plural, one {{count} day} other {{count} days}}",
+  "@chatRetentionDays": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "7"
+      }
+    }
+  },
+  "chatFileOpenFailed": "Could not open file",
+  "chatFileSaveFailed": "Could not save file",
+  "chatBubbleSemanticsOwn": "You, {time}, {status}: {text}",
+  "@chatBubbleSemanticsOwn": {
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "10:32"
+      },
+      "status": {
+        "type": "String",
+        "example": "Delivered"
+      },
+      "text": {
+        "type": "String",
+        "example": "See you at noon"
+      }
+    }
+  },
+  "chatBubbleSemanticsOther": "{name}, {time}: {text}",
+  "@chatBubbleSemanticsOther": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Meera"
+      },
+      "time": {
+        "type": "String",
+        "example": "10:32"
+      },
+      "text": {
+        "type": "String",
+        "example": "See you at noon"
+      }
+    }
+  },
+  "chatVoiceMessage": "Voice message",
+  "chatStatusReceiving": "Receiving",
   "chatTyping": "{name} is typing…",
   "@chatTyping": {
     "placeholders": {
@@ -134,5 +211,26 @@
   "chatFileCancelled": "Transfer cancelled",
   "chatFileFailed": "Transfer failed",
   "chatFileTooLarge": "File exceeds maximum size limit (100 MB)",
-  "chatFileBlocked": "Executables and script files cannot be sent"
+  "chatFileBlocked": "Executables and script files cannot be sent",
+  "chatImageUnreadable": "This image could not be read, so it was not sent.",
+  "chatImageUnsupported": "This image type cannot be sent. Save it as a JPEG or PNG and try again.",
+  "chatVoiceRecording": "Recording {time}",
+  "@chatVoiceRecording": {
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "0:12"
+      }
+    }
+  },
+  "chatVoiceCancel": "Cancel recording",
+  "chatVoiceSend": "Send voice message",
+  "chatVoiceTooLong": "Recording stopped at the 5-minute limit. Send it or cancel.",
+  "chatVoicePermission": "Sotto needs permission to use the microphone. Allow it in your device settings, then try again.",
+  "chatVoiceMicPrivacy": "No sound came from the microphone. Check microphone privacy settings in Windows, then try again. Nothing was sent.",
+  "chatVoiceUnavailable": "Voice message unavailable",
+  "chatVoiceNeedsParecord": "Voice messages on Linux need the pulseaudio-utils package, which provides parecord. Install it, then try again.",
+  "chatVoiceInCall": "Voice messages are not available during a call.",
+  "chatVoicePlay": "Play voice message",
+  "chatVoicePause": "Pause voice message"
 }
