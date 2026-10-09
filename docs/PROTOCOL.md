@@ -88,7 +88,7 @@ A recipient MUST perform these checks in order, and reject the envelope at the f
 | 7 | `now − 2 min ≤ ts ≤ now + 2 min` | `expired` |
 | 8 | `(from, n)` not seen in the last 4 min 1 s | `replayed` |
 
-Only after all checks pass is `(from, n)` recorded.
+Only after all checks pass is `(from, n)` recorded. The record is kept in memory only, so it starts empty when the app restarts.
 
 ### 3.4 Properties
 
@@ -345,6 +345,7 @@ plaintext = JSON {"v":1, "values": {"<key>": "<string>", …}}
 | `sotto.profile.v1` | Name and practice |
 | `sotto.contacts.v1` | Contacts (keys, name, organisation, verified, auto-answer choices) and the auto-answer switch and delay |
 | `sotto.history.v1` | Call history with notes, and the retention period |
+| `sotto.chats.v1` | Chat history (§5.10), kept until the person deletes a chat. Included in backups |
 | `sotto.guest_links.v1` | Guest links (§5.7) |
 | `sotto.lock.v1` | App lock: PIN verifier (Argon2id `crypto_pwhash_str` in the apps; keyed BLAKE2b in the browser, §9.1), failed attempts, auto-lock time. Device-only |
 | `sotto.devices.v1` | Chosen camera, microphone and speaker. Device-only |

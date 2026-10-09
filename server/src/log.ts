@@ -1,7 +1,7 @@
 /**
  * Minimal logger. By design it is only used for lifecycle events and
- * aggregate counters: never log keys, IP addresses, room codes, tokens or
- * message contents.
+ * aggregate counters: never log keys, IP addresses, IDs, tokens or message
+ * contents.
  */
 export const log = {
   info(message: string): void {

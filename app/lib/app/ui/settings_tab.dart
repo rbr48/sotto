@@ -436,7 +436,7 @@ class SettingsTab extends StatelessWidget {
               subtitle: const Text(
                 'Once a day, Sotto asks GitHub for the latest version and '
                 'tells you when there is a newer one. GitHub sees your IP '
-                'address, nothing else. Sotto never installs anything by '
+                'address and the Sotto version, nothing else. Sotto never installs anything by '
                 'itself.',
               ),
               value: app.desktopPrefs.checkUpdates,

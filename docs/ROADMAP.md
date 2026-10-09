@@ -196,7 +196,7 @@ The package name / application ID is **`com.izhaanintellect.sotto`** on every pl
 |---|---|---|
 | Android | `app/android/app/build.gradle(.kts)` → `namespace` and `applicationId`; Kotlin package `com.izhaanintellect.sotto` | `com.izhaanintellect.sotto` |
 | Linux | `app/linux/CMakeLists.txt` → `APPLICATION_ID`; Flatpak / `.desktop` file ID | `com.izhaanintellect.sotto` |
-| Windows | MSIX `identity_name` (in `msix_config` of `pubspec.yaml`); publisher: Izhaan Intellect | `com.izhaanintellect.sotto` |
+| Windows | Inno Setup `AppId` in `packaging/windows/sotto.iss` (never changes); publisher: Izhaan Intellect | `{D44D3E58-C89A-4CAC-918B-BD5CC12187DB}` |
 | Web (guest page) | `app/web/manifest.json` → `id` | `com.izhaanintellect.sotto` |
 | iOS / macOS (later) | Bundle identifier | `com.izhaanintellect.sotto` |
 | Firebase (FCM) | Android app registered in the Firebase project | `com.izhaanintellect.sotto` |
@@ -602,7 +602,7 @@ An **optional** setting on the *receiving* device: calls from people the user ha
 - [ ] Security hardening: log audit, read-only servers verified
 - [x] Privacy policy and terms (`/privacy.html`, `/terms.html`, linked from *Settings → Help* and the guest page) that plainly list what the server processes, briefly and in memory (section 5.10); they name the operator from `install.sh --operator/--contact` (Caddy templates); the printed Nginx configuration turns access logs off
 - [ ] Have the privacy policy and terms checked by a lawyer for each country we launch in
-- [ ] Windows installer (MSIX / Inno Setup) and Linux AppImage / `.deb`
+- [x] Windows installer (Inno Setup) and Linux AppImage / `.deb`
 
 **Exit criteria / Milestone M3 — Pilot success:** 3+ organisations use it every week; call setup success > 95%; at least 2 pilots say they'd pay.
 
