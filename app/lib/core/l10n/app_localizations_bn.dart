@@ -65,6 +65,11 @@ class AppLocalizationsBn extends AppLocalizations {
   String get chatStatusNotSent => 'পাঠানো যায়নি';
 
   @override
+  String chatStatusNotSentOffline(String name) {
+    return 'পাঠানো যায়নি: $name অফলাইনে আছেন';
+  }
+
+  @override
   String get chatEmptyHint =>
       'এখনও কোনো বার্তা নেই। আপনারা দুজনেই অনলাইন থাকলে বার্তা সরাসরি তাদের কাছে যায়।';
 

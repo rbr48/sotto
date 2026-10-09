@@ -65,6 +65,11 @@ class AppLocalizationsAr extends AppLocalizations {
   String get chatStatusNotSent => 'لم تُرسل';
 
   @override
+  String chatStatusNotSentOffline(String name) {
+    return 'لم تُرسل: $name غير متصل';
+  }
+
+  @override
   String get chatEmptyHint =>
       'لا توجد رسائل بعد. تُرسل الرسائل مباشرة إليهم عندما تكونان متصلين معاً.';
 

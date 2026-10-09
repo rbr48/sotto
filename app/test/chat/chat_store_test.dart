@@ -55,6 +55,26 @@ void main() {
   });
 
   test(
+    'why a message was not sent is kept, and cleared when it is sent again',
+    () async {
+      await store.add(_message(1, state: ChatState.sending));
+      await store.setState(
+        'bob',
+        _id(1),
+        ChatState.notSent,
+        reason: 'no-answer',
+      );
+
+      final unsent = (await ChatStore(secrets).messages('bob')).single;
+      expect(unsent.state, ChatState.notSent);
+      expect(unsent.reason, 'no-answer');
+
+      await store.setState('bob', _id(1), ChatState.sending);
+      expect((await store.find('bob', _id(1)))!.reason, isNull);
+    },
+  );
+
+  test(
     'history survives a restart, read from the same encrypted store',
     () async {
       await store.add(_message(1, text: 'Salaam — مرحبا — নমস্কার'));

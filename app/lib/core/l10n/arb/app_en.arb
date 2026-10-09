@@ -18,6 +18,15 @@
   "chatStatusSending": "Sending",
   "chatStatusDelivered": "Delivered",
   "chatStatusNotSent": "Not sent",
+  "chatStatusNotSentOffline": "Not sent: {name} is offline",
+  "@chatStatusNotSentOffline": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Meera Rao"
+      }
+    }
+  },
   "chatEmptyHint": "No messages yet. Messages go directly to them while you are both online.",
   "chatDirectNote": "Messages go directly between your devices while you are both online. Nothing is stored on a server.",
   "chatDeleteMenu": "Delete chat",

@@ -18,6 +18,7 @@
   "chatStatusSending": "جارٍ الإرسال",
   "chatStatusDelivered": "تم التسليم",
   "chatStatusNotSent": "لم تُرسل",
+  "chatStatusNotSentOffline": "لم تُرسل: {name} غير متصل",
   "chatEmptyHint": "لا توجد رسائل بعد. تُرسل الرسائل مباشرة إليهم عندما تكونان متصلين معاً.",
   "chatDirectNote": "تُرسل الرسائل مباشرة بين جهازيكما عندما تكونان متصلين. لا يُحفظ شيء على أي خادم.",
   "chatDeleteMenu": "حذف المحادثة",

@@ -15,6 +15,7 @@ class ChatMessage {
     required this.ts,
     required this.text,
     required this.state,
+    this.reason,
   });
 
   /// 16 random bytes, unpadded base64url. The same on both devices.
@@ -31,13 +32,19 @@ class ChatMessage {
   final String text;
   final ChatState state;
 
-  ChatMessage withState(ChatState next) => ChatMessage(
+  /// Why the message was not sent: the chat's reason, such as 'no-answer'.
+  /// Set only while [state] is [ChatState.notSent].
+  final String? reason;
+
+  /// The same message in another state. A reason is kept only when given.
+  ChatMessage withState(ChatState next, {String? reason}) => ChatMessage(
     id: id,
     contactId: contactId,
     outgoing: outgoing,
     ts: ts,
     text: text,
     state: next,
+    reason: reason,
   );
 
   Map<String, Object?> toJson() => {
@@ -46,6 +53,7 @@ class ChatMessage {
     'ts': ts,
     'text': text,
     'state': state.name,
+    'reason': reason,
   };
 
   static ChatMessage fromJson(String contactId, Map<String, dynamic> json) {
@@ -54,11 +62,13 @@ class ChatMessage {
     final outgoing = json['out'];
     final ts = json['ts'];
     final text = json['text'];
+    final reason = json['reason'];
     if (id is! String ||
         outgoing is! bool ||
         ts is! int ||
         text is! String ||
-        state.isEmpty) {
+        state.isEmpty ||
+        (reason != null && reason is! String)) {
       throw const ChatStoreException('unreadable');
     }
     return ChatMessage(
@@ -68,6 +78,7 @@ class ChatMessage {
       ts: ts,
       text: text,
       state: state.first,
+      reason: reason as String?,
     );
   }
 }
@@ -164,15 +175,19 @@ class ChatStore {
     await _save(chats);
   });
 
-  Future<void> setState(String contactId, String id, ChatState state) =>
-      _inOrder(() async {
-        final chats = await _load();
-        final list = chats[contactId];
-        final index = list?.indexWhere((m) => m.id == id) ?? -1;
-        if (list == null || index < 0) return;
-        list[index] = list[index].withState(state);
-        await _save(chats);
-      });
+  Future<void> setState(
+    String contactId,
+    String id,
+    ChatState state, {
+    String? reason,
+  }) => _inOrder(() async {
+    final chats = await _load();
+    final list = chats[contactId];
+    final index = list?.indexWhere((m) => m.id == id) ?? -1;
+    if (list == null || index < 0) return;
+    list[index] = list[index].withState(state, reason: reason);
+    await _save(chats);
+  });
 
   /// Deletes the whole chat with [contactId].
   Future<void> deleteChat(String contactId) => _inOrder(() async {

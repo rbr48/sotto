@@ -443,7 +443,9 @@ class ChatManager {
 
   void _openFailed(String contact, String reason) {
     for (final message in _waiting.remove(contact) ?? const <ChatMessage>[]) {
-      unawaited(store.setState(contact, message.id, ChatState.notSent));
+      unawaited(
+        store.setState(contact, message.id, ChatState.notSent, reason: reason),
+      );
       _emit(ChatUpdate(contact, MessageNotSent(message.id)));
     }
     _emit(ChatOpenFailure(contact, reason));
@@ -457,7 +459,12 @@ class ChatManager {
     live.timer?.cancel();
     _live.remove(live.sessionId);
     for (final message in live.resend) {
-      await store.setState(live.contact, message.id, ChatState.notSent);
+      await store.setState(
+        live.contact,
+        message.id,
+        ChatState.notSent,
+        reason: reason,
+      );
       _emit(ChatUpdate(live.contact, MessageNotSent(message.id)));
     }
     live.resend.clear();

@@ -261,7 +261,7 @@ class ChatSession {
     if (_ended) return;
     _ended = true;
     for (final id in _outbox.keys.toList()) {
-      await store.setState(contactId, id, ChatState.notSent);
+      await store.setState(contactId, id, ChatState.notSent, reason: reason);
       _events.add(MessageNotSent(id));
     }
     _outbox.clear();

@@ -18,6 +18,7 @@
   "chatStatusSending": "পাঠানো হচ্ছে",
   "chatStatusDelivered": "পৌঁছেছে",
   "chatStatusNotSent": "পাঠানো যায়নি",
+  "chatStatusNotSentOffline": "পাঠানো যায়নি: {name} অফলাইনে আছেন",
   "chatEmptyHint": "এখনও কোনো বার্তা নেই। আপনারা দুজনেই অনলাইন থাকলে বার্তা সরাসরি তাদের কাছে যায়।",
   "chatDirectNote": "আপনারা দুজনেই অনলাইন থাকলে বার্তা সরাসরি আপনাদের ডিভাইসের মধ্যে যায়। কোনো সার্ভারে কিছু জমা থাকে না।",
   "chatDeleteMenu": "চ্যাট মুছুন",

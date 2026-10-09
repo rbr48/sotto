@@ -314,6 +314,7 @@ void main() {
 
     expect(events.whereType<ChatOpenFailure>().single.reason, 'no-answer');
     expect((await store.find('bob', message.id))!.state, ChatState.notSent);
+    expect((await store.find('bob', message.id))!.reason, 'no-answer');
     await sub.cancel();
   });
 
@@ -443,6 +444,7 @@ void main() {
 
     expect(ours, isNot(theirs));
     expect((await store.find('aaa', message.id))!.state, ChatState.notSent);
+    expect((await store.find('aaa', message.id))!.reason, 'dropped');
     expect(events.whereType<ChatOpenFailure>().single.reason, 'dropped');
     await sub.cancel();
   });

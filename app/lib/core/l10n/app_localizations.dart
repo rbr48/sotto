@@ -208,6 +208,12 @@ abstract class AppLocalizations {
   /// **'Not sent'**
   String get chatStatusNotSent;
 
+  /// No description provided for @chatStatusNotSentOffline.
+  ///
+  /// In en, this message translates to:
+  /// **'Not sent: {name} is offline'**
+  String chatStatusNotSentOffline(String name);
+
   /// No description provided for @chatEmptyHint.
   ///
   /// In en, this message translates to:

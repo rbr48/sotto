@@ -173,6 +173,7 @@ class _ChatPageState extends State<ChatPage> {
                       itemCount: _messages.length,
                       itemBuilder: (context, index) => _Bubble(
                         message: _messages[_messages.length - 1 - index],
+                        contactName: widget.name,
                         l10n: l10n,
                         onRetry: _retry,
                       ),
@@ -261,11 +262,15 @@ class _ProblemBanner extends StatelessWidget {
 class _Bubble extends StatelessWidget {
   const _Bubble({
     required this.message,
+    required this.contactName,
     required this.l10n,
     required this.onRetry,
   });
 
   final ChatMessage message;
+
+  /// The contact's name, for the offline status text.
+  final String contactName;
   final AppLocalizations l10n;
   final Future<void> Function(ChatMessage message) onRetry;
 
@@ -309,11 +314,14 @@ class _Bubble extends StatelessWidget {
                     color: foreground.withValues(alpha: 0.8),
                   ),
                   const SizedBox(width: 4),
-                  Text(
-                    _statusText(message.state),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: foreground.withValues(alpha: 0.8),
+                  // Long names wrap here, so the Retry button stays on the bubble.
+                  Flexible(
+                    child: Text(
+                      _statusText(message),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: foreground.withValues(alpha: 0.8),
+                      ),
                     ),
                   ),
                   if (notSent)
@@ -340,9 +348,13 @@ class _Bubble extends StatelessWidget {
     ChatState.received => Icons.done,
   };
 
-  String _statusText(ChatState state) => switch (state) {
+  /// A message no session opened for is "offline" (the plan's wording). Other
+  /// failures say only "Not sent"; the banner explains them.
+  String _statusText(ChatMessage message) => switch (message.state) {
     ChatState.sending => l10n.chatStatusSending,
     ChatState.delivered => l10n.chatStatusDelivered,
+    ChatState.notSent when message.reason == 'no-answer' =>
+      l10n.chatStatusNotSentOffline(contactName),
     ChatState.notSent => l10n.chatStatusNotSent,
     ChatState.received => '',
   };

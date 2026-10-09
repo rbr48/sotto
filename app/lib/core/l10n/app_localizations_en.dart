@@ -65,6 +65,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get chatStatusNotSent => 'Not sent';
 
   @override
+  String chatStatusNotSentOffline(String name) {
+    return 'Not sent: $name is offline';
+  }
+
+  @override
   String get chatEmptyHint =>
       'No messages yet. Messages go directly to them while you are both online.';
 

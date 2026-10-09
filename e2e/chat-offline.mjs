@@ -5,7 +5,7 @@
 //  1. Meera and Arun add each other as contacts, and Arun opens the chat with
 //     Meera while she is online.
 //  2. Meera goes offline. Arun sends "Are you there?". Nobody answers the open,
-//     so the message shows "Not sent", with a Retry button and the problem
+//     so the message shows "Not sent: Meera Rao is offline", with a Retry button and the problem
 //     banner.
 //  3. Meera comes back online. The message must not arrive by itself, and
 //     Arun's app must send nothing to the relay: a new session starts with an
@@ -166,10 +166,9 @@ try {
   await typeInto(arun, 'Write a message', 'Are you there?');
   await clickButton(arun, 'Send');
   await waitUntil(() => arunRelay.sends > sendsBeforeMessage, "Arun's app to send the open to the relay");
-  await bubble(arun, 'Not sent').first().waitFor({ timeout: slow });
+  await bubble(arun, 'Not sent: Meera Rao is offline').first().waitFor({ timeout: slow });
   const notSentIn = secondsSince(sentAt);
-  // The shipped text (app_en.arb). docs/MESSAGING_PLAN.md says "Not sent: <name> is
-  // offline"; the two differ, and which one is right is still open.
+  // The plan's wording (docs/MESSAGING_PLAN.md, "Offline").
   await arun
     .getByText('The connection could not be made. Your messages were not sent; you can retry.')
     .first()
@@ -181,7 +180,7 @@ try {
     'Arun has one Retry button',
   );
   console.log(
-    `✓ Arun sees "Not sent", a Retry button and the problem banner, ${notSentIn} after sending`,
+    `✓ Arun sees "Not sent: Meera Rao is offline", a Retry button and the problem banner, ${notSentIn} after sending`,
   );
 
   // 3. Meera comes back online. Nothing may have reached her while she was
@@ -210,10 +209,14 @@ try {
     "Arun's app sent nothing to the relay after Meera came back (no background resend)",
   );
   assert.equal(await bubble(meera).count(), 0, 'Meera must not get the message by itself');
-  assert.equal(await bubble(arun, 'Not sent').count(), 1, 'Arun still shows "Not sent"');
+  assert.equal(
+    await bubble(arun, 'Not sent: Meera Rao is offline').count(),
+    1,
+    'Arun still shows "Not sent: Meera Rao is offline"',
+  );
   assert.equal(await bubble(arun, 'Delivered').count(), 0, 'Arun does not see "Delivered" yet');
   console.log(
-    '✓ Meera is back and her chat is open: in 35 s the message did not arrive, Arun sent nothing, and Arun still shows "Not sent"',
+    '✓ Meera is back and her chat is open: in 35 s the message did not arrive, Arun sent nothing, and Arun still shows "Not sent: Meera Rao is offline"',
   );
 
   // 4. Arun presses Retry while Meera is online. The same message (same id) goes
