@@ -10,7 +10,7 @@ This is a living document. It records what Sotto protects, against whom, and wha
 | Call setup data (SDP, ICE candidates: IP addresses, codec details) | In transit, inside end-to-end envelopes |
 | Chat messages (text) | In transit only, directly between the two devices over an encrypted data channel; the relay never carries the text |
 | Identities (master secret) | Professional's device, in the OS keystore (in the browser: memory only, or the browser's storage with *Remember me*, §9.1 of `PROTOCOL.md`); guests: memory only |
-| Contacts, call history, chat history, notes, recordings | Professional's device only, in the encrypted vault (`PROTOCOL.md` §9) |
+| Contacts, call history, chat history, notes | Professional's device only, in the encrypted vault (`PROTOCOL.md` §9) |
 | Backups | Wherever the user saves them, encrypted with their passphrase (`PROTOCOL.md` §8) |
 | Metadata: who talks to whom, when, from which IP | Seen briefly by the relay in RAM; never stored |
 
@@ -32,7 +32,7 @@ This is a living document. It records what Sotto protects, against whom, and wha
 | Network attacker reads signaling | TLS (`wss://`) to the relay **and** end-to-end envelopes | Phase 2 ✅ (envelopes); TLS via Caddy ✅ |
 | Relay reads call setup data | Envelopes are sealed to the recipient's X25519 key; relay sees ciphertext only. The end-to-end test asserts no SDP or candidates reach the relay in readable form | ✅ |
 | Relay forges or alters messages | Ed25519 signature over the inner message; any change fails verification | ✅ |
-| Relay replays old messages | 2-minute timestamp window + nonce cache | ✅ |
+| Relay replays old messages | 2-minute timestamp window + nonce cache. The cache is in memory only, so a message replayed within 2 minutes of an app restart is accepted | ✅ |
 | Participant re-addresses a signed message to someone else | Signed `to` field | ✅ |
 | Relay swaps identity cards (man in the middle) | Safety numbers shown to both people; mismatch reveals interception. Signed guest links (Phase 5) and verified contacts (Phase 6) remove the need to trust the first exchange | Detectable ✅; prevented from Phase 5 |
 | Relay or TURN reads media | WebRTC DTLS-SRTP; the DTLS fingerprints travel inside signed envelopes, so a relay can't substitute its own | ✅ |
@@ -73,8 +73,8 @@ This is a living document. It records what Sotto protects, against whom, and wha
 4. **First contact: guests are protected by signed links; colleagues by verified contacts.** A guest link is signed by the professional's key, so a malicious relay can't impersonate the professional to a guest who received the link through another channel. A contact link carries the colleague's keys, so calls go to the right key from the start; whether the link really came from that colleague is confirmed by comparing the safety number once (the contact is then marked verified). A guest's *name* and a contact link's name are self-chosen.
 5. **Call links and contact links are permanent.** Anyone who has a person's call link or contact link can ring them (these are meant for colleagues); guest links (waiting room, replaceable, one-time) are the recommended way to give access to clients. The receiving app only rings; nothing happens without the person accepting.
 6. **Local data is only as safe as the operating system.** The vault key and the identity live in the OS keystore. Malware on the device, or someone who can unlock the device and read the keystore, can read them. The app lock is a screen lock: while the app runs, the vault is open in memory so that calls can ring.
-7. **Clock dependence.** Devices with clocks more than 2 minutes off can't exchange messages. They will get a clear error once the real relay protocol exists.
-8. **Web guests run code served by the web server.** A compromised web host could serve modified JavaScript. Mitigations to consider: subresource integrity, reproducible builds, published hashes, and encouraging professionals to use the native app.
+7. **Clock dependence.** Devices with clocks more than 2 minutes off can't exchange messages. The receiving app drops such messages without telling anyone, so calls and chats simply fail.
+8. **Web app users run code served by the web server**, guests and professionals alike. A compromised web host could serve modified JavaScript. Mitigations to consider: subresource integrity, reproducible builds, published hashes, and encouraging professionals to use the native app.
 9. **Endpoint compromise** (malware on a participant's device) is out of scope; no messaging system can protect against it.
 10. **No external audit yet.** Planned before public launch (Phase 13).
 11. **A remembered browser is as safe as that browser profile.** With *Remember me on this browser*, the identity stays in the browser's storage. The wrapping key is non-extractable, but browsers keep it in the profile's files, and the browser's PIN verifier is a keyed hash, not Argon2id. Someone who can use or copy the profile can therefore use the identity. Use it on your own computer only; on shared computers, keep the default (nothing kept), and prefer the apps.

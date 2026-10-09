@@ -1,6 +1,7 @@
 # Translating Sotto
 
-Sotto is available in English, Bangla (বাংলা) and Arabic (العربية). English is
+Sotto is available in English, Bangla (বাংলা) and Arabic (العربية), though not
+every screen is translated yet (see "Still to do" below). English is
 the source language and the fallback: anything missing in another language
 shows in English, never blank.
 
