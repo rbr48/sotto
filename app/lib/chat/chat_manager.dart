@@ -74,6 +74,11 @@ class ChatManager {
   /// At most this many queued messages go through the relay per check.
   static const maxRelayPerFlush = 20;
 
+  /// How long a text that has not been acknowledged keeps being sent through
+  /// the relay on each check. The relay can hand a text to a connection that
+  /// has just died (it notices only later), so one copy is not enough.
+  static const relayRetryWindow = Duration(minutes: 15);
+
   /// Whether a Sotto ID is a contact. Only contacts can open a chat.
   final bool Function(String contactId) isContact;
 
@@ -596,7 +601,33 @@ class ChatManager {
       await live.session?.tick(viewing: _viewing == live.contact);
     }
     await flushAllOutbox();
+    await _resendUnacknowledged();
     await store.sweepExpired(clock: clock);
+  }
+
+  /// Sends again, through the relay, recent texts that the other side has not
+  /// acknowledged: still sending, or not sent for any reason but a cancel. A
+  /// contact with a ready direct chat is skipped; that chat sends them.
+  Future<void> _resendUnacknowledged() async {
+    if (_disposed) return;
+    final since = clock().subtract(relayRetryWindow).millisecondsSinceEpoch;
+    var budget = maxRelayPerFlush;
+    for (final contact in await store.contactIds()) {
+      if (budget <= 0) return;
+      if (!isContact(contact)) continue;
+      final session = _activeFor(contact)?.session;
+      if (session != null && !session.isEnded && session.isReady) continue;
+      for (final m in await store.messages(contact)) {
+        if (budget <= 0) return;
+        if (!m.outgoing || m.isAttachment || m.ts < since) continue;
+        final pending =
+            m.state == ChatState.sending ||
+            (m.state == ChatState.notSent && m.reason != 'cancelled');
+        if (!pending) continue;
+        _sendThroughRelay(m);
+        budget--;
+      }
+    }
   }
 
   /// Ends every chat and closes the event stream.

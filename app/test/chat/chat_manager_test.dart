@@ -852,6 +852,79 @@ void main() {
       expect(await bobStore.messages('alice'), isEmpty);
     });
 
+    test(
+      'a text whose relay copy was lost goes through on the next check',
+      () async {
+        final aliceStore = ChatStore(MemorySecretStore());
+        final bobStore = ChatStore(MemorySecretStore());
+        final alice = device(
+          'alice',
+          contacts: {'bob'},
+          store: aliceStore,
+          neverOpens: true,
+        );
+        device('bob', contacts: {'alice'}, store: bobStore, neverOpens: true);
+
+        // The first copy is lost (the relay handed it to a dead connection).
+        net.relayText = false;
+        final message = await alice.sendText('bob', 'still there?');
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        await _settle();
+        expect(await bobStore.messages('alice'), isEmpty);
+        expect(
+          (await aliceStore.find('bob', message.id))!.state,
+          ChatState.notSent,
+        );
+
+        // The next check sends it again, and this time it arrives.
+        net.relayText = true;
+        await alice.tick();
+        await _settle();
+
+        expect((await bobStore.messages('alice')).map((m) => m.text), [
+          'still there?',
+        ]);
+        expect(
+          (await aliceStore.find('bob', message.id))!.state,
+          ChatState.delivered,
+        );
+      },
+    );
+
+    test('old and cancelled texts are not sent again', () async {
+      final store = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: store);
+      final old = now
+          .subtract(ChatManager.relayRetryWindow + const Duration(minutes: 1))
+          .millisecondsSinceEpoch;
+      await store.add(
+        ChatMessage(
+          id: 'AAAAAAAAAAAAAAAAAAAAAA',
+          contactId: 'bob',
+          outgoing: true,
+          ts: old,
+          text: 'too old',
+          state: ChatState.notSent,
+          reason: 'no-answer',
+        ),
+      );
+      await store.add(
+        ChatMessage(
+          id: 'BBBBBBBBBBBBBBBBBBBBBA',
+          contactId: 'bob',
+          outgoing: true,
+          ts: now.millisecondsSinceEpoch,
+          text: 'cancelled',
+          state: ChatState.notSent,
+          reason: 'cancelled',
+        ),
+      );
+      await alice.tick();
+      await _settle();
+
+      expect(net.sent.where((s) => s.type == ChatManager.relayText), isEmpty);
+    });
+
     test('a queued file is never sent through the relay', () async {
       final store = ChatStore(MemorySecretStore());
       final alice = device('alice', contacts: {'bob'}, store: store);

@@ -7,9 +7,10 @@
 //  2. Meera goes offline. Arun sends "Are you there?". Nobody answers the open,
 //     so the message shows "Not sent: Meera Rao did not answer.", with a Retry
 //     button and the problem banner.
-//  3. Meera comes back online within a minute. The sealed copy of the text that
-//     waited at the relay reaches her: her chat shows it once, and Arun's
-//     bubble turns Delivered or Read, without Arun's app sending anything new.
+//  3. Meera comes back online. Arun's app sends the sealed text through the
+//     relay again on its next check (the first copy may have gone to her dead
+//     connection), so it reaches her by itself: her chat shows it once, and
+//     Arun's bubble turns Delivered or Read.
 //  4. Nothing is left to retry on Arun's side.
 //  5. The relay sees only encrypted envelopes; the pages contact no third-party
 //     hosts.
@@ -79,7 +80,11 @@ const secondsSince = (from) => `${((Date.now() - from) / 1000).toFixed(1)} s`;
  * matched.
  */
 const bubble = (page, status = '') => {
-  const pattern = status ? new RegExp(`Are you there\\?\\s*${status}`) : /Are you there\?/;
+  // The bubble's label names the status before the text ("You, 4:21 PM,
+  // Not sent: …: Are you there?"); its visible text shows it after.
+  const pattern = status
+    ? new RegExp(`Are you there\\?[\\s\\S]*${status}|${status}[\\s\\S]*Are you there\\?`)
+    : /Are you there\?/;
   return page.getByText(pattern).or(page.getByRole('group', { name: pattern }));
 };
 
@@ -197,9 +202,9 @@ try {
     `✓ Meera is back: she logged in to the relay ${secondsSince(backAt)} after the network returned`,
   );
 
-  // The text also went through the relay, sealed, and waited there for her (at
-  // most 60 s). Now that she is back it arrives by itself. Arun's app sends
-  // nothing for it: Meera's acknowledgement is what marks it delivered.
+  // The text also goes through the relay, sealed. The relay may have handed
+  // the first copy to her connection that had just died, so Arun's app sends
+  // it again on each check (every 30 s) until Meera acknowledges it.
   await openChat(meera, 'Arun Mehta');
   await bubble(meera).first().waitFor({ timeout: slow });
   // Meera's chat is open, so the message can go straight to "Read".
@@ -209,13 +214,12 @@ try {
   await sleep(3000);
   assert.equal(await bubble(meera).count(), 1, 'Meera\'s chat shows "Are you there?" once');
   assert.equal(await bubble(arun).count(), 1, 'Arun has exactly one "Are you there?" bubble');
-  assert.equal(
-    arunRelay.sends,
-    sendsBeforeReturn,
-    "Arun's app sent nothing to the relay after Meera came back",
+  assert.ok(
+    arunRelay.sends > sendsBeforeReturn,
+    "Arun's app sent the sealed text again after Meera came back",
   );
   console.log(
-    `✓ Meera is back: the sealed copy that waited at the relay arrived once, and Arun sees it delivered (${deliveredIn} after she came back online)`,
+    `✓ Meera is back: the sealed text reached her once by itself, and Arun sees it delivered (${deliveredIn} after she came back online)`,
   );
 
   // 4. Nothing is left to retry.
