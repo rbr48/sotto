@@ -35,6 +35,9 @@ class AppLocalizationsAr extends AppLocalizations {
   String get navHome => 'الرئيسية';
 
   @override
+  String get navChats => 'المحادثات';
+
+  @override
   String get navContacts => 'جهات الاتصال';
 
   @override

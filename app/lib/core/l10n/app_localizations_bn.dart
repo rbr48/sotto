@@ -35,6 +35,9 @@ class AppLocalizationsBn extends AppLocalizations {
   String get navHome => 'হোম';
 
   @override
+  String get navChats => 'চ্যাট';
+
+  @override
   String get navContacts => 'পরিচিতি';
 
   @override

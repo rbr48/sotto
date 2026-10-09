@@ -12,31 +12,31 @@ abstract final class SottoTheme {
     final light = brightness == Brightness.light;
     final scheme = ColorScheme.fromSeed(seedColor: seed, brightness: brightness)
         .copyWith(
-          primary: light ? seed : const Color(0xFFC9BCF5),
-          onPrimary: light ? Colors.white : const Color(0xFF2B1F55),
-          // Neutral rather than lavender-tinted surfaces.
-          surface: light ? const Color(0xFFF6F6F9) : const Color(0xFF0F0F14),
-          onSurface: light ? const Color(0xFF16161D) : const Color(0xFFE7E6EE),
+          primary: light ? seed : const Color(0xFF9E8CF4),
+          onPrimary: light ? Colors.white : const Color(0xFF1B1438),
+          // Deep obsidian dark mode & crisp porcelain light mode.
+          surface: light ? const Color(0xFFF8F9FA) : const Color(0xFF09090D),
+          onSurface: light ? const Color(0xFF16161D) : const Color(0xFFF0EFF5),
           onSurfaceVariant: light
               ? const Color(0xFF5D5B68)
-              : const Color(0xFFA9A7B5),
+              : const Color(0xFFA6A4B4),
           surfaceContainerLowest: light
               ? Colors.white
-              : const Color(0xFF15151C),
-          surfaceContainerLow: light ? Colors.white : const Color(0xFF18181F),
+              : const Color(0xFF0F0F14),
+          surfaceContainerLow: light ? Colors.white : const Color(0xFF14141B),
           surfaceContainer: light
-              ? const Color(0xFFF0EFF4)
-              : const Color(0xFF1D1D25),
+              ? const Color(0xFFF1F3F5)
+              : const Color(0xFF191922),
           surfaceContainerHigh: light
-              ? const Color(0xFFEAE9F0)
-              : const Color(0xFF23232C),
+              ? const Color(0xFFEAEBED)
+              : const Color(0xFF20202A),
           surfaceContainerHighest: light
-              ? const Color(0xFFE4E3EB)
-              : const Color(0xFF2A2A34),
+              ? const Color(0xFFE3E4E8)
+              : const Color(0xFF282834),
           outline: light ? const Color(0xFF8E8C99) : const Color(0xFF6E6C7A),
           outlineVariant: light
-              ? const Color(0xFFE2E1E8)
-              : const Color(0xFF2E2E38),
+              ? const Color(0xFFE5E7EB)
+              : const Color(0x26FFFFFF),
         );
     final base = ThemeData(
       // Bundled (see pubspec.yaml), never downloaded.
@@ -87,7 +87,7 @@ abstract final class SottoTheme {
       cardTheme: CardThemeData(
         elevation: 0,
         margin: EdgeInsets.zero,
-        color: scheme.surfaceContainerLowest,
+        color: scheme.surfaceContainerLow,
         surfaceTintColor: Colors.transparent,
         clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(

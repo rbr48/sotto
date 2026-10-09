@@ -22,54 +22,132 @@ class WaitingRoom extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
-      color: theme.colorScheme.primaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+    final isDark = theme.brightness == Brightness.dark;
+    const amber = Color(0xFFF59E0B);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF14141B) : Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: amber.withValues(alpha: 0.6), width: 1.4),
+        boxShadow: [
+          BoxShadow(
+            color: amber.withValues(alpha: isDark ? 0.12 : 0.08),
+            blurRadius: 18,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: amber.withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.warning_amber_rounded,
+                  color: amber,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Waiting Room',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 3,
+                ),
+                decoration: BoxDecoration(
+                  color: amber.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text(
+                  'Alert',
+                  style: TextStyle(
+                    color: amber,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          for (final guest in host.waiting) ...[
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.only(bottom: 8),
               child: Text(
-                'Waiting room (${host.waiting.length})',
-                style: theme.textTheme.titleMedium,
+                '1 guest waiting: ${guest.name} (${TimeOfDay.fromDateTime(guest.since.toLocal()).format(context)})',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w500,
+                  color: theme.colorScheme.onSurface,
+                ),
               ),
             ),
-            for (final guest in host.waiting)
-              ListTile(
-                leading: Icon(guest.video ? Icons.videocam : Icons.call),
-                title: Text(guest.name),
-                subtitle: Text(
-                  'Waiting since ${TimeOfDay.fromDateTime(guest.since.toLocal()).format(context)}',
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: amber,
+                      foregroundColor: Colors.black,
+                      minimumSize: const Size.fromHeight(46),
+                      textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    onPressed: controller.call.active
+                        ? null
+                        : () => controller.admitGuest(guest.knockId),
+                    child: const Text('Admit'),
+                  ),
                 ),
-                trailing: Wrap(
-                  spacing: 4,
-                  children: [
-                    PopupMenuButton<String>(
-                      tooltip: 'Send a message',
-                      icon: const Icon(Icons.chat_bubble_outline),
-                      onSelected: (text) => host.message(guest.knockId, text),
-                      itemBuilder: (context) => [
-                        for (final reply in _quickReplies)
-                          PopupMenuItem(value: reply, child: Text(reply)),
-                      ],
+                const SizedBox(width: 10),
+                Expanded(
+                  child: PopupMenuButton<String>(
+                    tooltip: 'Send quick note',
+                    onSelected: (text) => host.message(guest.knockId, text),
+                    itemBuilder: (context) => [
+                      for (final reply in _quickReplies)
+                        PopupMenuItem(value: reply, child: Text(reply)),
+                    ],
+                    child: Container(
+                      height: 46,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest
+                            .withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: theme.colorScheme.outlineVariant,
+                        ),
+                      ),
+                      child: Text(
+                        'Quick Note',
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurface,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
-                    TextButton(
-                      onPressed: () => host.decline(guest.knockId),
-                      child: const Text('Decline'),
-                    ),
-                    FilledButton(
-                      onPressed: controller.call.active
-                          ? null
-                          : () => controller.admitGuest(guest.knockId),
-                      child: const Text('Admit'),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
+            ),
           ],
-        ),
+        ],
       ),
     );
   }

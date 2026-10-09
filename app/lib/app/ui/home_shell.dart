@@ -8,6 +8,9 @@ import '../../call/call_controller.dart';
 import '../../call/call_manager.dart';
 import '../../call/ui/common.dart';
 import '../../chat/ui/chat_page.dart';
+import '../../chat/ui/chats_tab.dart';
+import '../../contacts/contact_book.dart';
+import '../../contacts/contact_link.dart';
 import '../../contacts/profile_exchange.dart';
 import '../../contacts/ui/contact_dialogs.dart';
 import '../../contacts/ui/contacts_tab.dart';
@@ -23,7 +26,7 @@ import '../app_controller.dart';
 import 'header_downloads_action.dart';
 import 'settings_tab.dart';
 
-/// The professional's main screen: Home, Contacts, History and Settings.
+/// The professional's main screen: Home, Chats, Contacts, History and Settings.
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key, required this.app, required this.calls});
 
@@ -41,14 +44,20 @@ class _HomeShellState extends State<HomeShell> {
 
   static const _destinations = [
     (Icons.home_outlined, Icons.home),
+    (Icons.chat_bubble_outline, Icons.chat_bubble),
     (Icons.people_outline, Icons.people),
     (Icons.history, Icons.history),
     (Icons.settings_outlined, Icons.settings),
   ];
 
   /// Tab labels in the current language.
-  static String _label(AppLocalizations l10n, int i) =>
-      [l10n.navHome, l10n.navContacts, l10n.navHistory, l10n.navSettings][i];
+  static String _label(AppLocalizations l10n, int i) => [
+    l10n.navHome,
+    l10n.navChats,
+    l10n.navContacts,
+    l10n.navHistory,
+    l10n.navSettings,
+  ][i];
 
   @override
   void initState() {
@@ -104,8 +113,9 @@ class _HomeShellState extends State<HomeShell> {
     final calls = widget.calls;
     final tab = switch (_tab) {
       0 => HomeTab(app: app, calls: calls),
-      1 => ContactsTab(app: app, calls: calls),
-      2 => HistoryTab(app: app, calls: calls),
+      1 => ChatsTab(app: app, calls: calls),
+      2 => ContactsTab(app: app, calls: calls),
+      3 => HistoryTab(app: app, calls: calls),
       _ => SettingsTab(app: app, calls: calls),
     };
     final body = Column(
@@ -148,7 +158,7 @@ class _HomeShellState extends State<HomeShell> {
           child: Tooltip(
             message: l10n.navSettings,
             child: InkWell(
-              onTap: () => setState(() => _tab = 3),
+              onTap: () => setState(() => _tab = 4),
               customBorder: const CircleBorder(),
               child: Center(
                 child: Stack(
@@ -298,9 +308,59 @@ class HomeTab extends StatefulWidget {
 class _HomeTabState extends State<HomeTab> {
   final _linkField = TextEditingController();
   String? _linkError;
+  ContactInvite? _previewInvite;
+  Contact? _previewContact;
+  Timer? _debounceTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _linkField.addListener(_onLinkChanged);
+  }
+
+  void _onLinkChanged() {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(
+      const Duration(milliseconds: 300),
+      _checkLinkPreview,
+    );
+  }
+
+  Future<void> _checkLinkPreview() async {
+    final text = _linkField.text.trim();
+    if (text.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _previewInvite = null;
+          _previewContact = null;
+        });
+      }
+      return;
+    }
+    try {
+      final invite = await widget.calls.resolveLink(text);
+      if (!mounted) return;
+      final existing = widget.app.contacts.contacts
+          .where((c) => c.identity.id == invite.identity.id)
+          .firstOrNull;
+      setState(() {
+        _previewInvite = invite;
+        _previewContact = existing;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _previewInvite = null;
+          _previewContact = null;
+        });
+      }
+    }
+  }
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
+    _linkField.removeListener(_onLinkChanged);
     _linkField.dispose();
     super.dispose();
   }
@@ -458,20 +518,20 @@ class _HomeTabState extends State<HomeTab> {
               children: [
                 Row(
                   children: [
-                    const IconBadge(icon: Icons.phone_forwarded_rounded),
+                    const IconBadge(icon: Icons.link_rounded),
                     const SizedBox(width: 14),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Call or message a link',
+                            'Smart Link',
                             style: theme.textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.bold,
                             ),
                           ),
                           Text(
-                            'Paste a colleague\'s contact link or call link. To call or message your contacts, use the Contacts tab.',
+                            'Connect with your health or legal contacts with end-to-end encryption.',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
                             ),
@@ -486,45 +546,100 @@ class _HomeTabState extends State<HomeTab> {
                   key: const Key('call-link-field'),
                   controller: _linkField,
                   decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.link_rounded),
+                    prefixIcon: const Icon(Icons.search_rounded),
                     labelText: 'Their link',
-                    hintText: 'Paste call or contact link',
+                    hintText: 'Search or paste…',
                     errorText: _linkError,
                   ),
                   onSubmitted: (_) => _call(video: true),
                 ),
+                if (_previewInvite case final invite?) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: theme.colorScheme.primary.withValues(
+                          alpha: 0.25,
+                        ),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        InitialsAvatar(
+                          name:
+                              _previewContact?.name ?? invite.name ?? 'Contact',
+                          radius: 14,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Real-time preview: ${_previewContact?.name ?? invite.name ?? 'Colleague'}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Icon(
+                          (_previewContact?.verified ?? false)
+                              ? Icons.verified
+                              : Icons.shield_outlined,
+                          color: const Color(0xFF10B981),
+                          size: 16,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          (_previewContact?.verified ?? false)
+                              ? 'Verified'
+                              : 'Secure',
+                          style: const TextStyle(
+                            color: Color(0xFF10B981),
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: () => _call(video: true),
+                  icon: const Icon(Icons.videocam_rounded),
+                  label: const Text('Video Consultation'),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                  ),
+                ),
+                const SizedBox(height: 10),
                 Row(
                   children: [
                     Expanded(
-                      child: FilledButton.icon(
-                        onPressed: () => _call(video: true),
-                        icon: const Icon(Icons.videocam),
-                        label: const FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text('Video call'),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
                       child: OutlinedButton.icon(
                         onPressed: () => _call(video: false),
-                        icon: const Icon(Icons.call),
+                        icon: const Icon(Icons.call_rounded),
                         label: const FittedBox(
                           fit: BoxFit.scaleDown,
-                          child: Text('Voice call'),
+                          child: Text('Voice Call'),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: OutlinedButton.icon(
                         onPressed: _message,
-                        icon: const Icon(Icons.chat_bubble_outline),
+                        icon: const Icon(Icons.chat_bubble_outline_rounded),
                         label: const FittedBox(
                           fit: BoxFit.scaleDown,
-                          child: Text('Message'),
+                          child: Text('Chat'),
                         ),
                       ),
                     ),

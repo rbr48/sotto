@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -277,9 +278,11 @@ class _StatusRow extends StatelessWidget {
       children: [
         if (controller.safetyNumber case final number?)
           _Chip(
-            icon: Icons.lock,
-            text: 'Encrypted',
-            tooltip: 'End-to-end encrypted. Show the safety number',
+            icon: Icons.fingerprint,
+            text:
+                'E2EE · ${route == MediaRoute.relayed ? 'Relayed (IP Hidden)' : 'Direct P2P'}',
+            iconColor: const Color(0xFF10B981),
+            tooltip: 'End-to-end encrypted. Tap to inspect safety number',
             onTap: () => showSafetyNumber(
               context,
               number: number,
@@ -292,12 +295,6 @@ class _StatusRow extends StatelessWidget {
         if (call.reconnecting)
           const ReconnectingPill()
         else ...[
-          if (route == MediaRoute.relayed)
-            const _Chip(
-              icon: Icons.shield_outlined,
-              text: 'Relayed',
-              tooltip: 'Relayed through Sotto: IP addresses are hidden',
-            ),
           if (quality != null) QualityPill(quality: quality),
           if (controller.videoLevel == VideoLevel.paused)
             const _Chip(
@@ -434,89 +431,132 @@ class _CallControls extends StatelessWidget {
     return SafeArea(
       top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
-        child: Wrap(
-          alignment: WrapAlignment.center,
-          spacing: 18,
-          runSpacing: 12,
-          children: [
-            RoundCallButton(
-              tooltip: controller.micEnabled ? 'Mute' : 'Unmute',
-              label: controller.micEnabled ? 'Mute' : 'Unmute',
-              icon: controller.micEnabled ? Icons.mic : Icons.mic_off,
-              active: !controller.micEnabled,
-              onPressed: controller.toggleMic,
+        padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
+        child: Center(
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(38),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x66000000),
+                  blurRadius: 24,
+                  offset: Offset(0, 8),
+                ),
+              ],
             ),
-            if (video)
-              RoundCallButton(
-                tooltip: controller.cameraEnabled
-                    ? 'Turn camera off'
-                    : 'Turn camera on',
-                label: 'Camera',
-                icon: controller.cameraEnabled
-                    ? Icons.videocam
-                    : Icons.videocam_off,
-                active: !controller.cameraEnabled,
-                onPressed: controller.toggleCamera,
-              ),
-            if (video && Theme.of(context).platform == TargetPlatform.android)
-              RoundCallButton(
-                tooltip: 'Switch camera',
-                label: 'Flip',
-                icon: Icons.cameraswitch,
-                onPressed: controller.switchCamera,
-              ),
-            if (controller.devices != null)
-              RoundCallButton(
-                tooltip: 'Audio and video devices',
-                label: 'Devices',
-                icon: Icons.tune,
-                onPressed: () => showModalBottomSheet<void>(
-                  context: context,
-                  showDragHandle: true,
-                  builder: (_) => DevicePicker(controller: controller),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(38),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xB314141B),
+                    borderRadius: BorderRadius.circular(38),
+                    border: Border.all(
+                      color: const Color(0x33FFFFFF),
+                      width: 1,
+                    ),
+                  ),
+                  child: Wrap(
+                    alignment: WrapAlignment.center,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 14,
+                    runSpacing: 8,
+                    children: [
+                      RoundCallButton(
+                        tooltip: controller.micEnabled ? 'Mute' : 'Unmute',
+                        label: controller.micEnabled ? 'Mute Mic' : 'Unmute',
+                        icon: controller.micEnabled ? Icons.mic : Icons.mic_off,
+                        active: !controller.micEnabled,
+                        onPressed: controller.toggleMic,
+                      ),
+                      if (video)
+                        RoundCallButton(
+                          tooltip: controller.cameraEnabled
+                              ? 'Turn camera off'
+                              : 'Turn camera on',
+                          label: 'Camera',
+                          icon: controller.cameraEnabled
+                              ? Icons.videocam
+                              : Icons.videocam_off,
+                          active: !controller.cameraEnabled,
+                          onPressed: controller.toggleCamera,
+                        ),
+                      if (video &&
+                          Theme.of(context).platform == TargetPlatform.android)
+                        RoundCallButton(
+                          tooltip: 'Switch camera',
+                          label: 'Flip',
+                          icon: Icons.cameraswitch,
+                          onPressed: controller.switchCamera,
+                        ),
+                      if (controller.devices != null)
+                        RoundCallButton(
+                          tooltip: 'Audio and video devices',
+                          label: 'Devices',
+                          icon: Icons.tune,
+                          onPressed: () => showModalBottomSheet<void>(
+                            context: context,
+                            showDragHandle: true,
+                            builder: (_) =>
+                                DevicePicker(controller: controller),
+                          ),
+                        ),
+                      if (controller.chat != null &&
+                          controller.call.peer != null &&
+                          (controller.chat?.isContact(
+                                controller.call.peer!.id,
+                              ) ??
+                              false))
+                        RoundCallButton(
+                          tooltip: 'In-call chat',
+                          label: 'In-call',
+                          icon: Icons.chat_bubble_outline,
+                          onPressed: () {
+                            final peer = controller.call.peer!;
+                            showModalBottomSheet<void>(
+                              context: context,
+                              isScrollControlled: true,
+                              showDragHandle: true,
+                              backgroundColor: Theme.of(context)
+                                  .colorScheme
+                                  .surface,
+                              builder: (sheetContext) => FractionallySizedBox(
+                                heightFactor: 0.85,
+                                child: ClipRRect(
+                                  borderRadius: const BorderRadius.vertical(
+                                    top: Radius.circular(20),
+                                  ),
+                                  child: ChatPage(
+                                    chat: controller.chat!,
+                                    contactId: peer.id,
+                                    name: splitPeerName(controller.peerName).$1,
+                                    sendTyping: controller.sendTyping,
+                                    sendReadReceipts:
+                                        controller.sendReadReceipts,
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      RoundCallButton(
+                        tooltip: 'Hang up',
+                        label: 'End Call',
+                        icon: Icons.call_end,
+                        danger: true,
+                        onPressed: controller.hangUp,
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            if (controller.chat != null &&
-                controller.call.peer != null &&
-                (controller.chat?.isContact(controller.call.peer!.id) ?? false))
-              RoundCallButton(
-                tooltip: 'Chat',
-                label: 'Chat',
-                icon: Icons.chat_bubble_outline,
-                onPressed: () {
-                  final peer = controller.call.peer!;
-                  showModalBottomSheet<void>(
-                    context: context,
-                    isScrollControlled: true,
-                    showDragHandle: true,
-                    backgroundColor: Theme.of(context).colorScheme.surface,
-                    builder: (sheetContext) => FractionallySizedBox(
-                      heightFactor: 0.85,
-                      child: ClipRRect(
-                        borderRadius: const BorderRadius.vertical(
-                          top: Radius.circular(20),
-                        ),
-                        child: ChatPage(
-                          chat: controller.chat!,
-                          contactId: peer.id,
-                          name: splitPeerName(controller.peerName).$1,
-                          sendTyping: controller.sendTyping,
-                          sendReadReceipts: controller.sendReadReceipts,
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            RoundCallButton(
-              tooltip: 'Hang up',
-              label: 'End',
-              icon: Icons.call_end,
-              danger: true,
-              onPressed: controller.hangUp,
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -563,19 +603,19 @@ class RoundCallButton extends StatelessWidget {
         IconButton(
           tooltip: tooltip,
           onPressed: onPressed,
-          iconSize: 26,
+          iconSize: 24,
           style: IconButton.styleFrom(
             backgroundColor: background,
             foregroundColor: foreground,
-            fixedSize: const Size.square(64),
+            fixedSize: const Size.square(56),
           ),
           icon: Icon(icon),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         ExcludeSemantics(
           child: Text(
             label,
-            style: const TextStyle(color: Colors.white70, fontSize: 12),
+            style: const TextStyle(color: Colors.white70, fontSize: 11),
           ),
         ),
       ],

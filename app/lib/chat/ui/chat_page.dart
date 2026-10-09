@@ -69,6 +69,7 @@ class _ChatPageState extends State<ChatPage> {
   Timer? _peerTypingTimer;
   bool _peerIsTyping = false;
   bool _myTypingSent = false;
+  Duration? _retention;
 
   @override
   void initState() {
@@ -79,6 +80,12 @@ class _ChatPageState extends State<ChatPage> {
     _scrollController.addListener(_onScroll);
     unawaited(_markAndSendRead());
     unawaited(_load(reset: true));
+    unawaited(_loadRetention());
+  }
+
+  Future<void> _loadRetention() async {
+    final ret = await widget.chat.store.retention(widget.contactId);
+    if (mounted) setState(() => _retention = ret);
   }
 
   void _onScroll() {
@@ -457,8 +464,15 @@ class _ChatPageState extends State<ChatPage> {
     );
     if (selected != null && selected != current) {
       await widget.chat.store.setRetention(widget.contactId, selected);
+      if (mounted) setState(() => _retention = selected);
       await _load();
     }
+  }
+
+  String _retentionText(Duration d, AppLocalizations l10n) {
+    if (d.inHours <= 24) return '24h';
+    if (d.inDays <= 7) return '7d';
+    return '30d';
   }
 
   @override
@@ -479,6 +493,7 @@ class _ChatPageState extends State<ChatPage> {
 
     return Scaffold(
       appBar: AppBar(
+        titleSpacing: 0,
         title: _isSearching
             ? TextField(
                 controller: _searchController,
@@ -489,7 +504,71 @@ class _ChatPageState extends State<ChatPage> {
                 ),
                 onChanged: (q) => setState(() => _searchQuery = q.trim()),
               )
-            : Text(widget.name),
+            : Row(
+                children: [
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      InitialsAvatar(name: widget.name, radius: 18),
+                      Positioned(
+                        right: -1,
+                        bottom: -1,
+                        child: Container(
+                          width: 10,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF10B981),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Theme.of(context).colorScheme.surface,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                widget.name,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Icon(
+                              Icons.verified,
+                              color: Color(0xFF10B981),
+                              size: 16,
+                            ),
+                          ],
+                        ),
+                        Text(
+                          'Active now · E2EE',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
         leading: _isSearching
             ? IconButton(
                 icon: const Icon(Icons.arrow_back),
@@ -515,6 +594,11 @@ class _ChatPageState extends State<ChatPage> {
               icon: const Icon(Icons.search),
               tooltip: l10n.chatSearch,
               onPressed: () => setState(() => _isSearching = true),
+            ),
+            IconButton(
+              icon: const Icon(Icons.timer_outlined),
+              tooltip: l10n.chatDisappearingTitle,
+              onPressed: () => unawaited(_chooseRetention(l10n)),
             ),
             PopupMenuButton<String>(
               onSelected: (value) {
@@ -553,6 +637,48 @@ class _ChatPageState extends State<ChatPage> {
       body: SafeArea(
         child: Column(
           children: [
+            if (_retention case final r? when r > Duration.zero)
+              Padding(
+                padding: const EdgeInsets.only(top: 8, bottom: 4),
+                child: Center(
+                  child: InkWell(
+                    onTap: () => unawaited(_chooseRetention(l10n)),
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest
+                            .withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.hourglass_top,
+                            size: 14,
+                            color: Color(0xFFF59E0B),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Disappearing messages: ${_retentionText(r, l10n)} timer active',
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             if (_problem case final problem?)
               _ProblemBanner(
                 text: _problemText(l10n, problem),
@@ -842,7 +968,6 @@ class _Bubble extends StatelessWidget {
     final outgoing = message.outgoing;
     final notSent = outgoing && message.state == ChatState.notSent;
     final isQueued = outgoing && message.state == ChatState.queued;
-    final background = outgoing ? scheme.primary : scheme.surfaceContainerHigh;
     final foreground = outgoing ? scheme.onPrimary : scheme.onSurface;
     final linkColor = outgoing ? scheme.onPrimary : scheme.primary;
 
@@ -861,8 +986,21 @@ class _Bubble extends StatelessWidget {
           ),
           padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
           decoration: BoxDecoration(
-            color: background,
-            borderRadius: BorderRadius.circular(16),
+            gradient: outgoing
+                ? const LinearGradient(
+                    colors: [Color(0xFF6B5BA5), Color(0xFF5B4B8A)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : null,
+            color: outgoing ? null : scheme.surfaceContainerLow,
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(18),
+              topRight: const Radius.circular(18),
+              bottomLeft: Radius.circular(outgoing ? 18 : 4),
+              bottomRight: Radius.circular(outgoing ? 4 : 18),
+            ),
+            border: outgoing ? null : Border.all(color: scheme.outlineVariant),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -1148,46 +1286,79 @@ class _FileCard extends StatelessWidget {
           ],
         );
       case 'completed':
-        if (!outgoing) {
-          return Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (message.filePath != null) ...[
-                TextButton.icon(
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    foregroundColor: foreground,
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.shield_outlined,
+                    size: 12,
+                    color: Color(0xFF10B981),
                   ),
-                  icon: const Icon(Icons.open_in_new, size: 16),
-                  label: Text(l10n.chatFileOpen),
-                  onPressed: onOpen,
-                ),
-                TextButton.icon(
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    foregroundColor: foreground,
+                  SizedBox(width: 4),
+                  Text(
+                    '100% · Decrypted in RAM',
+                    style: TextStyle(
+                      color: Color(0xFF10B981),
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                  icon: const Icon(Icons.download, size: 16),
-                  label: Text(l10n.chatFileSaveAs),
-                  onPressed: onSaveAs,
+                ],
+              ),
+            ),
+            const SizedBox(height: 6),
+            if (!outgoing)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (message.filePath != null) ...[
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        foregroundColor: foreground,
+                      ),
+                      icon: const Icon(Icons.open_in_new, size: 16),
+                      label: Text(l10n.chatFileOpen),
+                      onPressed: onOpen,
+                    ),
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        foregroundColor: foreground,
+                      ),
+                      icon: const Icon(Icons.download, size: 16),
+                      label: Text(l10n.chatFileSaveAs),
+                      onPressed: onSaveAs,
+                    ),
+                  ] else
+                    Text(
+                      l10n.chatFileReceived,
+                      style: TextStyle(
+                        color: foreground.withValues(alpha: 0.8),
+                        fontSize: 12,
+                      ),
+                    ),
+                ],
+              )
+            else
+              Text(
+                l10n.chatFileSent,
+                style: TextStyle(
+                  color: foreground.withValues(alpha: 0.8),
+                  fontSize: 12,
                 ),
-              ] else
-                Text(
-                  l10n.chatFileReceived,
-                  style: TextStyle(
-                    color: foreground.withValues(alpha: 0.8),
-                    fontSize: 12,
-                  ),
-                ),
-            ],
-          );
-        }
-        return Text(
-          l10n.chatFileSent,
-          style: TextStyle(
-            color: foreground.withValues(alpha: 0.8),
-            fontSize: 12,
-          ),
+              ),
+          ],
         );
       case 'declined':
         return Text(
