@@ -214,7 +214,7 @@ try {
     1,
     'Arun still shows "Not sent: Meera Rao is offline"',
   );
-  assert.equal(await bubble(arun, 'Delivered').count(), 0, 'Arun does not see "Delivered" yet');
+  assert.equal(await bubble(arun, '(Delivered|Read)').count(), 0, 'Arun does not see "Delivered" or "Read" yet');
   console.log(
     '✓ Meera is back and her chat is open: in 35 s the message did not arrive, Arun sent nothing, and Arun still shows "Not sent: Meera Rao is offline"',
   );
@@ -222,7 +222,8 @@ try {
   // 4. Arun presses Retry while Meera is online. The same message (same id) goes
   // out again, and it shows once in Meera's chat.
   await clickButton(arun, 'Retry');
-  await bubble(arun, 'Delivered').first().waitFor({ timeout: slow });
+  // Meera's chat is open, so the message can go straight to "Read".
+  await bubble(arun, '(Delivered|Read)').first().waitFor({ timeout: slow });
   const deliveredIn = secondsSince(backAt);
   await bubble(meera).first().waitFor({ timeout: slow });
   // Wait before counting, so that a copy arriving late has time to show up.
