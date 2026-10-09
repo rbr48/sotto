@@ -55,6 +55,19 @@ String offerErrorMessage(AppLocalizations l10n, Object error) {
   return '$error';
 }
 
+/// The text a failed open or save shows. A file that is gone or unreadable
+/// has its own text. Anything else shows [fallback] alone: the exception's
+/// text names internal types and paths, so it is not shown.
+///
+/// Pure, so the mapping can be tested in any language.
+String fileErrorMessage(AppLocalizations l10n, Object error, String fallback) {
+  return switch (error) {
+    ReceivedFileException(reason: 'missing') => l10n.chatFileUnavailable,
+    ReceivedFileException() => l10n.chatFileUnreadable,
+    _ => fallback,
+  };
+}
+
 /// How a day separator names its day, judged from the current day.
 enum ChatDayLabel { today, yesterday, other }
 
@@ -511,9 +524,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         voice: true,
       );
       await _load();
-    } catch (e) {
+    } catch (_) {
+      // The error is not shown: its text names internal types and limits.
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.chatVoiceUnavailable)),
+      );
     }
   }
 
@@ -673,12 +689,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   void _showFileError(Object error, String fallback) {
     if (!mounted) return;
-    final l10n = AppLocalizations.of(context);
-    final text = switch (error) {
-      ReceivedFileException(reason: 'missing') => l10n.chatFileUnavailable,
-      ReceivedFileException() => l10n.chatFileUnreadable,
-      _ => '$fallback ($error)',
-    };
+    final text = fileErrorMessage(AppLocalizations.of(context), error, fallback);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 

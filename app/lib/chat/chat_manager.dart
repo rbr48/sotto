@@ -45,6 +45,7 @@ class ChatManager {
     required this.clock,
     String Function()? newId,
     this.connectTimeout = const Duration(seconds: 30),
+    this.readReceiptsEnabled = _readReceiptsAlwaysOn,
   }) : _newId = newId ?? ChatFrames.newId,
        _signalling = ChatSignalling(
          myId: myId,
@@ -78,6 +79,14 @@ class ChatManager {
 
   /// How long a connection may take to open before the chat fails.
   final Duration connectTimeout;
+
+  /// Whether this device sends read receipts ("Send read receipts" in
+  /// Settings). Read at each use, so a change applies at once. When it is
+  /// off, no receipt leaves this device, including the ones sent when a chat
+  /// opens.
+  final bool Function() readReceiptsEnabled;
+
+  static bool _readReceiptsAlwaysOn() => true;
 
   final String Function() _newId;
   final ChatSignalling _signalling;
@@ -451,6 +460,7 @@ class ChatManager {
 
   /// Sends read receipts for [ids] to [contact] if a live session exists.
   void sendReadReceipts(String contact, List<String> ids) {
+    if (!readReceiptsEnabled()) return;
     final live = _activeFor(contact);
     live?.session?.sendReadReceipts(ids);
   }
@@ -639,7 +649,9 @@ class ChatManager {
         .where((m) => !m.outgoing && m.read)
         .toList();
     final recent = read.length > 500 ? read.sublist(read.length - 500) : read;
-    session.sendReadReceipts([for (final m in recent) m.id]);
+    if (readReceiptsEnabled()) {
+      session.sendReadReceipts([for (final m in recent) m.id]);
+    }
   }
 
   void _onSessionEvent(_Live live, ChatSessionEvent event) {

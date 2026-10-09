@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:audioplayers/audioplayers.dart';
+import 'package:audioplayers_platform_interface/audioplayers_platform_interface.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -144,6 +146,116 @@ class _FakeRecord extends RecordPlatform {
   }
 }
 
+/// A stand-in for the audioplayers platform. It plays nothing. It records the
+/// players created, the players resumed, and sends the prepared event when a
+/// source is set. [complete] sends the event for a player reaching its end.
+class _FakeAudioplayers extends AudioplayersPlatformInterface {
+  /// The player ids, in the order they were created.
+  final created = <String>[];
+
+  /// The player ids that were told to resume (that is, to play).
+  final resumed = <String>[];
+
+  final _events = <String, StreamController<AudioEvent>>{};
+
+  StreamController<AudioEvent> _controller(String playerId) =>
+      _events.putIfAbsent(
+        playerId,
+        () => StreamController<AudioEvent>.broadcast(),
+      );
+
+  void complete(String playerId) => _controller(playerId).add(
+    const AudioEvent(eventType: AudioEventType.complete),
+  );
+
+  @override
+  Future<void> create(String playerId) async {
+    created.add(playerId);
+  }
+
+  @override
+  Future<void> dispose(String playerId) async {}
+
+  @override
+  Future<void> stop(String playerId) async {}
+
+  @override
+  Future<void> pause(String playerId) async {}
+
+  @override
+  Future<void> resume(String playerId) async {
+    resumed.add(playerId);
+  }
+
+  @override
+  Future<void> setSourceUrl(
+    String playerId,
+    String url, {
+    bool? isLocal,
+    String? mimeType,
+  }) async {
+    scheduleMicrotask(
+      () => _controller(playerId).add(
+        const AudioEvent(eventType: AudioEventType.prepared, isPrepared: true),
+      ),
+    );
+  }
+
+  @override
+  Stream<AudioEvent> getEventStream(String playerId) =>
+      _controller(playerId).stream;
+
+  @override
+  Future<int?> getDuration(String playerId) async => null;
+
+  @override
+  Future<int?> getCurrentPosition(String playerId) async => null;
+
+  // Everything else is not used by the player, and does nothing.
+  @override
+  Object? noSuchMethod(Invocation invocation) => Future<void>.value();
+}
+
+class _FakeGlobalAudioplayers implements GlobalAudioplayersPlatformInterface {
+  @override
+  Future<void> init() async {}
+
+  @override
+  Future<void> setGlobalAudioContext(AudioContext ctx) async {}
+
+  @override
+  Future<void> emitGlobalLog(String message) async {}
+
+  @override
+  Future<void> emitGlobalError(String code, String message) async {}
+
+  @override
+  Stream<GlobalAudioEvent> getGlobalEventStream() => const Stream.empty();
+}
+
+/// A store whose next copy write waits for [gate], so a test can act while a
+/// start is still writing its copy.
+class _GatedStore extends ReceivedFileStore {
+  _GatedStore({required super.sodium, required super.directory});
+
+  Completer<void>? gate;
+
+  @override
+  Future<File> writeOpenCopy(String fileName, Uint8List bytes) async {
+    final wait = gate;
+    gate = null;
+    if (wait != null) await wait.future;
+    return super.writeOpenCopy(fileName, bytes);
+  }
+}
+
+/// Lets the queued platform events and futures run.
+Future<void> _pump() async {
+  for (var i = 0; i < 10; i++) {
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -260,6 +372,30 @@ void main() {
         await voice.dispose();
       },
     );
+
+    test('a stream recording that runs past the limit is cut to it, and is not refused', () async {
+      // The stream route, which is the Linux route. The limit timer fires at
+      // 300 s, and audio keeps arriving until the stop, so the capture is a
+      // little longer than the limit.
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      final voice = recorder();
+      await voice.start();
+      // 300 s of 16 kHz mono 16-bit audio, and 100 ms more.
+      record.pcm!.add(
+        Uint8List.fromList(List.filled(maxVoiceSeconds * 32000 + 3200, 5)),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      final note = await voice.stop();
+
+      expect(note.mime, 'audio/wav');
+      expect(note.bytes.length, 44 + maxVoiceSeconds * 32000);
+      expect(
+        voiceOfferRefused(mime: note.mime, size: note.bytes.length),
+        isFalse,
+      );
+      await voice.dispose();
+    });
 
     test('a platform that adjusts the capture to a format the receiver refuses records nothing', () async {
       // The stream route, which is the Linux route.
@@ -395,6 +531,90 @@ void main() {
       );
 
       expect(Directory('${root.path}/received_open').existsSync(), isFalse);
+    });
+
+    group('with the copy route', () {
+      late _FakeAudioplayers fake;
+      final note = Uint8List.fromList(List.filled(100, 1));
+
+      /// The copies still on disk in the temporary folder.
+      List<File> copies() {
+        final folder = Directory('${root.path}/received_open');
+        if (!folder.existsSync()) return [];
+        return folder.listSync(recursive: true).whereType<File>().toList();
+      }
+
+      setUp(() {
+        debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+        fake = _FakeAudioplayers();
+        AudioplayersPlatformInterface.instance = fake;
+        GlobalAudioplayersPlatformInterface.instance =
+            _FakeGlobalAudioplayers();
+      });
+
+      test('stopping playback removes the copy', () async {
+        final player = VoicePlayer(copies: files);
+        await player.start(note, mime: 'audio/mp4', name: 'voice-1.m4a');
+        await _pump();
+        expect(copies(), hasLength(1));
+        expect(fake.resumed, hasLength(1));
+
+        await player.stop();
+        await _pump();
+
+        expect(copies(), isEmpty);
+        await player.dispose();
+      });
+
+      test('a note that plays to its end removes the copy', () async {
+        final player = VoicePlayer(copies: files);
+        await player.start(note, mime: 'audio/mp4', name: 'voice-1.m4a');
+        await _pump();
+        expect(copies(), hasLength(1));
+
+        fake.complete(fake.created.single);
+        await _pump();
+
+        expect(copies(), isEmpty);
+        await player.dispose();
+      });
+
+      test('a stop during the copy write stops the start: no playback, no copy', () async {
+        final store = _GatedStore(sodium: sodium, directory: () async => received);
+        final player = VoicePlayer(copies: store);
+        final gate = store.gate = Completer<void>();
+        final starting = player.start(note, mime: 'audio/mp4', name: 'voice-1.m4a');
+        await _pump();
+
+        await player.stop();
+        gate.complete();
+        await starting;
+        await _pump();
+
+        expect(fake.resumed, isEmpty);
+        expect(copies(), isEmpty);
+        await player.dispose();
+      });
+
+      test('a second note started while the first copy is written: the first never plays', () async {
+        final store = _GatedStore(sodium: sodium, directory: () async => received);
+        final first = VoicePlayer(copies: store);
+        final second = VoicePlayer(copies: store);
+        final gate = store.gate = Completer<void>();
+        final starting = first.start(note, mime: 'audio/mp4', name: 'a.m4a');
+        await _pump();
+
+        await second.start(note, mime: 'audio/mp4', name: 'b.m4a');
+        gate.complete();
+        await starting;
+        await _pump();
+
+        expect(fake.created, hasLength(2));
+        expect(fake.resumed, [fake.created[1]]);
+        expect(copies(), hasLength(1));
+        await first.dispose();
+        await second.dispose();
+      });
     });
   });
 }

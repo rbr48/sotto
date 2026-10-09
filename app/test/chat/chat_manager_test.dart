@@ -223,6 +223,7 @@ void main() {
     Duration connectTimeout = const Duration(milliseconds: 200),
     ChatStore? store,
     List<Map<String, dynamic>>? servers,
+    bool Function()? readReceiptsEnabled,
   }) {
     final manager = ChatManager(
       myId: myId,
@@ -246,6 +247,7 @@ void main() {
       },
       clock: () => now,
       connectTimeout: connectTimeout,
+      readReceiptsEnabled: readReceiptsEnabled ?? () => true,
     );
     managers.add(manager);
     (net.managers[myId] ??= []).add(manager);
@@ -681,6 +683,62 @@ void main() {
           .lastOrNull;
       expect(readEvent, isNotNull);
       expect((readEvent!.event as MessagesRead).ids, [msg.id]);
+    },
+  );
+
+  test(
+    'with read receipts off, a chat opening sends no receipt for messages read on this device',
+    () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final bobStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      device(
+        'bob',
+        contacts: {'alice'},
+        store: bobStore,
+        readReceiptsEnabled: () => false,
+      );
+
+      final first = await alice.sendText('bob', 'read this');
+      await _settle();
+      // Bob reads it on this device. With receipts off, nothing is sent.
+      await bobStore.markAsRead('alice');
+      await alice.close('bob');
+      await _settle();
+
+      // The next chat opens between them, from Alice's side.
+      await alice.sendText('bob', 'next');
+      await _settle();
+
+      expect(
+        (await aliceStore.find('bob', first.id))!.state,
+        isNot(ChatState.read),
+      );
+      expect(
+        (await aliceStore.find('bob', first.id))!.state,
+        ChatState.delivered,
+      );
+    },
+  );
+
+  test(
+    'with read receipts on, a chat opening sends the receipt for messages read on this device',
+    () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final bobStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      device('bob', contacts: {'alice'}, store: bobStore);
+
+      final first = await alice.sendText('bob', 'read this');
+      await _settle();
+      await bobStore.markAsRead('alice');
+      await alice.close('bob');
+      await _settle();
+
+      await alice.sendText('bob', 'next');
+      await _settle();
+
+      expect((await aliceStore.find('bob', first.id))!.state, ChatState.read);
     },
   );
 }

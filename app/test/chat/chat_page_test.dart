@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sotto/chat/chat_frames.dart';
 import 'package:sotto/chat/chat_manager.dart';
 import 'package:sotto/chat/chat_store.dart';
+import 'package:sotto/chat/file_storage.dart';
 import 'package:sotto/chat/ui/chat_page.dart';
 import 'package:sotto/chat/ui/chat_tokens.dart';
 import 'package:sotto/core/l10n/app_localizations.dart';
@@ -308,6 +309,39 @@ void main() {
     expect(find.text('Message to delete'), findsNothing);
     final remaining = await tester.runAsync(() => store.messages('bob'));
     expect(remaining, isEmpty);
+  });
+
+  test('a failed open or save shows its own text, never the exception', () {
+    for (final locale in [const Locale('en'), const Locale('ar')]) {
+      final l10n = lookupAppLocalizations(locale);
+      expect(
+        fileErrorMessage(
+          l10n,
+          StateError('/private/path: internal'),
+          l10n.chatFileOpenFailed,
+        ),
+        l10n.chatFileOpenFailed,
+        reason: '$locale',
+      );
+      expect(
+        fileErrorMessage(
+          l10n,
+          const ReceivedFileException('missing'),
+          l10n.chatFileSaveFailed,
+        ),
+        l10n.chatFileUnavailable,
+        reason: '$locale',
+      );
+      expect(
+        fileErrorMessage(
+          l10n,
+          const ReceivedFileException('damaged'),
+          l10n.chatFileOpenFailed,
+        ),
+        l10n.chatFileUnreadable,
+        reason: '$locale',
+      );
+    }
   });
 
   test('a refused file gives its error in the app language', () {

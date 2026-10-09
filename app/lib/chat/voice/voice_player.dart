@@ -50,6 +50,13 @@ class VoicePlayer {
   /// play it, or make a player or a copy after that.
   bool _disposed = false;
 
+  /// Counts the starts and stops. A start that finds the count has moved on
+  /// (a stop, or a later start, came in while it was reading the note) does
+  /// not play, and leaves no copy behind.
+  int _generation = 0;
+
+  bool _current(int generation) => !_disposed && generation == _generation;
+
   static bool get _playsCopy =>
       !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.iOS ||
@@ -67,20 +74,28 @@ class VoicePlayer {
     final other = _playing;
     if (other != null && other != this) await other.stop();
     if (_disposed) return;
+    final generation = ++_generation;
     _playing = this;
     final player = _ensurePlayer();
     await player.stop();
+    if (!_current(generation)) return;
     await _removeCopy();
     final Source source;
     if (_playsCopy) {
       final store = copies;
       if (store == null) throw const ReceivedFileException('missing');
-      _copy = await store.writeOpenCopy(name, bytes);
-      source = DeviceFileSource(_copy!.path, mimeType: mime);
+      final copy = await store.writeOpenCopy(name, bytes);
+      if (!_current(generation)) {
+        // A stop, or another start, came in while the copy was written.
+        await store.removeOpenCopy(copy);
+        return;
+      }
+      _copy = copy;
+      source = DeviceFileSource(copy.path, mimeType: mime);
     } else {
       source = BytesSource(bytes, mimeType: mime);
     }
-    if (_disposed) {
+    if (!_current(generation)) {
       await _removeCopy();
       return;
     }
@@ -104,6 +119,7 @@ class VoicePlayer {
 
   /// Stops playback and removes the copy.
   Future<void> stop() async {
+    _generation++;
     if (_playing == this) _playing = null;
     await _player?.stop();
     await _removeCopy();

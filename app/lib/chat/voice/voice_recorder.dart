@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
@@ -333,9 +334,15 @@ class VoiceRecorder {
     if (_pcmFailed) {
       throw const VoiceRecordException(VoiceFailure.unavailable);
     }
-    // Whole 16-bit samples only.
+    // Whole 16-bit samples, and no more than the limit. The capture can run
+    // a little past the limit while the stop is on its way, and a note past
+    // the cap is refused by the receiver.
     const blockAlign = voiceChannels * voiceBitsPerSample ~/ 8;
-    final length = pcm.length - pcm.length % blockAlign;
+    final cap = _sampleRate * blockAlign * maxVoiceSeconds;
+    final length = math.min(
+      pcm.length - pcm.length % blockAlign,
+      cap,
+    );
     if (length == 0) {
       throw const VoiceRecordException(VoiceFailure.unavailable);
     }

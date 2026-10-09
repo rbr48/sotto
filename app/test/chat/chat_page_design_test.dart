@@ -1065,6 +1065,8 @@ void main() {
         // The strings that were hard-coded in English, now from the ARB files.
         'Could not open file',
         'Could not save file',
+        // The exception text is not shown in a SnackBar.
+        "Text('\$e')",
         'timer active',
         'did not answer',
         'Nothing is stored',

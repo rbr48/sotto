@@ -410,6 +410,7 @@ class CallController extends ChangeNotifier {
           hideIp: () => _hideIp,
           createRtc: WebRtcChatRtc.create,
           clock: DateTime.now,
+          readReceiptsEnabled: () => _sendReadReceipts,
         );
         _subscriptions.add(chat.events.listen(_onChatEvent));
         unawaited(chat.start());
