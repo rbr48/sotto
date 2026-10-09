@@ -1,6 +1,8 @@
 # Plan: peer-to-peer encrypted messaging
 
-Status: **approved with the decisions below; not yet built.** Building starts once PR #26 is merged (this branch is #26's branch).
+Status: **approved, and in progress.** The protocol, session logic and store are built with tests (`app/lib/chat/`). The WebRTC data-channel engine, the screens, notifications and end-to-end tests are not built yet.
+
+**Change from the plan:** offers, answers and candidates use `chat.offer`, `chat.answer` and `chat.ice`, not `sdp.*`, and carry the winning device's tag, so only that device applies them. The rest is as written below. `PROTOCOL.md` §5.10 has the wire format.
 
 ## Summary
 
