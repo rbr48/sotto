@@ -5,13 +5,12 @@
 //  1. Meera and Arun add each other as contacts, and Arun opens the chat with
 //     Meera while she is online.
 //  2. Meera goes offline. Arun sends "Are you there?". Nobody answers the open,
-//     so the message shows "Not sent: Meera Rao is offline", with a Retry button and the problem
-//     banner.
-//  3. Meera comes back online. The message must not arrive by itself, and
-//     Arun's app must send nothing to the relay: a new session starts with an
-//     open, which is a send.
-//  4. Arun presses Retry while Meera is online. The message is delivered, and
-//     Meera's chat shows it once.
+//     so the message shows "Not sent: Meera Rao did not answer.", with a Retry
+//     button and the problem banner.
+//  3. Meera comes back online within a minute. The sealed copy of the text that
+//     waited at the relay reaches her: her chat shows it once, and Arun's
+//     bubble turns Delivered or Read, without Arun's app sending anything new.
+//  4. Nothing is left to retry on Arun's side.
 //  5. The relay sees only encrypted envelopes; the pages contact no third-party
 //     hosts.
 import assert from 'node:assert/strict';
@@ -166,7 +165,7 @@ try {
   await typeInto(arun, 'Write a message', 'Are you there?');
   await clickButton(arun, 'Send');
   await waitUntil(() => arunRelay.sends > sendsBeforeMessage, "Arun's app to send the open to the relay");
-  await bubble(arun, 'Not sent: Meera Rao is offline').first().waitFor({ timeout: slow });
+  await bubble(arun, 'Not sent: Meera Rao did not answer.').first().waitFor({ timeout: slow });
   const notSentIn = secondsSince(sentAt);
   // The plan's wording (docs/MESSAGING_PLAN.md, "Offline").
   await arun
@@ -180,7 +179,7 @@ try {
     'Arun has one Retry button',
   );
   console.log(
-    `✓ Arun sees "Not sent: Meera Rao is offline", a Retry button and the problem banner, ${notSentIn} after sending`,
+    `✓ Arun sees "Not sent: Meera Rao did not answer.", a Retry button and the problem banner, ${notSentIn} after sending`,
   );
 
   // 3. Meera comes back online. Nothing may have reached her while she was
@@ -198,47 +197,35 @@ try {
     `✓ Meera is back: she logged in to the relay ${secondsSince(backAt)} after the network returned`,
   );
 
-  // Meera opens her chat with Arun. For 35 s, Arun's app must stay silent and
-  // the message must not arrive. The window is longer than the chat's 30 s
-  // ticker, so a resend that the ticker starts would show up as a send here.
+  // The text also went through the relay, sealed, and waited there for her (at
+  // most 60 s). Now that she is back it arrives by itself. Arun's app sends
+  // nothing for it: Meera's acknowledgement is what marks it delivered.
   await openChat(meera, 'Arun Mehta');
-  await sleep(35_000);
-  assert.equal(
-    arunRelay.sends,
-    sendsBeforeReturn,
-    "Arun's app sent nothing to the relay after Meera came back (no background resend)",
-  );
-  assert.equal(await bubble(meera).count(), 0, 'Meera must not get the message by itself');
-  assert.equal(
-    await bubble(arun, 'Not sent: Meera Rao is offline').count(),
-    1,
-    'Arun still shows "Not sent: Meera Rao is offline"',
-  );
-  assert.equal(await bubble(arun, '(Delivered|Read)').count(), 0, 'Arun does not see "Delivered" or "Read" yet');
-  console.log(
-    '✓ Meera is back and her chat is open: in 35 s the message did not arrive, Arun sent nothing, and Arun still shows "Not sent: Meera Rao is offline"',
-  );
-
-  // 4. Arun presses Retry while Meera is online. The same message (same id) goes
-  // out again, and it shows once in Meera's chat.
-  await clickButton(arun, 'Retry');
+  await bubble(meera).first().waitFor({ timeout: slow });
   // Meera's chat is open, so the message can go straight to "Read".
   await bubble(arun, '(Delivered|Read)').first().waitFor({ timeout: slow });
   const deliveredIn = secondsSince(backAt);
-  await bubble(meera).first().waitFor({ timeout: slow });
   // Wait before counting, so that a copy arriving late has time to show up.
   await sleep(3000);
   assert.equal(await bubble(meera).count(), 1, 'Meera\'s chat shows "Are you there?" once');
   assert.equal(await bubble(arun).count(), 1, 'Arun has exactly one "Are you there?" bubble');
+  assert.equal(
+    arunRelay.sends,
+    sendsBeforeReturn,
+    "Arun's app sent nothing to the relay after Meera came back",
+  );
+  console.log(
+    `✓ Meera is back: the sealed copy that waited at the relay arrived once, and Arun sees it delivered (${deliveredIn} after she came back online)`,
+  );
+
+  // 4. Nothing is left to retry.
   assert.equal(await bubble(arun, 'Not sent').count(), 0, 'no "Not sent" left on Arun\'s side');
   assert.equal(
     await arun.getByRole('button', { name: 'Retry', exact: true }).count(),
     0,
     'no Retry button left on Arun\'s side',
   );
-  console.log(
-    `✓ Arun pressed Retry: Delivered, and Meera's chat shows "Are you there?" once (${deliveredIn} after she came back online)`,
-  );
+  console.log('✓ nothing is left to retry on Arun\'s side');
 
   // 5. Nothing readable reached the relay; no third-party hosts.
   const sends = assertRelaySawOnlyCiphertext(assert, ['Are you there', 'Meera Rao', 'Arun Mehta']);
