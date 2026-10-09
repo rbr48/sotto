@@ -72,7 +72,7 @@ git clone https://github.com/rbr48/sotto && cd sotto
 sudo ./infra/install.sh
 ```
 
-You need a Linux server with a public IP address and at least 2 GB of RAM (the installer adds a 2 GB swap file when memory plus swap is under about 2.5 GB, because building the web app needs that much), and a domain whose DNS A record points to it (with any Cloudflare proxy turned off). Open TCP 80, 443, 3478 and 5349, and UDP 443, 3478 and 49152–65535, in any firewall your hosting provider runs. The full guide is [`docs/SELF_HOSTING.md`](docs/SELF_HOSTING.md).
+You need a Linux server with a public IP address and at least 2 GB of RAM (the installer adds a 2 GB swap file when memory plus swap is under about 2.5 GB, because building the web app needs that much), and a domain whose DNS A record points to it (with any Cloudflare proxy turned off). Open TCP 80, 443 and 3478, UDP 443, 3478 and 49152–65535, and TCP 5349 once the installer enables TURN over TLS, in any firewall your hosting provider runs. The full guide is [`docs/SELF_HOSTING.md`](docs/SELF_HOSTING.md).
 
 ## Security status
 
