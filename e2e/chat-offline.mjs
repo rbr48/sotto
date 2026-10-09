@@ -7,9 +7,11 @@
 //  2. Meera goes offline. Arun sends "Are you there?". Nobody answers the open,
 //     so the message shows "Not sent", with a Retry button and the problem
 //     banner.
-//  3. Meera comes back online. The message must not arrive by itself.
+//  3. Meera comes back online. The message must not arrive by itself, and
+//     Arun's app must send nothing to the relay: a new session starts with an
+//     open, which is a send.
 //  4. Arun presses Retry while Meera is online. The message is delivered, and
-//     Meera sees it exactly once.
+//     Meera's chat shows it once.
 //  5. The relay sees only encrypted envelopes; the pages contact no third-party
 //     hosts.
 import assert from 'node:assert/strict';
@@ -20,7 +22,6 @@ import {
   base,
   clickButton,
   dumpPages,
-  framesToRelay,
   launch,
   newContext,
   openApp,
@@ -34,22 +35,31 @@ const slow = 90_000;
 
 const browser = await launch();
 
-/** Auth frames sent to the relay so far, by any page. */
-const authFrames = () =>
-  framesToRelay.filter((frame) => frame.includes('"type":"auth"')).length;
+const isRelayUrl = (url) => /\/relay$/.test(url);
 
 /**
- * Meera's relay connection, watched from her browser context while she is
- * offline. A cut connection can die without a close event, so the evidence is
- * what the app does (failed reconnects) and what reaches her (frames).
+ * Meera's relay connection, watched from her browser context.
+ *
+ * In Chromium, setOffline(true) does not close a WebSocket. The socket stays
+ * open, and the browser holds its frames both ways until the network returns.
+ * So the cut is confirmed rather than assumed: her app's ping goes unanswered,
+ * so it drops the socket and tries to connect again, and each try fails while
+ * she is offline. No frame may reach her meanwhile.
  */
 const meeraRelay = {
-  offline: false,
-  receivedTotal: 0, // every frame her relay connection received (shows the counter works)
-  retriesWhileOffline: 0,
-  framesWhileOffline: 0,
+  offline: false, // set 1 s after the cut, cleared before she comes back
+  logins: 0, // login messages she sent, online or not
   loginsWhileOffline: 0,
+  framesReceived: 0, // every frame her relay connections received
+  framesWhileOffline: 0,
+  attemptsWhileOffline: 0, // relay connections her app opened while offline
 };
+
+/**
+ * Relay sends from Arun's browser. A message can only go out again through a
+ * new session, and a session starts with a send.
+ */
+const arunRelay = { sends: 0 };
 
 /** Polls until `check()` holds, or fails after `limit` ms. */
 async function waitUntil(check, what, limit = slow) {
@@ -95,22 +105,26 @@ let arun = null;
 try {
   const meeraContext = await newContext(browser);
   const arunContext = await newContext(browser);
-  // Watch Meera's relay connection from the start, before her page opens it.
+  // Watch both relay connections from the start, before the pages open them.
   meeraContext.on('page', (page) => {
-    page.on('console', (message) => {
-      if (meeraRelay.offline && /WebSocket connection to .* failed/.test(message.text())) {
-        meeraRelay.retriesWhileOffline += 1;
-      }
-    });
     page.on('websocket', (ws) => {
+      // A try made while she is offline is a relay connection that never opens.
+      if (meeraRelay.offline && isRelayUrl(ws.url())) meeraRelay.attemptsWhileOffline += 1;
       ws.on('framereceived', () => {
-        meeraRelay.receivedTotal += 1;
+        meeraRelay.framesReceived += 1;
         if (meeraRelay.offline) meeraRelay.framesWhileOffline += 1;
       });
       ws.on('framesent', ({ payload }) => {
-        if (meeraRelay.offline && String(payload).includes('"type":"auth"')) {
-          meeraRelay.loginsWhileOffline += 1;
-        }
+        if (!String(payload).includes('"type":"auth"')) return;
+        meeraRelay.logins += 1;
+        if (meeraRelay.offline) meeraRelay.loginsWhileOffline += 1;
+      });
+    });
+  });
+  arunContext.on('page', (page) => {
+    page.on('websocket', (ws) => {
+      ws.on('framesent', ({ payload }) => {
+        if (String(payload).includes('"type":"send"')) arunRelay.sends += 1;
       });
     });
   });
@@ -123,19 +137,22 @@ try {
   await addContact(arun, meeraContactLink, 'Meera Rao');
   await addContact(meera, arunContactLink, 'Arun Mehta');
   await openChat(arun, 'Meera Rao');
+  // Positive controls: while she is online, her login and her frames are
+  // counted, so the zero counts checked later can tell a cut from a broken counter.
+  await waitUntil(() => meeraRelay.logins >= 1, "Meera's login to the relay");
+  assert.ok(meeraRelay.framesReceived > 0, 'frames reached Meera while she was online');
   console.log('✓ contacts: Meera and Arun have added each other; Arun has the chat with Meera open');
 
-  // 2. Meera goes offline. Her app notices that its relay connection has stopped
-  // answering (a ping every 25 s, 10 s to answer), then tries to reconnect, and
-  // each try fails while she is offline. Wait for the first failed try, so that
-  // Arun sends only once she is really cut off.
-  const receivedBefore = meeraRelay.receivedTotal;
+  // 2. Meera goes offline. Arun sends only once her app has noticed the cut.
+  const receivedBefore = meeraRelay.framesReceived;
   const offlineAt = Date.now();
-  meeraRelay.offline = true;
   await meeraContext.setOffline(true);
+  // Frames already on their way when the cut landed are not counted.
+  await sleep(1000);
+  meeraRelay.offline = true;
   await waitUntil(
-    () => meeraRelay.retriesWhileOffline > 0,
-    "Meera's app to notice that it is offline and try to reconnect",
+    () => meeraRelay.attemptsWhileOffline > 0,
+    "Meera's app to notice the cut and try to reconnect (setOffline did not stop her relay connection)",
   );
   console.log(
     `✓ Meera is offline: her app noticed after ${secondsSince(offlineAt)} and tried to reconnect ` +
@@ -144,11 +161,15 @@ try {
 
   // Arun sends. Nobody answers the open, so after the timeout the message is
   // marked not sent, with the Retry button and the banner.
+  const sendsBeforeMessage = arunRelay.sends;
   const sentAt = Date.now();
   await typeInto(arun, 'Write a message', 'Are you there?');
   await clickButton(arun, 'Send');
+  await waitUntil(() => arunRelay.sends > sendsBeforeMessage, "Arun's app to send the open to the relay");
   await bubble(arun, 'Not sent').first().waitFor({ timeout: slow });
   const notSentIn = secondsSince(sentAt);
+  // The shipped text (app_en.arb). docs/MESSAGING_PLAN.md says "Not sent: <name> is
+  // offline"; the two differ, and which one is right is still open.
   await arun
     .getByText('The connection could not be made. Your messages were not sent; you can retry.')
     .first()
@@ -159,42 +180,51 @@ try {
     1,
     'Arun has one Retry button',
   );
-  // Nothing reached Meera while she was offline, and she did not log in.
-  assert.equal(meeraRelay.framesWhileOffline, 0, 'no relay frame reached Meera while she was offline');
-  assert.equal(meeraRelay.loginsWhileOffline, 0, 'Meera did not log in to the relay while offline');
   console.log(
-    `✓ Arun sees "Not sent", a Retry button and the problem banner, ${notSentIn} after sending; Meera received no relay frame while offline`,
+    `✓ Arun sees "Not sent", a Retry button and the problem banner, ${notSentIn} after sending`,
   );
 
-  // 3. Meera comes back online. Her app logs in again: that is the new auth
-  // frame, since Arun does not log in again. Then give the relay 2 s to
-  // deliver anything queued for her.
-  const authBefore = authFrames();
+  // 3. Meera comes back online. Nothing may have reached her while she was
+  // offline, and she did not log in while offline.
+  assert.equal(meeraRelay.framesWhileOffline, 0, 'no relay frame reached Meera while she was offline');
+  assert.equal(meeraRelay.loginsWhileOffline, 0, 'Meera did not log in to the relay while offline');
+  const loginsBefore = meeraRelay.logins;
+  const sendsBeforeReturn = arunRelay.sends;
   meeraRelay.offline = false;
   await meeraContext.setOffline(false);
-  await waitUntil(() => authFrames() > authBefore, "Meera's relay login after reconnecting");
   const backAt = Date.now();
-  await sleep(2000);
-  console.log('✓ Meera is back online; the relay has had 2 s to deliver anything queued for her');
+  // Her app's next try connects and logs in again: a new login from her own connection.
+  await waitUntil(() => meeraRelay.logins > loginsBefore, "Meera's relay login after she came back online");
+  console.log(
+    `✓ Meera is back: she logged in to the relay ${secondsSince(backAt)} after the network returned`,
+  );
 
-  // Meera opens her chat with Arun and waits 5 s. The message must not arrive
-  // by itself, and Arun still shows "Not sent".
+  // Meera opens her chat with Arun. For 35 s, Arun's app must stay silent and
+  // the message must not arrive. The window is longer than the chat's 30 s
+  // ticker, so a resend that the ticker starts would show up as a send here.
   await openChat(meera, 'Arun Mehta');
-  await sleep(5000);
+  await sleep(35_000);
+  assert.equal(
+    arunRelay.sends,
+    sendsBeforeReturn,
+    "Arun's app sent nothing to the relay after Meera came back (no background resend)",
+  );
   assert.equal(await bubble(meera).count(), 0, 'Meera must not get the message by itself');
   assert.equal(await bubble(arun, 'Not sent').count(), 1, 'Arun still shows "Not sent"');
   assert.equal(await bubble(arun, 'Delivered').count(), 0, 'Arun does not see "Delivered" yet');
   console.log(
-    '✓ Meera is back and her chat is open: the message did not arrive; Arun still shows "Not sent"',
+    '✓ Meera is back and her chat is open: in 35 s the message did not arrive, Arun sent nothing, and Arun still shows "Not sent"',
   );
 
-  // 4. Arun presses Retry while Meera is online. The message goes out again,
-  // with the same id, and Meera sees it exactly once.
+  // 4. Arun presses Retry while Meera is online. The same message (same id) goes
+  // out again, and it shows once in Meera's chat.
   await clickButton(arun, 'Retry');
   await bubble(arun, 'Delivered').first().waitFor({ timeout: slow });
   const deliveredIn = secondsSince(backAt);
   await bubble(meera).first().waitFor({ timeout: slow });
-  assert.equal(await bubble(meera).count(), 1, 'Meera sees "Are you there?" exactly once');
+  // Wait before counting, so that a copy arriving late has time to show up.
+  await sleep(3000);
+  assert.equal(await bubble(meera).count(), 1, 'Meera\'s chat shows "Are you there?" once');
   assert.equal(await bubble(arun).count(), 1, 'Arun has exactly one "Are you there?" bubble');
   assert.equal(await bubble(arun, 'Not sent').count(), 0, 'no "Not sent" left on Arun\'s side');
   assert.equal(
@@ -203,7 +233,7 @@ try {
     'no Retry button left on Arun\'s side',
   );
   console.log(
-    `✓ Arun pressed Retry: Delivered, and Meera sees "Are you there?" once (${deliveredIn} after she came back online)`,
+    `✓ Arun pressed Retry: Delivered, and Meera's chat shows "Are you there?" once (${deliveredIn} after she came back online)`,
   );
 
   // 5. Nothing readable reached the relay; no third-party hosts.
