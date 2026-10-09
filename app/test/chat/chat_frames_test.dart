@@ -255,6 +255,52 @@ void main() {
       expect(offer.sha256, _sha);
     });
 
+    test('a voice offer says so on the wire, and a plain one does not', () {
+      final voice = FileOfferFrame(
+        id: _id(10),
+        name: 'voice-1.m4a',
+        size: 100,
+        mime: 'audio/mp4',
+        sha256: _sha,
+        chunks: 1,
+        voice: true,
+      );
+      final encodedVoice = ChatFrames.encode(voice);
+      expect((jsonDecode(encodedVoice) as Map)['kind'], 'voice');
+      final decodedVoice =
+          ChatFrames.decode(encodedVoice) as FileOfferFrame;
+      expect(decodedVoice.voice, isTrue);
+
+      final plain = FileOfferFrame(
+        id: _id(10),
+        name: 'song.m4a',
+        size: 100,
+        mime: 'audio/mp4',
+        sha256: _sha,
+        chunks: 1,
+      );
+      final encodedPlain = ChatFrames.encode(plain);
+      expect((jsonDecode(encodedPlain) as Map).containsKey('kind'), isFalse);
+      expect(
+        (ChatFrames.decode(encodedPlain) as FileOfferFrame).voice,
+        isFalse,
+      );
+    });
+
+    test('an offer with no kind is a plain file, even when it is audio', () {
+      final offer =
+          ChatFrames.decode(_offer({'mime': 'audio/mp4', 'name': 'song.m4a'}))
+              as FileOfferFrame;
+      expect(offer.voice, isFalse);
+    });
+
+    test('a kind this app does not know is refused', () {
+      expect(_refusal(_offer({'kind': 'video'})), 'malformed');
+      expect(_refusal(_offer({'kind': 7})), 'malformed');
+      expect(_refusal(_offer({'kind': 'file'})), isNull);
+      expect(_refusal(_offer({'kind': 'voice'})), isNull);
+    });
+
     test('a blocked name decodes, so the session can decline it', () {
       final offer =
           ChatFrames.decode(_offer({'name': 'malware.exe'})) as FileOfferFrame;

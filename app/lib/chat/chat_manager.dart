@@ -323,12 +323,13 @@ class ChatManager {
     }
   }
 
-  /// Offers a file or photo to [contact].
+  /// Offers a file or photo to [contact]. A [voice] note is offered as one.
   Future<ChatMessage> offerFile({
     required String contact,
     required String name,
     required Uint8List bytes,
     required String mime,
+    bool voice = false,
   }) async {
     if (!isContact(contact)) {
       throw ArgumentError.value(contact, 'contact', 'is not a contact');
@@ -341,7 +342,12 @@ class ChatManager {
     if (live?.session != null &&
         !live!.session!.isEnded &&
         live.session!.isReady) {
-      return live.session!.offerFile(name: name, bytes: bytes, mime: mime);
+      return live.session!.offerFile(
+          name: name,
+          bytes: bytes,
+          mime: mime,
+          voice: voice,
+        );
     }
     // Wait up to 10 seconds for session to become ready
     final deadline = clock().add(const Duration(seconds: 10));
@@ -351,7 +357,12 @@ class ChatManager {
       if (live?.session != null &&
           !live!.session!.isEnded &&
           live.session!.isReady) {
-        return live.session!.offerFile(name: name, bytes: bytes, mime: mime);
+        return live.session!.offerFile(
+          name: name,
+          bytes: bytes,
+          mime: mime,
+          voice: voice,
+        );
       }
     }
     throw StateError('Peer is offline or connection could not be established.');

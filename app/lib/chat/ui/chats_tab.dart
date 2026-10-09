@@ -7,7 +7,6 @@ import '../../call/call_controller.dart';
 import '../../chat/chat_store.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/ui_kit.dart';
-import '../voice/voice_format.dart';
 import 'chat_page.dart';
 
 /// The dedicated Chats tab: full conversation inbox, search, unread filters,
@@ -423,7 +422,7 @@ class _ChatsTabState extends State<ChatsTab> {
             Expanded(
               child: Text(
                 // A voice note shows as "Voice message", not its file name.
-                last.isAttachment && isVoiceMime(last.fileMime ?? '')
+                last.isAttachment && last.voiceNote
                     ? AppLocalizations.of(context).chatVoiceMessage
                     : last.text,
                 maxLines: 1,

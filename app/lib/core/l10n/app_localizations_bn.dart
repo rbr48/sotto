@@ -81,6 +81,14 @@ class AppLocalizationsBn extends AppLocalizations {
       'আপনারা দুজনেই অনলাইন থাকলে বার্তা সরাসরি আপনাদের ডিভাইসের মধ্যে যায়।';
 
   @override
+  String get chatRelayNote =>
+      'আইপি ঠিকানা লুকানো চালু আছে, তাই বার্তা সরাসরি না গিয়ে Sotto সার্ভারের মধ্য দিয়ে যায়।';
+
+  @override
+  String get chatEmptyHintRelay =>
+      'এখনও কোনো বার্তা নেই। আইপি ঠিকানা লুকানো চালু আছে, তাই বার্তা Sotto সার্ভারের মধ্য দিয়ে যায়।';
+
+  @override
   String get chatDeleteMenu => 'চ্যাট মুছুন';
 
   @override

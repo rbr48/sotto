@@ -46,6 +46,10 @@ class VoicePlayer {
   File? _copy;
   final _subs = <StreamSubscription<dynamic>>[];
 
+  /// The player was disposed. A start that is still reading the note does not
+  /// play it, or make a player or a copy after that.
+  bool _disposed = false;
+
   static bool get _playsCopy =>
       !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.iOS ||
@@ -59,8 +63,10 @@ class VoicePlayer {
     required String mime,
     required String name,
   }) async {
+    if (_disposed) return;
     final other = _playing;
     if (other != null && other != this) await other.stop();
+    if (_disposed) return;
     _playing = this;
     final player = _ensurePlayer();
     await player.stop();
@@ -73,6 +79,10 @@ class VoicePlayer {
       source = DeviceFileSource(_copy!.path, mimeType: mime);
     } else {
       source = BytesSource(bytes, mimeType: mime);
+    }
+    if (_disposed) {
+      await _removeCopy();
+      return;
     }
     try {
       await player.play(source);
@@ -102,6 +112,7 @@ class VoicePlayer {
 
   /// Stops playback and releases the player. The player cannot be used after.
   Future<void> dispose() async {
+    _disposed = true;
     if (_playing == this) _playing = null;
     for (final sub in _subs) {
       await sub.cancel();

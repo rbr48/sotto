@@ -67,6 +67,11 @@ class VoiceRecorder {
 
   AudioRecorder? _recorder;
   _Phase _phase = _Phase.idle;
+
+  /// Counts the cancels and starts. A start that finds the count changed was
+  /// cancelled, or the recorder disposed, while the microphone prompt was open,
+  /// and it does nothing.
+  int _generation = 0;
   final _clock = Stopwatch();
   Timer? _limitTimer;
   Timer? _meterTimer;
@@ -113,14 +118,17 @@ class VoiceRecorder {
   /// not allowed or cannot be used.
   Future<void> start() async {
     if (_phase != _Phase.idle) return;
+    final generation = ++_generation;
     final recorder = _recorder ??= AudioRecorder();
     final bool granted;
     try {
       granted = await recorder.hasPermission();
     } catch (_) {
+      if (generation != _generation) return;
       // The recorder itself is not available (no plugin, or it failed).
       throw const VoiceRecordException(VoiceFailure.unavailable);
     }
+    if (generation != _generation) return;
     if (!granted) {
       throw const VoiceRecordException(VoiceFailure.permission);
     }
@@ -140,6 +148,11 @@ class VoiceRecorder {
     } catch (error) {
       await _abandon();
       throw VoiceRecordException(_startFailure(error));
+    }
+    if (generation != _generation) {
+      // Cancelled while the platform was starting: nothing stays recording.
+      await _abandon();
+      return;
     }
     _phase = _Phase.recording;
     _clock
@@ -167,10 +180,15 @@ class VoiceRecorder {
     _meterTimer?.cancel();
     _clock.stop();
     try {
+      // Read the level once more, so a short recording is judged on its own
+      // sound and not on a reading that was never taken.
+      if (_onWindows) await _readPeak();
       return _fileRoute ? await _stopFile() : await _stopPcm();
     } on VoiceRecordException {
+      await _discardLeftovers();
       rethrow;
     } catch (_) {
+      await _discardLeftovers();
       throw const VoiceRecordException(VoiceFailure.unavailable);
     } finally {
       _reset();
@@ -179,6 +197,7 @@ class VoiceRecorder {
 
   /// Stops the recording and discards it. Nothing is returned.
   Future<void> cancel() async {
+    _generation++;
     if (_phase == _Phase.idle) return;
     await _abandon();
   }
@@ -190,15 +209,16 @@ class VoiceRecorder {
     _recorder = null;
   }
 
+  /// Why a start failed. Windows gives no reason for a silent microphone, so a
+  /// start error there is not called a privacy setting: that is judged at
+  /// [stop], from the sound that was captured.
   VoiceFailure _startFailure(Object error) {
+    if (error is VoiceRecordException) return error.failure;
     if (kIsWeb) return VoiceFailure.unavailable;
     if (defaultTargetPlatform == TargetPlatform.linux &&
         error is ProcessException) {
       // parecord is not installed (pulseaudio-utils).
       return VoiceFailure.needsParecord;
-    }
-    if (defaultTargetPlatform == TargetPlatform.windows) {
-      return VoiceFailure.micPrivacy;
     }
     return VoiceFailure.unavailable;
   }
@@ -211,6 +231,15 @@ class VoiceRecorder {
     await recorder.setOnConfigChanged(null);
     _sampleRate = effective.sampleRate;
     _channels = effective.numChannels;
+    // The receiver accepts only a format of this kind. A capture the plugin
+    // changed to another one is not recorded, rather than offered and refused.
+    if (!isVoiceWavFormat(
+      sampleRate: _sampleRate,
+      channels: _channels,
+      bitsPerSample: voiceBitsPerSample,
+    )) {
+      throw const VoiceRecordException(VoiceFailure.unavailable);
+    }
     _pcmFailed = false;
     _pcmDone = Completer<void>();
     final store = files;
@@ -320,6 +349,19 @@ class VoiceRecorder {
       ..setRange(0, 44, header)
       ..setRange(44, 44 + length, pcm);
     return VoiceNote(bytes: bytes, mime: 'audio/wav', extension: 'wav');
+  }
+
+  /// Removes what a recording that failed to stop leaves behind: the platform
+  /// recorder if it still runs, the open WAV sink and the temporary file.
+  Future<void> _discardLeftovers() async {
+    try {
+      await _recorder?.cancel();
+    } catch (_) {}
+    try {
+      await _pcmSink?.close();
+    } catch (_) {}
+    final path = _path;
+    if (path != null) await files?.discardRecording(File(path));
   }
 
   /// Reads a finished native recording and deletes it at once.

@@ -163,6 +163,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   /// result.
   int _voiceGeneration = 0;
 
+  /// Redraws the day labels at the next local midnight, so a chat that stays
+  /// open past midnight does not keep calling a day "Today".
+  Timer? _midnightTimer;
+
   bool get _voiceActive => _recording || _heldNote != null;
 
   /// Whether a call is active or ringing.
@@ -180,6 +184,19 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     unawaited(_markAndSendRead());
     unawaited(_sweepThenLoad());
     unawaited(_loadRetention());
+    _armMidnight();
+  }
+
+  /// Schedules a redraw for the next local midnight, by the injected clock.
+  void _armMidnight() {
+    _midnightTimer?.cancel();
+    final now = widget.chat.clock();
+    final nextMidnight = DateTime(now.year, now.month, now.day + 1);
+    _midnightTimer = Timer(nextMidnight.difference(now), () {
+      if (!mounted) return;
+      setState(() {});
+      _armMidnight();
+    });
   }
 
   @override
@@ -192,10 +209,15 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   }
 
   /// A recording stops when the app leaves the screen. It is never sent after
-  /// that.
+  /// that. On resume the day labels are drawn again, since the midnight timer
+  /// may not have run while the app was away.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) unawaited(_discardVoice());
+    if (state == AppLifecycleState.resumed && mounted) {
+      setState(() {});
+      _armMidnight();
+    }
   }
 
   /// A call that starts ends any recording, and the mic button follows the
@@ -268,6 +290,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _typingDebounceTimer?.cancel();
     _peerTypingTimer?.cancel();
     _voiceTicker?.cancel();
+    _midnightTimer?.cancel();
     _voiceGeneration++;
     unawaited(_voice?.dispose());
     _input.removeListener(_onInputChanged);
@@ -467,12 +490,13 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   /// Offers a finished voice note to the contact, under its own name.
   Future<void> _offerVoice(VoiceNote note) async {
     final l10n = AppLocalizations.of(context);
-    if (note.bytes.length > maxVoiceBytes) {
-      _showVoiceError(VoiceFailure.unavailable, text: l10n.chatVoiceTooLong);
+    final size = note.bytes.length;
+    if (!isVoiceMime(note.mime) || size < 1) {
+      _showVoiceError(VoiceFailure.unavailable);
       return;
     }
-    if (!isVoiceMime(note.mime) || !voiceNoteFits(note.bytes.length)) {
-      _showVoiceError(VoiceFailure.unavailable);
+    if (voiceOfferRefused(mime: note.mime, size: size)) {
+      _showVoiceError(VoiceFailure.unavailable, text: l10n.chatVoiceTooLong);
       return;
     }
     try {
@@ -484,6 +508,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         ),
         bytes: note.bytes,
         mime: note.mime,
+        voice: true,
       );
       await _load();
     } catch (e) {
@@ -836,6 +861,17 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     borderSide: BorderSide.none,
   );
 
+  /// An empty state that scrolls when the space is too short for it, so a
+  /// large text size cannot run it into the composer.
+  Widget _scrollableEmpty(Widget child) => LayoutBuilder(
+    builder: (context, constraints) => SingleChildScrollView(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: constraints.maxHeight),
+        child: Center(child: child),
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -1035,16 +1071,22 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
               ),
             Expanded(
               child: _messages.isEmpty
-                  ? EmptyState(
-                      icon: Icons.chat_bubble_outline,
-                      title: l10n.chatMessage,
-                      message: l10n.chatEmptyHint,
+                  ? _scrollableEmpty(
+                      EmptyState(
+                        icon: Icons.chat_bubble_outline,
+                        title: l10n.chatMessage,
+                        message: widget.chat.hideIp()
+                            ? l10n.chatEmptyHintRelay
+                            : l10n.chatEmptyHint,
+                      ),
                     )
                   : displayed.isEmpty
-                  ? EmptyState(
-                      icon: Icons.search_off,
-                      title: l10n.chatSearch,
-                      message: l10n.chatSearchNoMatches,
+                  ? _scrollableEmpty(
+                      EmptyState(
+                        icon: Icons.search_off,
+                        title: l10n.chatSearch,
+                        message: l10n.chatSearchNoMatches,
+                      ),
                     )
                   : ListView.builder(
                       controller: _scrollController,
@@ -1161,7 +1203,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    l10n.chatDirectNote,
+                    // With Hide my IP on, messages are relayed, not sent direct.
+                    widget.chat.hideIp()
+                        ? l10n.chatRelayNote
+                        : l10n.chatDirectNote,
                     textAlign: TextAlign.center,
                     style: textTheme.bodySmall?.copyWith(
                       color: tokens.footerNote,
@@ -1562,8 +1607,9 @@ class _Bubble extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
     final outgoing = message.outgoing;
     final isFile = message.isAttachment;
-    // A voice note is an allowed audio type; other audio is an ordinary file.
-    final isVoice = isFile && isVoiceMime(message.fileMime ?? '');
+    // A voice note is what the offer said it was. Other audio is an ordinary
+    // file, whatever its type.
+    final isVoice = isFile && message.voiceNote;
     final fg = outgoing ? tokens.sentText : tokens.receivedText;
     final secondary = outgoing
         ? tokens.sentSecondary
@@ -2242,26 +2288,29 @@ class _VoiceCardState extends State<_VoiceCard> {
                   onPressed: _loading ? null : () => unawaited(_togglePlay()),
                 ),
                 const SizedBox(width: 8),
-                SizedBox(
-                  width: 160,
-                  child: ExcludeSemantics(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        LinearProgressIndicator(
-                          value: fraction,
-                          color: fg,
-                          backgroundColor: secondary.withValues(alpha: 0.3),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          time,
-                          style: textTheme.labelMedium?.copyWith(
-                            color: secondary,
+                // Shrinks on a narrow bubble rather than running past its edge.
+                Flexible(
+                  child: SizedBox(
+                    width: 160,
+                    child: ExcludeSemantics(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          LinearProgressIndicator(
+                            value: fraction,
+                            color: fg,
+                            backgroundColor: secondary.withValues(alpha: 0.3),
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 4),
+                          Text(
+                            time,
+                            style: textTheme.labelMedium?.copyWith(
+                              color: secondary,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),

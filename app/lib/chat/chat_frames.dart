@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import '../crypto/encoding.dart';
+import 'voice/voice_format.dart';
 
 /// The frames of a chat session, sent over its data channel as UTF-8 JSON
 /// (`docs/MESSAGING_PLAN.md`, "Frames") or binary chunks (`docs/FILE_SHARING_PLAN.md`).
@@ -77,6 +78,7 @@ final class FileOfferFrame extends ChatFrame {
     required this.sha256,
     required this.chunks,
     this.blocked = false,
+    this.voice = false,
   });
 
   /// 16 random bytes, unpadded base64url.
@@ -93,6 +95,10 @@ final class FileOfferFrame extends ChatFrame {
   /// Set when the frame is decoded; a frame that is not decoded is not blocked
   /// unless it says so.
   final bool blocked;
+
+  /// Whether the offer is a voice note (`kind` is `voice` on the wire). An
+  /// offer without a kind is a plain file, whatever its MIME type.
+  final bool voice;
 }
 
 /// The receiver accepts the offered file transfer.
@@ -192,6 +198,7 @@ abstract final class ChatFrames {
         :final mime,
         :final sha256,
         :final chunks,
+        :final voice,
       ) =>
         {
           't': 'file.offer',
@@ -201,6 +208,8 @@ abstract final class ChatFrames {
           'mime': mime,
           'sha256': sha256,
           'chunks': chunks,
+          // Only a voice note carries a kind. Older clients ignore it.
+          if (voice) 'kind': voiceOfferKind,
         },
       FileAcceptFrame(:final id) => {'t': 'file.accept', 'id': id},
       FileDeclineFrame(:final id) => {'t': 'file.decline', 'id': id},
@@ -297,6 +306,12 @@ abstract final class ChatFrames {
         if (mime.runes.length > maxMimeChars || !_sha256Pattern.hasMatch(sha)) {
           throw const ChatFrameException('malformed');
         }
+        // A kind is optional. Absent, or 'file', is a plain file. Anything
+        // else is not a kind this app knows, so the frame is refused.
+        final rawKind = json['kind'];
+        if (rawKind != null && rawKind != 'file' && rawKind != voiceOfferKind) {
+          throw const ChatFrameException('malformed');
+        }
         final name = cleanFileName(rawName);
         return FileOfferFrame(
           id: id,
@@ -308,6 +323,7 @@ abstract final class ChatFrames {
           // Judged on the name as sent too: cleaning can hide a blocked type
           // from the cleaned name, and the sender refuses such a name.
           blocked: isBlockedFileType(rawName) || isBlockedFileType(name),
+          voice: rawKind == voiceOfferKind,
         );
       case 'file.accept':
         return FileAcceptFrame(id: _id(json['id']));

@@ -81,6 +81,14 @@ class AppLocalizationsEn extends AppLocalizations {
       'Messages go directly between your devices while you are both online.';
 
   @override
+  String get chatRelayNote =>
+      'Hide my IP is on, so messages go through the Sotto server instead of directly between your devices.';
+
+  @override
+  String get chatEmptyHintRelay =>
+      'No messages yet. Hide my IP is on, so messages go through the Sotto server.';
+
+  @override
   String get chatDeleteMenu => 'Delete chat';
 
   @override

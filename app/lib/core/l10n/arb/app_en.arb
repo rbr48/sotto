@@ -30,6 +30,8 @@
   },
   "chatEmptyHint": "No messages yet. Messages go directly to them while you are both online.",
   "chatDirectNote": "Messages go directly between your devices while you are both online.",
+  "chatRelayNote": "Hide my IP is on, so messages go through the Sotto server instead of directly between your devices.",
+  "chatEmptyHintRelay": "No messages yet. Hide my IP is on, so messages go through the Sotto server.",
   "chatDeleteMenu": "Delete chat",
   "chatDeleteTitle": "Delete this chat?",
   "chatDeleteBody": "The messages are removed from this device. The other person keeps their copy.",

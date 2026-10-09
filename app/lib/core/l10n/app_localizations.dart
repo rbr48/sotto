@@ -232,6 +232,18 @@ abstract class AppLocalizations {
   /// **'Messages go directly between your devices while you are both online.'**
   String get chatDirectNote;
 
+  /// No description provided for @chatRelayNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide my IP is on, so messages go through the Sotto server instead of directly between your devices.'**
+  String get chatRelayNote;
+
+  /// No description provided for @chatEmptyHintRelay.
+  ///
+  /// In en, this message translates to:
+  /// **'No messages yet. Hide my IP is on, so messages go through the Sotto server.'**
+  String get chatEmptyHintRelay;
+
   /// No description provided for @chatDeleteMenu.
   ///
   /// In en, this message translates to:

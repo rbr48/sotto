@@ -104,6 +104,7 @@ class _IncomingFileTransfer {
     required this.sha256,
     required this.totalChunks,
     required this.lastChunkAt,
+    required this.voice,
   });
 
   final String id;
@@ -112,6 +113,9 @@ class _IncomingFileTransfer {
   final String mime;
   final String sha256;
   final int totalChunks;
+
+  /// Whether this is a voice note, which is checked against its format.
+  final bool voice;
 
   /// When the last chunk arrived (or the transfer was accepted).
   DateTime lastChunkAt;
@@ -256,14 +260,16 @@ class ChatSession {
   /// Offers to send a file to the contact.
   ///
   /// An image has its metadata removed first (location, camera details,
-  /// comments), so the contact receives only the picture. Throws
-  /// [ArgumentError] for a blocked type, an empty file, a file over the size
-  /// limit, an image that cannot be read, or an image type this app cannot
-  /// clean.
+  /// comments), so the contact receives only the picture. A [voice] note is
+  /// offered as one, and must be an audio type with a name to match and be
+  /// within that type's cap. Throws [ArgumentError] for a blocked type, an
+  /// empty file, a file over the size limit, an image that cannot be read, an
+  /// image type this app cannot clean, or a voice note that is refused.
   Future<ChatMessage> offerFile({
     required String name,
     required Uint8List bytes,
     required String mime,
+    bool voice = false,
   }) async {
     _ensureOpen();
     final cleanedName = ChatFrames.cleanFileName(name);
@@ -288,9 +294,13 @@ class ChatSession {
     if (clean.length > maxFileSizeNative) {
       throw ArgumentError('File exceeds max size limit');
     }
-    final voice = isVoiceMime(mime);
-    if (voice && clean.length > maxVoiceBytes) {
-      throw ArgumentError('Voice note exceeds the size limit');
+    if (voice) {
+      if (!voiceNameMatches(mime, cleanedName)) {
+        throw ArgumentError('Voice note has the wrong file name');
+      }
+      if (voiceOfferRefused(mime: mime, size: clean.length)) {
+        throw ArgumentError('Voice note exceeds the size limit');
+      }
     }
     final hash = sha256.convert(clean).toString();
     final chunks = (clean.length / fileChunkSize).ceil();
@@ -308,6 +318,7 @@ class ChatSession {
       fileMime: mime,
       fileSha256: hash,
       fileStatus: 'offered',
+      voiceNote: voice,
     );
     _outgoingFiles[id] = clean;
     await store.add(offered);
@@ -321,6 +332,7 @@ class ChatSession {
         mime: mime,
         sha256: hash,
         chunks: chunks,
+        voice: voice,
       ),
     );
     return message;
@@ -347,6 +359,7 @@ class ChatSession {
       sha256: msg.fileSha256 ?? '',
       totalChunks: totalChunks == 0 ? 1 : totalChunks,
       lastChunkAt: clock(),
+      voice: msg.voiceNote,
     );
     await store.updateMessage(msg.copyWith(fileStatus: 'transferring'));
     _write(FileAcceptFrame(id: fileId));
@@ -599,6 +612,7 @@ class ChatSession {
         :final mime,
         :final sha256,
         :final blocked,
+        :final voice,
       ):
         if (!_peerHello) return;
         if (!_contactNow) {
@@ -607,12 +621,14 @@ class ChatSession {
           return;
         }
         if (!await store.contains(contactId, id)) {
-          // Too large, of a blocked type, or audio that is not a voice note
-          // (or a voice note over its cap): declined, and nothing is kept.
-          final declined =
-              size > maxFileBytes ||
-              blocked ||
-              voiceOfferRefused(mime: mime, size: size);
+          // Too large, of a blocked type, or a voice note the voice rules
+          // refuse: declined, and nothing is kept. A plain file that is audio
+          // is judged as a file.
+          final refusedVoice =
+              voice &&
+              (voiceOfferRefused(mime: mime, size: size) ||
+                  !voiceNameMatches(mime, name));
+          final declined = size > maxFileBytes || blocked || refusedVoice;
           final message = ChatMessage(
             id: id,
             contactId: contactId,
@@ -628,6 +644,7 @@ class ChatSession {
             fileSha256: sha256,
             fileStatus: declined ? 'declined' : 'offered',
             arrivedAt: clock().millisecondsSinceEpoch,
+            voiceNote: voice,
           );
           await store.add(message);
           _events.add(MessageReceived(message));
@@ -635,6 +652,9 @@ class ChatSession {
             _write(FileDeclineFrame(id: id));
           } else {
             _events.add(FileOfferReceived(message));
+            // A voice note from a contact, within its cap, is downloaded at
+            // once, so it plays on a tap without an Accept first.
+            if (voice && !_ended) await acceptFile(id);
           }
         }
       case FileAcceptFrame(:final id):
@@ -690,8 +710,7 @@ class ChatSession {
         // A voice note that does not look like its format is damaged, and is
         // never saved or played.
         final voiceDamaged =
-            isVoiceMime(transfer.mime) &&
-            !voiceBytesLookRight(transfer.mime, fullBytes);
+            transfer.voice && !voiceBytesLookRight(transfer.mime, fullBytes);
         if (computedHash != transfer.sha256 || voiceDamaged) {
           _write(FileCancelFrame(id: id, reason: 'damaged'));
           final existing = await store.find(contactId, id);
@@ -705,7 +724,7 @@ class ChatSession {
         final files = store.files;
         final kept = files == null ? null : await files.save(fullBytes);
         // The browser holds a received voice note for this tab only.
-        if (kept == null && isVoiceMime(transfer.mime)) {
+        if (kept == null && transfer.voice) {
           store.rememberVoice(id, fullBytes);
         }
         _write(FileAckFrame(id: id));

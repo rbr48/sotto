@@ -167,13 +167,26 @@ void main() {
       );
     });
 
-    test('a voice note over the cap is declined', () {
+    test('a voice note over the cap of its type is declined', () {
+      // AAC is capped at 2 MiB, and the WAV fallback at its 300-second size.
       expect(
-        voiceOfferRefused(mime: 'audio/mp4', size: maxVoiceBytes),
+        voiceOfferRefused(mime: 'audio/mp4', size: maxVoiceAacBytes),
         isFalse,
       );
       expect(
-        voiceOfferRefused(mime: 'audio/mp4', size: maxVoiceBytes + 1),
+        voiceOfferRefused(mime: 'audio/mp4', size: maxVoiceAacBytes + 1),
+        isTrue,
+      );
+      expect(
+        voiceOfferRefused(mime: 'audio/mp4', size: maxVoiceBytes),
+        isTrue,
+      );
+      expect(
+        voiceOfferRefused(mime: 'audio/wav', size: maxVoiceWavBytes),
+        isFalse,
+      );
+      expect(
+        voiceOfferRefused(mime: 'audio/wav', size: maxVoiceWavBytes + 1),
         isTrue,
       );
     });
@@ -181,6 +194,44 @@ void main() {
     test('other types are judged elsewhere', () {
       expect(voiceOfferRefused(mime: 'application/pdf', size: 10), isFalse);
       expect(voiceOfferRefused(mime: 'video/mp4', size: 10), isFalse);
+    });
+  });
+
+  group('the voice limits by type', () {
+    test('AAC is capped at 2 MiB and WAV at its 300-second size', () {
+      expect(voiceCapBytes('audio/mp4;codecs=mp4a.40.2'), 2 * 1024 * 1024);
+      expect(voiceCapBytes('audio/wav'), 9600044);
+      expect(voiceCapBytes('audio/mpeg'), 0);
+    });
+
+    test('no type is capped above the 10 MiB offer limit', () {
+      expect(voiceCapBytes('audio/mp4'), lessThanOrEqualTo(maxVoiceBytes));
+      expect(voiceCapBytes('audio/wav'), lessThanOrEqualTo(maxVoiceBytes));
+    });
+
+    test('the name must end in the extension of its type', () {
+      expect(voiceNameMatches('audio/mp4', 'voice-1700000000000.m4a'), isTrue);
+      expect(voiceNameMatches('audio/mp4', 'Voice.M4A'), isTrue);
+      expect(voiceNameMatches('audio/mp4', 'song.mp3'), isFalse);
+      expect(voiceNameMatches('audio/mp4', 'song.m4a.exe'), isFalse);
+      expect(voiceNameMatches('audio/wav', 'note.WAV'), isTrue);
+      expect(voiceNameMatches('audio/wav', 'note.m4a'), isFalse);
+      expect(voiceNameMatches('audio/mpeg', 'note.mp3'), isFalse);
+    });
+
+    test('a WAV format is mono, 16 bits, 8000 to 48000 Hz', () {
+      bool ok(int rate, int channels, int bits) => isVoiceWavFormat(
+        sampleRate: rate,
+        channels: channels,
+        bitsPerSample: bits,
+      );
+      expect(ok(16000, 1, 16), isTrue);
+      expect(ok(8000, 1, 16), isTrue);
+      expect(ok(48000, 1, 16), isTrue);
+      expect(ok(7999, 1, 16), isFalse);
+      expect(ok(48001, 1, 16), isFalse);
+      expect(ok(16000, 2, 16), isFalse);
+      expect(ok(16000, 1, 8), isFalse);
     });
   });
 

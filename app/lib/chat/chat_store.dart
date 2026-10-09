@@ -32,6 +32,7 @@ class ChatMessage {
     this.filePath,
     this.fileKey,
     this.arrivedAt,
+    this.voiceNote = false,
   });
 
   /// 16 random bytes, unpadded base64url. The same on both devices.
@@ -77,6 +78,10 @@ class ChatMessage {
   /// messages (their [ts] is this device's clock).
   final int? arrivedAt;
 
+  /// Whether the file is a voice note: offered as one, and played in the
+  /// bubble. A file that is only audio is an ordinary file.
+  final bool voiceNote;
+
   bool get isAttachment => fileName != null;
 
   /// When this message expires from this device, judged by [ts] for outgoing
@@ -102,6 +107,7 @@ class ChatMessage {
     filePath: filePath,
     fileKey: fileKey,
     arrivedAt: arrivedAt,
+    voiceNote: voiceNote,
   );
 
   ChatMessage copyWith({
@@ -122,6 +128,7 @@ class ChatMessage {
     String? filePath,
     String? fileKey,
     int? arrivedAt,
+    bool? voiceNote,
   }) => ChatMessage(
     id: id ?? this.id,
     contactId: contactId ?? this.contactId,
@@ -140,6 +147,7 @@ class ChatMessage {
     filePath: filePath ?? this.filePath,
     fileKey: fileKey ?? this.fileKey,
     arrivedAt: arrivedAt ?? this.arrivedAt,
+    voiceNote: voiceNote ?? this.voiceNote,
   );
 
   Map<String, Object?> toJson() => {
@@ -159,6 +167,7 @@ class ChatMessage {
     if (filePath != null) 'filePath': filePath,
     if (fileKey != null) 'fileKey': fileKey,
     if (arrivedAt != null) 'arrivedAt': arrivedAt,
+    if (voiceNote) 'voiceNote': true,
   };
 
   static ChatMessage fromJson(String contactId, Map<String, dynamic> json) {
@@ -178,6 +187,7 @@ class ChatMessage {
     final filePath = json['filePath'];
     final fileKey = json['fileKey'];
     final arrivedAt = json['arrivedAt'];
+    final voiceNote = json['voiceNote'];
     if (id is! String ||
         outgoing is! bool ||
         ts is! int ||
@@ -193,7 +203,8 @@ class ChatMessage {
         (fileStatus != null && fileStatus is! String) ||
         (filePath != null && filePath is! String) ||
         (fileKey != null && fileKey is! String) ||
-        (arrivedAt != null && arrivedAt is! int)) {
+        (arrivedAt != null && arrivedAt is! int) ||
+        (voiceNote != null && voiceNote is! bool)) {
       throw const ChatStoreException('unreadable');
     }
     return ChatMessage(
@@ -214,6 +225,7 @@ class ChatMessage {
       filePath: filePath as String?,
       fileKey: fileKey as String?,
       arrivedAt: arrivedAt as int?,
+      voiceNote: voiceNote == true,
     );
   }
 }

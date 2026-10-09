@@ -81,6 +81,14 @@ class AppLocalizationsAr extends AppLocalizations {
       'تُرسل الرسائل مباشرة بين جهازيكما عندما تكونان متصلين.';
 
   @override
+  String get chatRelayNote =>
+      'خيار إخفاء عنوان IP مُفعّل، لذلك تمرّ الرسائل عبر خادم Sotto بدلاً من أن تُرسل مباشرة بين جهازيكما.';
+
+  @override
+  String get chatEmptyHintRelay =>
+      'لا توجد رسائل بعد. خيار إخفاء عنوان IP مُفعّل، لذلك تمرّ الرسائل عبر خادم Sotto.';
+
+  @override
   String get chatDeleteMenu => 'حذف المحادثة';
 
   @override

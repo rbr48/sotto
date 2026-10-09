@@ -8,10 +8,13 @@ import 'dart:typed_data';
 /// The longest voice note, in seconds. The size limits below follow from it.
 const int maxVoiceSeconds = 300;
 
-/// The largest voice offer accepted, in bytes (10 MiB). 300 seconds of the
-/// WAV fallback is 9,600,044 bytes, and 300 seconds of AAC at 32 kbps is about
-/// 1.2 MB, so both fit.
+/// The largest voice offer accepted, in bytes (10 MiB). Each type has a lower
+/// cap, see [voiceCapBytes].
 const int maxVoiceBytes = 10 * 1024 * 1024;
+
+/// The largest AAC voice note accepted, in bytes (2 MiB). 300 seconds of AAC
+/// at 32 kbps is about 1.2 MB, so it fits.
+const int maxVoiceAacBytes = 2 * 1024 * 1024;
 
 /// The AAC-LC route: mono, 16 kHz, 32 kbps.
 const int voiceSampleRate = 16000;
@@ -19,8 +22,16 @@ const int voiceChannels = 1;
 const int voiceBitsPerSample = 16;
 const int voiceAacBitRate = 32000;
 
+/// The largest WAV voice note accepted: 300 seconds of the WAV fallback with
+/// its 44-byte header, 9,600,044 bytes.
+final int maxVoiceWavBytes = voiceWavBytes(maxVoiceSeconds);
+
+/// The `kind` of a file offer that is a voice note. An offer without a kind,
+/// or with any other one, is a plain file, whatever its MIME type.
+const String voiceOfferKind = 'voice';
+
 /// The MIME types of voice notes. Any other `audio/*` offer is not a voice
-/// note, and the receiver declines it.
+/// note, and a plain file is judged as a file.
 const List<String> voiceMimes = ['audio/mp4', 'audio/wav'];
 
 /// [mime] lower-cased, with its parameters removed and the ends trimmed:
@@ -37,11 +48,44 @@ bool isAudioMime(String mime) => baseMime(mime).startsWith('audio/');
 /// Whether [mime] is one of the voice note types.
 bool isVoiceMime(String mime) => voiceMimes.contains(baseMime(mime));
 
-/// Whether an incoming offer of [mime] and [size] is declined for being audio
-/// that is not a voice note, or a voice note over the size limit. Other types
-/// are not judged here.
+/// The size limit of a voice note of [mime]: 2 MiB for AAC and 9,600,044 bytes
+/// for WAV. Zero for a type that is not a voice note.
+int voiceCapBytes(String mime) => switch (baseMime(mime)) {
+  'audio/mp4' => maxVoiceAacBytes,
+  'audio/wav' => maxVoiceWavBytes,
+  _ => 0,
+};
+
+/// Whether an offer of [mime] and [size] that says it is a voice note is
+/// refused for its audio type: audio that is not a voice note, or a voice note
+/// over its type's cap. Other types are not judged here, and the name rule
+/// ([voiceNameMatches]) refuses them on the voice path.
 bool voiceOfferRefused({required String mime, required int size}) =>
-    isAudioMime(mime) && (!isVoiceMime(mime) || size > maxVoiceBytes);
+    isAudioMime(mime) && (!isVoiceMime(mime) || size > voiceCapBytes(mime));
+
+/// Whether the [name] of a voice offer of [mime] ends in the extension that
+/// type needs: `.m4a` for audio/mp4 and `.wav` for audio/wav.
+bool voiceNameMatches(String mime, String name) {
+  final lower = name.toLowerCase();
+  return switch (baseMime(mime)) {
+    'audio/mp4' => lower.endsWith('.m4a'),
+    'audio/wav' => lower.endsWith('.wav'),
+    _ => false,
+  };
+}
+
+/// Whether a PCM WAV format is one a voice note may have: mono, 16 bits and
+/// 8000 to 48000 Hz. The recorder checks its own output against this, and the
+/// receiver checks the file it gets.
+bool isVoiceWavFormat({
+  required int sampleRate,
+  required int channels,
+  required int bitsPerSample,
+}) =>
+    channels == voiceChannels &&
+    bitsPerSample == voiceBitsPerSample &&
+    sampleRate >= 8000 &&
+    sampleRate <= 48000;
 
 /// Whether a voice note of [bytes] is within the size limit (and not empty).
 bool voiceNoteFits(int bytes) => bytes > 0 && bytes <= maxVoiceBytes;
@@ -142,10 +186,11 @@ bool _looksLikeWav(Uint8List bytes) {
       final bits = view.getUint16(body + 14, Endian.little);
       formatOk =
           format == 1 &&
-          channels == 1 &&
-          bits == 16 &&
-          rate >= 8000 &&
-          rate <= 48000;
+          isVoiceWavFormat(
+            sampleRate: rate,
+            channels: channels,
+            bitsPerSample: bits,
+          );
       if (!formatOk) return false;
     } else if (_hasAscii(bytes, pos, 'data')) {
       return formatOk;
