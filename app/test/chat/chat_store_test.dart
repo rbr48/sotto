@@ -202,4 +202,40 @@ void main() {
 
     await sub.cancel();
   });
+
+  test(
+    'recentChats returns threads sorted by latest message timestamp',
+    () async {
+      final m1 = ChatMessage(
+        id: _id(1),
+        contactId: 'bob',
+        outgoing: false,
+        ts: 1000,
+        text: 'early message',
+        state: ChatState.received,
+        read: false,
+      );
+      final m2 = ChatMessage(
+        id: _id(2),
+        contactId: 'carol',
+        outgoing: true,
+        ts: 5000,
+        text: 'latest message',
+        state: ChatState.queued,
+        read: true,
+      );
+
+      await store.add(m1);
+      await store.add(m2);
+
+      final recent = await store.recentChats();
+      expect(recent, hasLength(2));
+      expect(recent.first.contactId, 'carol');
+      expect(recent.first.lastMessage.state, ChatState.queued);
+      expect(recent.first.unreadCount, 0);
+
+      expect(recent.last.contactId, 'bob');
+      expect(recent.last.unreadCount, 1);
+    },
+  );
 }

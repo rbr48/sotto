@@ -147,4 +147,13 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get chatOpenLink => 'فتح';
+
+  @override
+  String get chatStatusQueued => 'قيد الانتظار';
+
+  @override
+  String get chatQueue => 'وضع في الانتظار';
+
+  @override
+  String get chatCancelQueue => 'إلغاء الانتظار';
 }

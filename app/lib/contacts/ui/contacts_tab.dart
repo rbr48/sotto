@@ -7,10 +7,12 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../app/app_controller.dart';
 import '../../call/call_controller.dart';
 import '../../chat/chat_manager.dart';
+import '../../chat/chat_store.dart';
 import '../../chat/ui/chat_page.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/test_hooks.dart';
 import '../../core/ui_kit.dart';
+import '../contact_book.dart';
 import 'contact_dialogs.dart';
 
 /// Contacts: share your own contact link, add colleagues, call them.
@@ -53,6 +55,8 @@ class ContactsTab extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 16),
+            if (calls.chat case final chat?)
+              _RecentChatsSection(chat: chat, contacts: app.contacts),
             if (contacts.isEmpty)
               const EmptyState(
                 icon: Icons.people_outline,
@@ -265,6 +269,172 @@ class _ContactChatButtonState extends State<_ContactChatButton> {
             chat: widget.chat,
             contactId: widget.contactId,
             name: widget.contactName,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RecentChatsSection extends StatefulWidget {
+  const _RecentChatsSection({required this.chat, required this.contacts});
+
+  final ChatManager chat;
+  final ContactBook contacts;
+
+  @override
+  State<_RecentChatsSection> createState() => _RecentChatsSectionState();
+}
+
+class _RecentChatsSectionState extends State<_RecentChatsSection> {
+  List<ChatThreadSummary> _summaries = const [];
+  StreamSubscription<void>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = widget.chat.store.changes.listen((_) => _refresh());
+    unawaited(_refresh());
+  }
+
+  @override
+  void didUpdateWidget(_RecentChatsSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.chat != widget.chat) {
+      _sub?.cancel();
+      _sub = widget.chat.store.changes.listen((_) => _refresh());
+      unawaited(_refresh());
+    }
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    final list = await widget.chat.store.recentChats();
+    if (mounted) setState(() => _summaries = list);
+  }
+
+  String _formatTime(int ts) {
+    final date = DateTime.fromMillisecondsSinceEpoch(ts);
+    final now = DateTime.now();
+    if (now.year == date.year &&
+        now.month == date.month &&
+        now.day == date.day) {
+      final hour = date.hour.toString().padLeft(2, '0');
+      final minute = date.minute.toString().padLeft(2, '0');
+      return '$hour:$minute';
+    }
+    return '${date.month}/${date.day}';
+  }
+
+  IconData _statusIcon(ChatState state) => switch (state) {
+    ChatState.sending => Icons.schedule,
+    ChatState.queued => Icons.hourglass_top,
+    ChatState.delivered => Icons.done_all,
+    ChatState.notSent => Icons.error_outline,
+    ChatState.received => Icons.done,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    if (_summaries.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SectionLabel('Recent conversations · ${_summaries.length}'),
+        Card(
+          child: Column(
+            children: [
+              for (final (index, summary) in _summaries.indexed) ...[
+                if (index > 0) const Divider(indent: 72),
+                _buildTile(context, theme, summary),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
+  Widget _buildTile(
+    BuildContext context,
+    ThemeData theme,
+    ChatThreadSummary summary,
+  ) {
+    final contact = widget.contacts.contacts
+        .where((c) => c.identity.id == summary.contactId)
+        .firstOrNull;
+    final name =
+        contact?.name ??
+        (summary.contactId.length > 8
+            ? 'Contact ${summary.contactId.substring(0, 8)}'
+            : summary.contactId);
+
+    final last = summary.lastMessage;
+    return ListTile(
+      leading: InitialsAvatar(name: name),
+      title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: Row(
+        children: [
+          if (last.outgoing) ...[
+            Icon(
+              _statusIcon(last.state),
+              size: 13,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              'You: ',
+              style: TextStyle(
+                fontSize: 13,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+          Expanded(
+            child: Text(
+              last.text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+      trailing: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(
+            _formatTime(last.ts),
+            style: TextStyle(
+              fontSize: 11,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 4),
+          if (summary.unreadCount > 0)
+            Badge(label: Text('${summary.unreadCount}'))
+          else
+            const SizedBox(height: 14),
+        ],
+      ),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ChatPage(
+            chat: widget.chat,
+            contactId: summary.contactId,
+            name: name,
           ),
         ),
       ),

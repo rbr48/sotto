@@ -41,5 +41,8 @@
   "chatDeleteMessageBody": "বার্তাটি এই ডিভাইস থেকে মুছে ফেলা হবে। অপর পক্ষ তাদের কপি সংরক্ষণ করবে।",
   "chatOpenLinkTitle": "বাহ্যিক লিঙ্ক খুলবেন?",
   "chatOpenLinkBody": "আপনি কি আপনার ব্রাউজারে {url} লিঙ্কটি খুলতে চান?",
-  "chatOpenLink": "খুলুন"
+  "chatOpenLink": "খুলুন",
+  "chatStatusQueued": "অপেক্ষারত",
+  "chatQueue": "অপেক্ষায় রাখুন",
+  "chatCancelQueue": "বাতিল করুন"
 }

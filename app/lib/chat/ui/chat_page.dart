@@ -117,6 +117,16 @@ class _ChatPageState extends State<ChatPage> {
     await _load();
   }
 
+  Future<void> _queue(ChatMessage message) async {
+    await widget.chat.queue(widget.contactId, message.id);
+    await _load();
+  }
+
+  Future<void> _unqueue(ChatMessage message) async {
+    await widget.chat.unqueue(widget.contactId, message.id);
+    await _load();
+  }
+
   Future<void> _handleUrlTap(String url) async {
     var target = url;
     if (target.startsWith('www.')) {
@@ -258,6 +268,8 @@ class _ChatPageState extends State<ChatPage> {
                           contactName: widget.name,
                           l10n: l10n,
                           onRetry: _retry,
+                          onQueue: _queue,
+                          onUnqueue: _unqueue,
                           onTapUrl: _handleUrlTap,
                           onCopy: () => _copyMessage(message),
                           onDelete: () => _deleteMessage(message),
@@ -351,6 +363,8 @@ class _Bubble extends StatelessWidget {
     required this.contactName,
     required this.l10n,
     required this.onRetry,
+    required this.onQueue,
+    required this.onUnqueue,
     required this.onTapUrl,
     required this.onCopy,
     required this.onDelete,
@@ -362,6 +376,8 @@ class _Bubble extends StatelessWidget {
   final String contactName;
   final AppLocalizations l10n;
   final Future<void> Function(ChatMessage message) onRetry;
+  final Future<void> Function(ChatMessage message) onQueue;
+  final Future<void> Function(ChatMessage message) onUnqueue;
   final void Function(String url) onTapUrl;
   final VoidCallback onCopy;
   final VoidCallback onDelete;
@@ -449,6 +465,7 @@ class _Bubble extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final outgoing = message.outgoing;
     final notSent = outgoing && message.state == ChatState.notSent;
+    final isQueued = outgoing && message.state == ChatState.queued;
     final background = outgoing ? scheme.primary : scheme.surfaceContainerHigh;
     final foreground = outgoing ? scheme.onPrimary : scheme.onSurface;
     final linkColor = outgoing ? scheme.onPrimary : scheme.primary;
@@ -509,15 +526,29 @@ class _Bubble extends StatelessWidget {
                         ),
                       ),
                     ),
-                    if (notSent)
+                    if (notSent) ...[
                       TextButton(
-                        // The label takes the bubble's text colour, because the
-                        // theme default is the bubble colour itself.
                         style: TextButton.styleFrom(
                           foregroundColor: foreground,
                         ),
                         onPressed: () => onRetry(message),
                         child: Text(l10n.chatRetry),
+                      ),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          foregroundColor: foreground,
+                        ),
+                        onPressed: () => onQueue(message),
+                        child: Text(l10n.chatQueue),
+                      ),
+                    ],
+                    if (isQueued)
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          foregroundColor: foreground,
+                        ),
+                        onPressed: () => onUnqueue(message),
+                        child: Text(l10n.chatCancelQueue),
                       ),
                   ],
                 ),
@@ -531,6 +562,7 @@ class _Bubble extends StatelessWidget {
 
   IconData _statusIcon(ChatState state) => switch (state) {
     ChatState.sending => Icons.schedule,
+    ChatState.queued => Icons.hourglass_top,
     ChatState.delivered => Icons.done_all,
     ChatState.notSent => Icons.error_outline,
     ChatState.received => Icons.done,
@@ -540,6 +572,7 @@ class _Bubble extends StatelessWidget {
   /// failures say only "Not sent"; the banner explains them.
   String _statusText(ChatMessage message) => switch (message.state) {
     ChatState.sending => l10n.chatStatusSending,
+    ChatState.queued => l10n.chatStatusQueued,
     ChatState.delivered => l10n.chatStatusDelivered,
     ChatState.notSent when message.reason == 'no-answer' =>
       l10n.chatStatusNotSentOffline(contactName),

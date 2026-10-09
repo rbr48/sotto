@@ -65,5 +65,8 @@
       }
     }
   },
-  "chatOpenLink": "Open"
+  "chatOpenLink": "Open",
+  "chatStatusQueued": "Queued",
+  "chatQueue": "Queue",
+  "chatCancelQueue": "Cancel queue"
 }

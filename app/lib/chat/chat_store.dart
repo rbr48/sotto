@@ -4,9 +4,9 @@ import 'dart:convert';
 import '../crypto/identity_store.dart';
 
 /// Where a message is. Outgoing: [sending] until stored on the other device
-/// ([delivered]), or [notSent] when the session ended first. Incoming:
-/// [received].
-enum ChatState { sending, delivered, notSent, received }
+/// ([delivered]), [queued] in the client outbox waiting to send when online,
+/// or [notSent] when the session ended first. Incoming: [received].
+enum ChatState { sending, delivered, notSent, received, queued }
 
 class ChatMessage {
   const ChatMessage({
@@ -283,6 +283,29 @@ class ChatStore {
     return count;
   }
 
+  /// Returns conversation threads that have messages, newest first.
+  Future<List<ChatThreadSummary>> recentChats() async {
+    final chats = await _load();
+    final summaries = <ChatThreadSummary>[];
+    for (final entry in chats.entries) {
+      if (entry.value.isEmpty) continue;
+      final lastMsg = entry.value.last;
+      var unread = 0;
+      for (final msg in entry.value) {
+        if (!msg.outgoing && !msg.read) unread++;
+      }
+      summaries.add(
+        ChatThreadSummary(
+          contactId: entry.key,
+          lastMessage: lastMsg,
+          unreadCount: unread,
+        ),
+      );
+    }
+    summaries.sort((a, b) => b.lastMessage.ts.compareTo(a.lastMessage.ts));
+    return summaries;
+  }
+
   Future<void> _save(Map<String, List<ChatMessage>> chats) async {
     await _store.write(
       storageKey,
@@ -295,4 +318,17 @@ class ChatStore {
       _changes.add(null);
     }
   }
+}
+
+/// A brief overview of a chat conversation for recent chat listings.
+class ChatThreadSummary {
+  const ChatThreadSummary({
+    required this.contactId,
+    required this.lastMessage,
+    required this.unreadCount,
+  });
+
+  final String contactId;
+  final ChatMessage lastMessage;
+  final int unreadCount;
 }

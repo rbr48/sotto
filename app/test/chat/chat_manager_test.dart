@@ -575,4 +575,48 @@ void main() {
     expect(alice.isViewing('bob'), isFalse);
     await alice.dispose();
   });
+
+  test('queued messages can be unqueued or automatically flushed when peer is online', () async {
+    final aliceStore = ChatStore(MemorySecretStore());
+    final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+
+    final message = await alice.sendText('bob', 'wait for me');
+    await _settle();
+    now = now.add(const Duration(seconds: 21));
+    await alice.tick();
+    await _settle();
+
+    expect(
+      (await aliceStore.find('bob', message.id))!.state,
+      ChatState.notSent,
+    );
+
+    // Queue the message
+    await alice.queue('bob', message.id);
+    expect((await aliceStore.find('bob', message.id))!.state, ChatState.queued);
+
+    // Unqueue cancels it
+    await alice.unqueue('bob', message.id);
+    expect(
+      (await aliceStore.find('bob', message.id))!.state,
+      ChatState.notSent,
+    );
+
+    // Queue again
+    await alice.queue('bob', message.id);
+    expect((await aliceStore.find('bob', message.id))!.state, ChatState.queued);
+
+    // Bob comes online, flushOutbox delivers it
+    final bobStore = ChatStore(MemorySecretStore());
+    device('bob', contacts: {'alice'}, store: bobStore);
+
+    await alice.flushOutbox('bob');
+    await _settle();
+
+    expect(
+      (await aliceStore.find('bob', message.id))!.state,
+      ChatState.delivered,
+    );
+    expect((await bobStore.messages('alice')).single.text, 'wait for me');
+  });
 }

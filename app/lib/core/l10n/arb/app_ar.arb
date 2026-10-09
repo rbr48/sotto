@@ -41,5 +41,8 @@
   "chatDeleteMessageBody": "ستتم إزالة هذه الرسالة من هذا الجهاز. يحتفظ الطرف الآخر بنسخته.",
   "chatOpenLinkTitle": "فتح رابط خارجي؟",
   "chatOpenLinkBody": "هل تريد فتح {url} في متصفحك؟",
-  "chatOpenLink": "فتح"
+  "chatOpenLink": "فتح",
+  "chatStatusQueued": "قيد الانتظار",
+  "chatQueue": "وضع في الانتظار",
+  "chatCancelQueue": "إلغاء الانتظار"
 }

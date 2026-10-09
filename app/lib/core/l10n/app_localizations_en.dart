@@ -147,4 +147,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get chatOpenLink => 'Open';
+
+  @override
+  String get chatStatusQueued => 'Queued';
+
+  @override
+  String get chatQueue => 'Queue';
+
+  @override
+  String get chatCancelQueue => 'Cancel queue';
 }

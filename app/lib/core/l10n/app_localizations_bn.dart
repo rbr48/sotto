@@ -147,4 +147,13 @@ class AppLocalizationsBn extends AppLocalizations {
 
   @override
   String get chatOpenLink => 'খুলুন';
+
+  @override
+  String get chatStatusQueued => 'অপেক্ষারত';
+
+  @override
+  String get chatQueue => 'অপেক্ষায় রাখুন';
+
+  @override
+  String get chatCancelQueue => 'বাতিল করুন';
 }

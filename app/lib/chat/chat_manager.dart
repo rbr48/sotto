@@ -165,7 +165,8 @@ class ChatManager {
     final message = await store.find(contact, messageId);
     if (message == null ||
         !message.outgoing ||
-        message.state != ChatState.notSent) {
+        (message.state != ChatState.notSent &&
+            message.state != ChatState.queued)) {
       return;
     }
     _ensureTicker();
@@ -184,6 +185,58 @@ class ChatManager {
       if (!_signalling.isOpening(contact)) {
         _perform(_signalling.open(contact, clock()));
       }
+    }
+  }
+
+  /// Moves an unsent message into the outbox [ChatState.queued] to send automatically when online.
+  Future<void> queue(String contact, String messageId) async {
+    if (!isContact(contact)) {
+      throw ArgumentError.value(contact, 'contact', 'is not a contact');
+    }
+    final message = await store.find(contact, messageId);
+    if (message == null ||
+        !message.outgoing ||
+        message.state != ChatState.notSent) {
+      return;
+    }
+    await store.setState(contact, messageId, ChatState.queued);
+  }
+
+  /// Cancels a queued message, setting it back to [ChatState.notSent].
+  Future<void> unqueue(String contact, String messageId) async {
+    final message = await store.find(contact, messageId);
+    if (message == null ||
+        !message.outgoing ||
+        message.state != ChatState.queued) {
+      return;
+    }
+    await store.setState(
+      contact,
+      messageId,
+      ChatState.notSent,
+      reason: 'cancelled',
+    );
+  }
+
+  /// Attempts to send any queued messages for [contact].
+  Future<void> flushOutbox(String contact) async {
+    if (!isContact(contact) || _disposed) return;
+    final all = await store.messages(contact);
+    final queued = all
+        .where((m) => m.outgoing && m.state == ChatState.queued)
+        .toList();
+    if (queued.isEmpty) return;
+    for (final msg in queued) {
+      await retry(contact, msg.id);
+    }
+  }
+
+  /// Attempts to flush queued messages across all contacts.
+  Future<void> flushAllOutbox() async {
+    if (_disposed) return;
+    final ids = await store.contactIds();
+    for (final contact in ids) {
+      await flushOutbox(contact);
     }
   }
 
@@ -218,6 +271,7 @@ class ChatManager {
         now: clock(),
       ),
     );
+    unawaited(flushOutbox(from));
   }
 
   /// Times out chats that nobody answered, and closes idle sessions.
@@ -371,6 +425,7 @@ class ChatManager {
     final resend = List<ChatMessage>.of(live.resend);
     live.resend.clear();
     unawaited(session.start(resend: resend));
+    unawaited(flushOutbox(live.contact));
   }
 
   void _onSessionEvent(_Live live, ChatSessionEvent event) {

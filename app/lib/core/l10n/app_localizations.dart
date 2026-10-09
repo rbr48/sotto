@@ -351,6 +351,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Open'**
   String get chatOpenLink;
+
+  /// No description provided for @chatStatusQueued.
+  ///
+  /// In en, this message translates to:
+  /// **'Queued'**
+  String get chatStatusQueued;
+
+  /// No description provided for @chatQueue.
+  ///
+  /// In en, this message translates to:
+  /// **'Queue'**
+  String get chatQueue;
+
+  /// No description provided for @chatCancelQueue.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel queue'**
+  String get chatCancelQueue;
 }
 
 class _AppLocalizationsDelegate
