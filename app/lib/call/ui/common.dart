@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
+import '../../chat/ui/chat_page.dart';
 import '../../core/ui_kit.dart';
 import '../../relay/relay_client.dart';
 import '../call_controller.dart';
@@ -475,6 +476,38 @@ class _CallControls extends StatelessWidget {
                   showDragHandle: true,
                   builder: (_) => DevicePicker(controller: controller),
                 ),
+              ),
+            if (controller.chat != null &&
+                controller.call.peer != null &&
+                (controller.chat?.isContact(controller.call.peer!.id) ?? false))
+              RoundCallButton(
+                tooltip: 'Chat',
+                label: 'Chat',
+                icon: Icons.chat_bubble_outline,
+                onPressed: () {
+                  final peer = controller.call.peer!;
+                  showModalBottomSheet<void>(
+                    context: context,
+                    isScrollControlled: true,
+                    showDragHandle: true,
+                    backgroundColor: Theme.of(context).colorScheme.surface,
+                    builder: (sheetContext) => FractionallySizedBox(
+                      heightFactor: 0.85,
+                      child: ClipRRect(
+                        borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(20),
+                        ),
+                        child: ChatPage(
+                          chat: controller.chat!,
+                          contactId: peer.id,
+                          name: splitPeerName(controller.peerName).$1,
+                          sendTyping: controller.sendTyping,
+                          sendReadReceipts: controller.sendReadReceipts,
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
             RoundCallButton(
               tooltip: 'Hang up',

@@ -274,7 +274,20 @@ class ChatManager {
     unawaited(flushOutbox(from));
   }
 
-  /// Times out chats that nobody answered, and closes idle sessions.
+  /// Sends a typing indicator to [contact] if a live session exists.
+  void sendTyping(String contact, bool typing) {
+    final live = _activeFor(contact);
+    live?.session?.sendTyping(typing);
+  }
+
+  /// Sends read receipts for [ids] to [contact] if a live session exists.
+  void sendReadReceipts(String contact, List<String> ids) {
+    final live = _activeFor(contact);
+    live?.session?.sendReadReceipts(ids);
+  }
+
+  /// Times out chats that nobody answered, closes idle sessions, and
+  /// sweeps expired messages.
   Future<void> tick() async {
     if (_disposed) return;
     _perform(_signalling.tick(clock()));
@@ -282,6 +295,7 @@ class ChatManager {
     for (final live in _live.values.toList()) {
       await live.session?.tick(viewing: _viewing == live.contact);
     }
+    await store.sweepExpired(clock: clock);
   }
 
   /// Ends every chat and closes the event stream.

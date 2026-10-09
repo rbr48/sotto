@@ -173,19 +173,45 @@ class SettingsTab extends StatelessWidget {
         _Section('Privacy', [
           ListenableBuilder(
             listenable: calls,
-            builder: (context, _) => SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Hide my IP address'),
-              subtitle: Text(
-                calls.hideIp &&
-                        !calls.turnAvailable &&
-                        calls.relayStatus == RelayStatus.online
-                    ? 'This server has no TURN relay, so calls will fail while this is on.'
-                    : 'Route calls through the Sotto server so the other person '
-                          'never sees your IP address. Adds a little delay.',
-              ),
-              value: calls.hideIp,
-              onChanged: calls.setHideIp,
+            builder: (context, _) => Column(
+              children: [
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Hide my IP address'),
+                  subtitle: Text(
+                    calls.hideIp &&
+                            !calls.turnAvailable &&
+                            calls.relayStatus == RelayStatus.online
+                        ? 'This server has no TURN relay, so calls will fail while this is on.'
+                        : 'Route calls through the Sotto server so the other person '
+                              'never sees your IP address. Adds a little delay.',
+                  ),
+                  value: calls.hideIp,
+                  onChanged: calls.setHideIp,
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    AppLocalizations.of(context).privacySendTypingTitle,
+                  ),
+                  subtitle: Text(
+                    AppLocalizations.of(context).privacySendTypingDesc,
+                  ),
+                  value: calls.sendTyping,
+                  onChanged: calls.setSendTyping,
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    AppLocalizations.of(context).privacySendReadReceiptsTitle,
+                  ),
+                  subtitle: Text(
+                    AppLocalizations.of(context).privacySendReadReceiptsDesc,
+                  ),
+                  value: calls.sendReadReceipts,
+                  onChanged: calls.setSendReadReceipts,
+                ),
+              ],
             ),
           ),
         ]),

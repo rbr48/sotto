@@ -619,4 +619,47 @@ void main() {
     );
     expect((await bobStore.messages('alice')).single.text, 'wait for me');
   });
+
+  test(
+    'sendTyping and sendReadReceipts are dispatched across active sessions',
+    () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final bobStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      final bob = device('bob', contacts: {'alice'}, store: bobStore);
+
+      final bobEvents = <ChatManagerEvent>[];
+      bob.events.listen(bobEvents.add);
+      final aliceEvents = <ChatManagerEvent>[];
+      alice.events.listen(aliceEvents.add);
+
+      final msg = await alice.sendText('bob', 'Hello Bob');
+      await _settle();
+
+      expect((await bobStore.messages('alice')).single.text, 'Hello Bob');
+
+      // Alice types
+      alice.sendTyping('bob', true);
+      await _settle();
+
+      final typingEvent = bobEvents
+          .whereType<ChatUpdate>()
+          .where((e) => e.contact == 'alice' && e.event is PeerTyping)
+          .lastOrNull;
+      expect(typingEvent, isNotNull);
+      expect((typingEvent!.event as PeerTyping).typing, isTrue);
+
+      // Bob reads the message and sends read receipt
+      bob.sendReadReceipts('alice', [msg.id]);
+      await _settle();
+
+      expect((await aliceStore.find('bob', msg.id))?.state, ChatState.read);
+      final readEvent = aliceEvents
+          .whereType<ChatUpdate>()
+          .where((e) => e.contact == 'bob' && e.event is MessagesRead)
+          .lastOrNull;
+      expect(readEvent, isNotNull);
+      expect((readEvent!.event as MessagesRead).ids, [msg.id]);
+    },
+  );
 }

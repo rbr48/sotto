@@ -5,8 +5,9 @@ import '../crypto/identity_store.dart';
 
 /// Where a message is. Outgoing: [sending] until stored on the other device
 /// ([delivered]), [queued] in the client outbox waiting to send when online,
-/// or [notSent] when the session ended first. Incoming: [received].
-enum ChatState { sending, delivered, notSent, received, queued }
+/// [read] when viewed by the recipient, or [notSent] when the session ended first.
+/// Incoming: [received].
+enum ChatState { sending, delivered, notSent, received, queued, read }
 
 class ChatMessage {
   const ChatMessage({
@@ -242,23 +243,87 @@ class ChatStore {
     }
   });
 
-  /// Marks all incoming messages from [contactId] as read.
-  Future<void> markAsRead(String contactId) => _inOrder(() async {
+  static const retentionPrefix = 'sotto.chats.retention.';
+
+  /// Marks all incoming messages from [contactId] as read. Returns the ids
+  /// of messages that were newly marked as read.
+  Future<List<String>> markAsRead(String contactId) => _inOrder(() async {
     final chats = await _load();
     final list = chats[contactId];
-    if (list == null) return;
+    if (list == null) return const [];
+    final readIds = <String>[];
     var changed = false;
     for (var i = 0; i < list.length; i++) {
       final message = list[i];
       if (!message.outgoing && !message.read) {
         list[i] = message.copyWith(read: true);
+        readIds.add(message.id);
         changed = true;
       }
     }
     if (changed) {
       await _save(chats);
     }
+    return readIds;
   });
+
+  /// The disappearing message duration for [contactId]. Duration.zero means off.
+  Future<Duration> retention(String contactId) async {
+    final raw = await _store.read('$retentionPrefix$contactId');
+    if (raw == null) return Duration.zero;
+    final seconds = int.tryParse(raw);
+    return seconds == null || seconds <= 0
+        ? Duration.zero
+        : Duration(seconds: seconds);
+  }
+
+  /// Sets the disappearing message duration for [contactId]. Duration.zero turns it off.
+  Future<void> setRetention(String contactId, Duration duration) =>
+      _inOrder(() async {
+        if (duration <= Duration.zero) {
+          await _store.delete('$retentionPrefix$contactId');
+        } else {
+          await _store.write(
+            '$retentionPrefix$contactId',
+            '${duration.inSeconds}',
+          );
+        }
+        await _sweepInternal(contactId: contactId);
+      });
+
+  /// Sweeps expired messages across all chats (or only [contactId]).
+  /// Returns the number of purged messages.
+  Future<int> sweepExpired({String? contactId, DateTime Function()? clock}) =>
+      _inOrder(() => _sweepInternal(contactId: contactId, clock: clock));
+
+  Future<int> _sweepInternal({
+    String? contactId,
+    DateTime Function()? clock,
+  }) async {
+    final nowMs = (clock ?? DateTime.now)().millisecondsSinceEpoch;
+    final chats = await _load();
+    final targetIds = contactId != null ? [contactId] : chats.keys.toList();
+    var purged = 0;
+    var changed = false;
+    for (final id in targetIds) {
+      final dur = await retention(id);
+      if (dur <= Duration.zero) continue;
+      final maxAgeMs = dur.inMilliseconds;
+      final list = chats[id];
+      if (list == null) continue;
+      final before = list.length;
+      list.removeWhere((m) => (nowMs - m.ts) > maxAgeMs);
+      final count = before - list.length;
+      if (count > 0) {
+        purged += count;
+        changed = true;
+      }
+    }
+    if (changed) {
+      await _save(chats);
+    }
+    return purged;
+  }
 
   /// The number of unread incoming messages across all chats.
   Future<int> totalUnreadCount() async {

@@ -238,4 +238,92 @@ void main() {
       expect(recent.last.unreadCount, 1);
     },
   );
+
+  test(
+    'markAsRead marks unread incoming messages and returns their IDs',
+    () async {
+      final m1 = ChatMessage(
+        id: _id(1),
+        contactId: 'bob',
+        outgoing: false,
+        ts: 1000,
+        text: 'hello',
+        state: ChatState.received,
+        read: false,
+      );
+      final m2 = ChatMessage(
+        id: _id(2),
+        contactId: 'bob',
+        outgoing: true,
+        ts: 2000,
+        text: 'reply',
+        state: ChatState.delivered,
+        read: true,
+      );
+      await store.add(m1);
+      await store.add(m2);
+
+      final readIds = await store.markAsRead('bob');
+      expect(readIds, [_id(1)]);
+
+      final after = await store.messages('bob');
+      expect(after.first.read, isTrue);
+
+      // Subsequent call returns empty list
+      final again = await store.markAsRead('bob');
+      expect(again, isEmpty);
+    },
+  );
+
+  test('setState to ChatState.read persists correctly', () async {
+    await store.add(_message(1, state: ChatState.delivered));
+    await store.setState('bob', _id(1), ChatState.read);
+
+    final msg = await store.find('bob', _id(1));
+    expect(msg?.state, ChatState.read);
+
+    // Verify survives store reload
+    final fresh = ChatStore(secrets);
+    final reloaded = await fresh.find('bob', _id(1));
+    expect(reloaded?.state, ChatState.read);
+  });
+
+  test('retention settings and sweepExpired purge old messages', () async {
+    final now = DateTime(2026, 10, 9, 12, 0, 0);
+    // Message from 2 hours ago
+    final oldMsg = ChatMessage(
+      id: _id(1),
+      contactId: 'bob',
+      outgoing: false,
+      ts: now.subtract(const Duration(hours: 2)).millisecondsSinceEpoch,
+      text: 'old message',
+      state: ChatState.received,
+      read: true,
+    );
+    // Message from 10 minutes ago
+    final newMsg = ChatMessage(
+      id: _id(2),
+      contactId: 'bob',
+      outgoing: true,
+      ts: now.subtract(const Duration(minutes: 10)).millisecondsSinceEpoch,
+      text: 'new message',
+      state: ChatState.delivered,
+      read: true,
+    );
+
+    await store.add(oldMsg);
+    await store.add(newMsg);
+
+    // Set retention to 1 hour (3600 seconds)
+    await store.setRetention('bob', const Duration(hours: 1));
+    expect(await store.retention('bob'), const Duration(hours: 1));
+
+    // Sweep with reference clock
+    final purged = await store.sweepExpired(clock: () => now);
+    expect(purged, 1);
+
+    final remaining = await store.messages('bob');
+    expect(remaining, hasLength(1));
+    expect(remaining.first.id, _id(2));
+  });
 }

@@ -44,5 +44,18 @@
   "chatOpenLink": "فتح",
   "chatStatusQueued": "قيد الانتظار",
   "chatQueue": "وضع في الانتظار",
-  "chatCancelQueue": "إلغاء الانتظار"
+  "chatCancelQueue": "إلغاء الانتظار",
+  "chatCallCompanionTooltip": "محادثة أثناء المكالمة",
+  "chatStatusRead": "تمت القراءة",
+  "chatTyping": "{name} يكتب الآن…",
+  "privacySendTypingTitle": "إرسال مؤشرات الكتابة",
+  "privacySendTypingDesc": "السماح لجهات الاتصال بمعرفة متى تكتب رسالة في الوقت الفعلي.",
+  "privacySendReadReceiptsTitle": "إرسال إشعارات القراءة",
+  "privacySendReadReceiptsDesc": "السماح لجهات الاتصال بمعرفة متى قرأت رسائلهم.",
+  "chatDisappearingTitle": "الرسائل ذاتية الاختفاء",
+  "chatDisappearingDesc": "حذف الرسائل تلقائياً في هذه المحادثة بعد انتهاء المدة المحددة.",
+  "chatDisappearingOff": "متوقف",
+  "chatDisappearing24h": "24 ساعة",
+  "chatDisappearing7d": "7 أيام",
+  "chatDisappearing30d": "30 يوماً"
 }

@@ -156,4 +156,48 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get chatCancelQueue => 'Cancel queue';
+
+  @override
+  String get chatCallCompanionTooltip => 'In-call chat';
+
+  @override
+  String get chatStatusRead => 'Read';
+
+  @override
+  String chatTyping(String name) {
+    return '$name is typing…';
+  }
+
+  @override
+  String get privacySendTypingTitle => 'Send typing indicators';
+
+  @override
+  String get privacySendTypingDesc =>
+      'Let contacts see when you are writing a message in real-time.';
+
+  @override
+  String get privacySendReadReceiptsTitle => 'Send read receipts';
+
+  @override
+  String get privacySendReadReceiptsDesc =>
+      'Let contacts see when you have read their messages.';
+
+  @override
+  String get chatDisappearingTitle => 'Disappearing messages';
+
+  @override
+  String get chatDisappearingDesc =>
+      'Automatically erase messages in this chat after the chosen duration.';
+
+  @override
+  String get chatDisappearingOff => 'Off';
+
+  @override
+  String get chatDisappearing24h => '24 hours';
+
+  @override
+  String get chatDisappearing7d => '7 days';
+
+  @override
+  String get chatDisappearing30d => '30 days';
 }

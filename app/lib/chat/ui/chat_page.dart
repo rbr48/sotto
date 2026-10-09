@@ -23,6 +23,8 @@ class ChatPage extends StatefulWidget {
     required this.chat,
     required this.contactId,
     required this.name,
+    this.sendTyping = true,
+    this.sendReadReceipts = true,
   });
 
   final ChatManager chat;
@@ -32,6 +34,12 @@ class ChatPage extends StatefulWidget {
 
   /// The contact's name, for the title.
   final String name;
+
+  /// Whether to emit real-time typing indicators.
+  final bool sendTyping;
+
+  /// Whether to send read receipts when viewing incoming messages.
+  final bool sendReadReceipts;
 
   @override
   State<ChatPage> createState() => _ChatPageState();
@@ -45,18 +53,58 @@ class _ChatPageState extends State<ChatPage> {
   /// What went wrong with the last connection, shown until dismissed.
   String? _problem;
   bool _sending = false;
+  Timer? _typingDebounceTimer;
+  Timer? _peerTypingTimer;
+  bool _peerIsTyping = false;
+  bool _myTypingSent = false;
 
   @override
   void initState() {
     super.initState();
     widget.chat.viewing(widget.contactId);
     _events = widget.chat.events.listen(_onEvent);
-    unawaited(widget.chat.store.markAsRead(widget.contactId));
+    _input.addListener(_onInputChanged);
+    unawaited(_markAndSendRead());
     unawaited(_load());
+  }
+
+  Future<void> _markAndSendRead() async {
+    final readIds = await widget.chat.store.markAsRead(widget.contactId);
+    if (widget.sendReadReceipts && readIds.isNotEmpty) {
+      widget.chat.sendReadReceipts(widget.contactId, readIds);
+    }
+  }
+
+  void _onInputChanged() {
+    if (!widget.sendTyping) return;
+    final hasText = _input.text.trim().isNotEmpty;
+    if (hasText && !_myTypingSent) {
+      _myTypingSent = true;
+      widget.chat.sendTyping(widget.contactId, true);
+    } else if (!hasText && _myTypingSent) {
+      _myTypingSent = false;
+      widget.chat.sendTyping(widget.contactId, false);
+    }
+    _typingDebounceTimer?.cancel();
+    if (hasText) {
+      _typingDebounceTimer = Timer(const Duration(seconds: 3), () {
+        if (_myTypingSent) {
+          _myTypingSent = false;
+          widget.chat.sendTyping(widget.contactId, false);
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
+    if (_myTypingSent) {
+      _myTypingSent = false;
+      widget.chat.sendTyping(widget.contactId, false);
+    }
+    _typingDebounceTimer?.cancel();
+    _peerTypingTimer?.cancel();
+    _input.removeListener(_onInputChanged);
     widget.chat.viewing(null);
     unawaited(_events?.cancel());
     _input.dispose();
@@ -73,7 +121,19 @@ class _ChatPageState extends State<ChatPage> {
     switch (event) {
       case ChatUpdate(:final contact, :final event)
           when contact == widget.contactId:
-        unawaited(widget.chat.store.markAsRead(widget.contactId));
+        if (event is PeerTyping) {
+          _peerTypingTimer?.cancel();
+          if (event.typing) {
+            setState(() => _peerIsTyping = true);
+            _peerTypingTimer = Timer(const Duration(seconds: 4), () {
+              if (mounted) setState(() => _peerIsTyping = false);
+            });
+          } else {
+            setState(() => _peerIsTyping = false);
+          }
+          return;
+        }
+        unawaited(_markAndSendRead());
         // An ordinary end (bye, closed, idle) needs no explanation.
         if (event is SessionEnded && !_ordinaryEnd(event.reason)) {
           setState(() => _problem = event.reason);
@@ -100,6 +160,11 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _send() async {
     final text = _input.text;
     if (text.trim().isEmpty || _sending) return;
+    if (_myTypingSent) {
+      _myTypingSent = false;
+      widget.chat.sendTyping(widget.contactId, false);
+    }
+    _typingDebounceTimer?.cancel();
     setState(() => _sending = true);
     try {
       await widget.chat.sendText(widget.contactId, text);
@@ -227,6 +292,49 @@ class _ChatPageState extends State<ChatPage> {
     await _load();
   }
 
+  Future<void> _chooseRetention(AppLocalizations l10n) async {
+    final current = await widget.chat.store.retention(widget.contactId);
+    if (!mounted) return;
+    final options = [
+      (Duration.zero, l10n.chatDisappearingOff),
+      (const Duration(hours: 24), l10n.chatDisappearing24h),
+      (const Duration(days: 7), l10n.chatDisappearing7d),
+      (const Duration(days: 30), l10n.chatDisappearing30d),
+    ];
+    final selected = await showDialog<Duration>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(l10n.chatDisappearingTitle),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+            child: Text(
+              l10n.chatDisappearingDesc,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          RadioGroup<Duration>(
+            groupValue: current,
+            onChanged: (val) => Navigator.of(context).pop(val),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final (dur, label) in options)
+                  RadioListTile<Duration>(value: dur, title: Text(label)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    if (selected != null && selected != current) {
+      await widget.chat.store.setRetention(widget.contactId, selected);
+      await _load();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -235,9 +343,34 @@ class _ChatPageState extends State<ChatPage> {
         title: Text(widget.name),
         actions: [
           PopupMenuButton<String>(
-            onSelected: (_) => _deleteChat(l10n),
+            onSelected: (value) {
+              if (value == 'disappearing') {
+                unawaited(_chooseRetention(l10n));
+              } else if (value == 'delete') {
+                unawaited(_deleteChat(l10n));
+              }
+            },
             itemBuilder: (context) => [
-              PopupMenuItem(value: 'delete', child: Text(l10n.chatDeleteMenu)),
+              PopupMenuItem(
+                value: 'disappearing',
+                child: Row(
+                  children: [
+                    const Icon(Icons.timer_outlined, size: 20),
+                    const SizedBox(width: 12),
+                    Text(l10n.chatDisappearingTitle),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    const Icon(Icons.delete_outline, size: 20),
+                    const SizedBox(width: 12),
+                    Text(l10n.chatDeleteMenu),
+                  ],
+                ),
+              ),
             ],
           ),
         ],
@@ -277,6 +410,48 @@ class _ChatPageState extends State<ChatPage> {
                       },
                     ),
             ),
+            if (_peerIsTyping)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 10,
+                          height: 10,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 1.5,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          l10n.chatTyping(widget.name),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
               child: Text(
@@ -513,7 +688,9 @@ class _Bubble extends StatelessWidget {
                     Icon(
                       _statusIcon(message.state),
                       size: 14,
-                      color: foreground.withValues(alpha: 0.8),
+                      color: message.state == ChatState.read
+                          ? const Color(0xFF38BDF8)
+                          : foreground.withValues(alpha: 0.8),
                     ),
                     const SizedBox(width: 4),
                     // Long names wrap here, so the Retry button stays on the bubble.
@@ -564,6 +741,7 @@ class _Bubble extends StatelessWidget {
     ChatState.sending => Icons.schedule,
     ChatState.queued => Icons.hourglass_top,
     ChatState.delivered => Icons.done_all,
+    ChatState.read => Icons.done_all,
     ChatState.notSent => Icons.error_outline,
     ChatState.received => Icons.done,
   };
@@ -574,6 +752,7 @@ class _Bubble extends StatelessWidget {
     ChatState.sending => l10n.chatStatusSending,
     ChatState.queued => l10n.chatStatusQueued,
     ChatState.delivered => l10n.chatStatusDelivered,
+    ChatState.read => l10n.chatStatusRead,
     ChatState.notSent when message.reason == 'no-answer' =>
       l10n.chatStatusNotSentOffline(contactName),
     ChatState.notSent => l10n.chatStatusNotSent,

@@ -367,6 +367,47 @@ void main() {
       expect(await aliceStore.messages('bob'), isEmpty);
     },
   );
+
+  test('typing indicators are delivered to the peer', () async {
+    final (a, b) = _pair();
+    final alice = _Side('alice', 'bob', a, clock: clock)..start();
+    final bob = _Side('bob', 'alice', b, clock: clock)..start();
+    await _settle();
+
+    alice.session.sendTyping(true);
+    await _settle();
+
+    final typingEvent = bob.events.whereType<PeerTyping>().lastOrNull;
+    expect(typingEvent?.typing, isTrue);
+
+    alice.session.sendTyping(false);
+    await _settle();
+
+    final stopTypingEvent = bob.events.whereType<PeerTyping>().lastOrNull;
+    expect(stopTypingEvent?.typing, isFalse);
+  });
+
+  test('read receipts update message state to ChatState.read', () async {
+    final (a, b) = _pair();
+    final alice = _Side('alice', 'bob', a, clock: clock)..start();
+    final bob = _Side('bob', 'alice', b, clock: clock)..start();
+    await _settle();
+
+    final sent = await alice.session.sendText('Read this please');
+    await _settle();
+
+    expect(
+      (await alice.store.find('bob', sent.id))?.state,
+      ChatState.delivered,
+    );
+
+    bob.session.sendReadReceipts([sent.id]);
+    await _settle();
+
+    expect((await alice.store.find('bob', sent.id))?.state, ChatState.read);
+    final readEvent = alice.events.whereType<MessagesRead>().lastOrNull;
+    expect(readEvent?.ids, [sent.id]);
+  });
 }
 
 /// A store whose writes can be held, to end a session in the middle of one.

@@ -75,6 +75,8 @@ class CallController extends ChangeNotifier {
   ];
 
   static const hideIpSetting = 'sotto.settings.hide_ip';
+  static const sendTypingSetting = 'sotto.settings.send_typing';
+  static const sendReadReceiptsSetting = 'sotto.settings.send_read_receipts';
 
   /// Marks a name the caller gave themselves (not a contact, not verified).
   static const notInContacts = ' (not in your contacts)';
@@ -222,6 +224,16 @@ class CallController extends ChangeNotifier {
   /// person never sees this device's IP address.
   bool get hideIp => _hideIp;
 
+  bool _sendTyping = true;
+
+  /// Whether to send real-time typing indicators in chat.
+  bool get sendTyping => _sendTyping;
+
+  bool _sendReadReceipts = true;
+
+  /// Whether to send read receipts when viewing chat messages.
+  bool get sendReadReceipts => _sendReadReceipts;
+
   /// Whether the relay offered a TURN server (needed for [hideIp]).
   bool get turnAvailable =>
       _relay?.iceServers.any(
@@ -308,6 +320,8 @@ class CallController extends ChangeNotifier {
       final identity = _identity = _givenIdentity ?? Identity.generate(sodium);
       _hideIp = await _readSetting(hideIpSetting) == '1';
       _soundsOn = await _readSetting(soundsSetting) != '0';
+      _sendTyping = await _readSetting(sendTypingSetting) != '0';
+      _sendReadReceipts = await _readSetting(sendReadReceiptsSetting) != '0';
       _codec = EnvelopeCodec(sodium, identity);
       await localRenderer.initialize();
       await remoteRenderer.initialize();
@@ -480,6 +494,26 @@ class CallController extends ChangeNotifier {
     notifyListeners();
     try {
       await _settings.write(hideIpSetting, value ? '1' : '0');
+    } catch (_) {
+      // Not persisted; still applies until the app restarts.
+    }
+  }
+
+  Future<void> setSendTyping(bool value) async {
+    _sendTyping = value;
+    notifyListeners();
+    try {
+      await _settings.write(sendTypingSetting, value ? '1' : '0');
+    } catch (_) {
+      // Not persisted; still applies until the app restarts.
+    }
+  }
+
+  Future<void> setSendReadReceipts(bool value) async {
+    _sendReadReceipts = value;
+    notifyListeners();
+    try {
+      await _settings.write(sendReadReceiptsSetting, value ? '1' : '0');
     } catch (_) {
       // Not persisted; still applies until the app restarts.
     }

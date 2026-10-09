@@ -56,7 +56,11 @@ class ContactsTab extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             if (calls.chat case final chat?)
-              _RecentChatsSection(chat: chat, contacts: app.contacts),
+              _RecentChatsSection(
+                chat: chat,
+                contacts: app.contacts,
+                calls: calls,
+              ),
             if (contacts.isEmpty)
               const EmptyState(
                 icon: Icons.people_outline,
@@ -99,6 +103,7 @@ class ContactsTab extends StatelessWidget {
                                 chat: chat,
                                 contactId: contact.identity.id,
                                 contactName: contact.name,
+                                calls: calls,
                               ),
                             IconButton(
                               tooltip: 'Voice call ${contact.name}',
@@ -211,11 +216,13 @@ class _ContactChatButton extends StatefulWidget {
     required this.chat,
     required this.contactId,
     required this.contactName,
+    this.calls,
   });
 
   final ChatManager chat;
   final String contactId;
   final String contactName;
+  final CallController? calls;
 
   @override
   State<_ContactChatButton> createState() => _ContactChatButtonState();
@@ -269,6 +276,8 @@ class _ContactChatButtonState extends State<_ContactChatButton> {
             chat: widget.chat,
             contactId: widget.contactId,
             name: widget.contactName,
+            sendTyping: widget.calls?.sendTyping ?? true,
+            sendReadReceipts: widget.calls?.sendReadReceipts ?? true,
           ),
         ),
       ),
@@ -277,10 +286,15 @@ class _ContactChatButtonState extends State<_ContactChatButton> {
 }
 
 class _RecentChatsSection extends StatefulWidget {
-  const _RecentChatsSection({required this.chat, required this.contacts});
+  const _RecentChatsSection({
+    required this.chat,
+    required this.contacts,
+    this.calls,
+  });
 
   final ChatManager chat;
   final ContactBook contacts;
+  final CallController? calls;
 
   @override
   State<_RecentChatsSection> createState() => _RecentChatsSectionState();
@@ -335,6 +349,7 @@ class _RecentChatsSectionState extends State<_RecentChatsSection> {
     ChatState.sending => Icons.schedule,
     ChatState.queued => Icons.hourglass_top,
     ChatState.delivered => Icons.done_all,
+    ChatState.read => Icons.done_all,
     ChatState.notSent => Icons.error_outline,
     ChatState.received => Icons.done,
   };
@@ -387,7 +402,9 @@ class _RecentChatsSectionState extends State<_RecentChatsSection> {
             Icon(
               _statusIcon(last.state),
               size: 13,
-              color: theme.colorScheme.onSurfaceVariant,
+              color: last.state == ChatState.read
+                  ? const Color(0xFF38BDF8)
+                  : theme.colorScheme.onSurfaceVariant,
             ),
             const SizedBox(width: 4),
             Text(
@@ -435,6 +452,8 @@ class _RecentChatsSectionState extends State<_RecentChatsSection> {
             chat: widget.chat,
             contactId: summary.contactId,
             name: name,
+            sendTyping: widget.calls?.sendTyping ?? true,
+            sendReadReceipts: widget.calls?.sendReadReceipts ?? true,
           ),
         ),
       ),

@@ -39,6 +39,18 @@ final class AckFrame extends ChatFrame {
   final String id;
 }
 
+/// Ephemeral indication of whether the sender is currently typing.
+final class TypingFrame extends ChatFrame {
+  const TypingFrame({required this.typing});
+  final bool typing;
+}
+
+/// The receiver has viewed the messages with these [ids].
+final class ReadFrame extends ChatFrame {
+  const ReadFrame({required this.ids});
+  final List<String> ids;
+}
+
 /// The session is ending normally.
 final class ByeFrame extends ChatFrame {
   const ByeFrame();
@@ -95,6 +107,8 @@ abstract final class ChatFrames {
         'text': text,
       },
       AckFrame(:final id) => {'t': 'ack', 'id': id},
+      TypingFrame(:final typing) => {'t': 'typing', 'typing': typing},
+      ReadFrame(:final ids) => {'t': 'read', 'ids': ids},
       ByeFrame() => {'t': 'bye'},
     };
     final text = jsonEncode(json);
@@ -139,6 +153,20 @@ abstract final class ChatFrames {
         return MessageFrame(id: id, ts: ts, text: cleaned);
       case 'ack':
         return AckFrame(id: _id(json['id']));
+      case 'typing':
+        final typing = json['typing'];
+        if (typing is! bool) throw const ChatFrameException('malformed');
+        return TypingFrame(typing: typing);
+      case 'read':
+        final rawIds = json['ids'];
+        if (rawIds is! List || rawIds.isEmpty) {
+          throw const ChatFrameException('malformed');
+        }
+        final ids = <String>[];
+        for (final item in rawIds) {
+          ids.add(_id(item));
+        }
+        return ReadFrame(ids: ids);
       case 'bye':
         return const ByeFrame();
       default:

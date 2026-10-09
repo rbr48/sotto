@@ -156,4 +156,48 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get chatCancelQueue => 'إلغاء الانتظار';
+
+  @override
+  String get chatCallCompanionTooltip => 'محادثة أثناء المكالمة';
+
+  @override
+  String get chatStatusRead => 'تمت القراءة';
+
+  @override
+  String chatTyping(String name) {
+    return '$name يكتب الآن…';
+  }
+
+  @override
+  String get privacySendTypingTitle => 'إرسال مؤشرات الكتابة';
+
+  @override
+  String get privacySendTypingDesc =>
+      'السماح لجهات الاتصال بمعرفة متى تكتب رسالة في الوقت الفعلي.';
+
+  @override
+  String get privacySendReadReceiptsTitle => 'إرسال إشعارات القراءة';
+
+  @override
+  String get privacySendReadReceiptsDesc =>
+      'السماح لجهات الاتصال بمعرفة متى قرأت رسائلهم.';
+
+  @override
+  String get chatDisappearingTitle => 'الرسائل ذاتية الاختفاء';
+
+  @override
+  String get chatDisappearingDesc =>
+      'حذف الرسائل تلقائياً في هذه المحادثة بعد انتهاء المدة المحددة.';
+
+  @override
+  String get chatDisappearingOff => 'متوقف';
+
+  @override
+  String get chatDisappearing24h => '24 ساعة';
+
+  @override
+  String get chatDisappearing7d => '7 أيام';
+
+  @override
+  String get chatDisappearing30d => '30 يوماً';
 }

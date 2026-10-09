@@ -25,6 +25,16 @@ void main() {
       expect(message.id, _id(2));
       expect(message.ts, 5);
       expect(message.text, 'Salaam');
+
+      final typing = ChatFrames.decode(
+        ChatFrames.encode(const TypingFrame(typing: true)),
+      ) as TypingFrame;
+      expect(typing.typing, true);
+
+      final read = ChatFrames.decode(
+        ChatFrames.encode(ReadFrame(ids: [_id(1), _id(2)])),
+      ) as ReadFrame;
+      expect(read.ids, [_id(1), _id(2)]);
     });
 
     test('the encoding is the documented JSON', () {
@@ -33,6 +43,14 @@ void main() {
       expect(
         ChatFrames.encode(AckFrame(id: _id(3))),
         '{"t":"ack","id":"${_id(3)}"}',
+      );
+      expect(
+        ChatFrames.encode(const TypingFrame(typing: true)),
+        '{"t":"typing","typing":true}',
+      );
+      expect(
+        ChatFrames.encode(ReadFrame(ids: [_id(1), _id(2)])),
+        '{"t":"read","ids":["${_id(1)}","${_id(2)}"]}',
       );
     });
   });

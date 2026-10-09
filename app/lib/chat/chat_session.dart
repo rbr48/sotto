@@ -37,6 +37,18 @@ final class MessageNotSent extends ChatSessionEvent {
   final String id;
 }
 
+/// The other person is currently typing (or stopped typing).
+final class PeerTyping extends ChatSessionEvent {
+  const PeerTyping(this.typing);
+  final bool typing;
+}
+
+/// The other person has read the messages with these [ids].
+final class MessagesRead extends ChatSessionEvent {
+  const MessagesRead(this.ids);
+  final List<String> ids;
+}
+
 /// The session is over. [reason] is 'closed' (this side), 'bye' (the other
 /// side), 'idle', 'version' (the other side speaks another version), or
 /// 'lost' (the channel broke).
@@ -157,6 +169,18 @@ class ChatSession {
     _sendOutbox();
   }
 
+  /// Sends a typing indicator frame to the other device.
+  void sendTyping(bool typing) {
+    if (!isReady) return;
+    _write(TypingFrame(typing: typing));
+  }
+
+  /// Sends read receipts for [ids] to the other device.
+  void sendReadReceipts(List<String> ids) {
+    if (!isReady || ids.isEmpty) return;
+    _write(ReadFrame(ids: ids));
+  }
+
   /// Ends the session from this side.
   Future<void> close() async {
     if (_ended) return;
@@ -253,6 +277,15 @@ class ChatSession {
           await store.setState(contactId, id, ChatState.delivered);
           _events.add(MessageDelivered(id));
         }
+      case TypingFrame(:final typing):
+        if (!_peerHello) return;
+        _events.add(PeerTyping(typing));
+      case ReadFrame(:final ids):
+        if (!_peerHello) return;
+        for (final id in ids) {
+          await store.setState(contactId, id, ChatState.read);
+        }
+        _events.add(MessagesRead(ids));
       case ByeFrame():
         await _end('bye');
     }

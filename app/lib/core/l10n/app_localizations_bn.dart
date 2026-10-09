@@ -156,4 +156,48 @@ class AppLocalizationsBn extends AppLocalizations {
 
   @override
   String get chatCancelQueue => 'বাতিল করুন';
+
+  @override
+  String get chatCallCompanionTooltip => 'কল চলাকালীন চ্যাট';
+
+  @override
+  String get chatStatusRead => 'পড়া হয়েছে';
+
+  @override
+  String chatTyping(String name) {
+    return '$name লিখছেন…';
+  }
+
+  @override
+  String get privacySendTypingTitle => 'টাইপিং নির্দেশক পাঠান';
+
+  @override
+  String get privacySendTypingDesc =>
+      'আপনি কখন বার্তা লিখছেন তা পরিচিতিদের রিয়েল-টাইমে দেখতে দিন।';
+
+  @override
+  String get privacySendReadReceiptsTitle => 'পড়ার স্বীকৃতি পাঠান';
+
+  @override
+  String get privacySendReadReceiptsDesc =>
+      'আপনি কখন তাদের বার্তা পড়েছেন তা পরিচিতিদের দেখতে দিন।';
+
+  @override
+  String get chatDisappearingTitle => 'স্বয়ংক্রিয় বার্তা মুছে ফেলা';
+
+  @override
+  String get chatDisappearingDesc =>
+      'নির্বাচিত সময় পরে এই চ্যাটের বার্তাগুলো স্বয়ংক্রিয়ভাবে মুছে যাবে।';
+
+  @override
+  String get chatDisappearingOff => 'বন্ধ';
+
+  @override
+  String get chatDisappearing24h => '২৪ ঘন্টা';
+
+  @override
+  String get chatDisappearing7d => '৭ দিন';
+
+  @override
+  String get chatDisappearing30d => '৩০ দিন';
 }

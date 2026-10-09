@@ -369,6 +369,84 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Cancel queue'**
   String get chatCancelQueue;
+
+  /// No description provided for @chatCallCompanionTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'In-call chat'**
+  String get chatCallCompanionTooltip;
+
+  /// No description provided for @chatStatusRead.
+  ///
+  /// In en, this message translates to:
+  /// **'Read'**
+  String get chatStatusRead;
+
+  /// No description provided for @chatTyping.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} is typing…'**
+  String chatTyping(String name);
+
+  /// No description provided for @privacySendTypingTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Send typing indicators'**
+  String get privacySendTypingTitle;
+
+  /// No description provided for @privacySendTypingDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Let contacts see when you are writing a message in real-time.'**
+  String get privacySendTypingDesc;
+
+  /// No description provided for @privacySendReadReceiptsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Send read receipts'**
+  String get privacySendReadReceiptsTitle;
+
+  /// No description provided for @privacySendReadReceiptsDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Let contacts see when you have read their messages.'**
+  String get privacySendReadReceiptsDesc;
+
+  /// No description provided for @chatDisappearingTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Disappearing messages'**
+  String get chatDisappearingTitle;
+
+  /// No description provided for @chatDisappearingDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatically erase messages in this chat after the chosen duration.'**
+  String get chatDisappearingDesc;
+
+  /// No description provided for @chatDisappearingOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get chatDisappearingOff;
+
+  /// No description provided for @chatDisappearing24h.
+  ///
+  /// In en, this message translates to:
+  /// **'24 hours'**
+  String get chatDisappearing24h;
+
+  /// No description provided for @chatDisappearing7d.
+  ///
+  /// In en, this message translates to:
+  /// **'7 days'**
+  String get chatDisappearing7d;
+
+  /// No description provided for @chatDisappearing30d.
+  ///
+  /// In en, this message translates to:
+  /// **'30 days'**
+  String get chatDisappearing30d;
 }
 
 class _AppLocalizationsDelegate
