@@ -188,6 +188,8 @@ class DesktopIntegration with TrayListener, WindowListener {
   }
 
   Future<void> _showWindow() async {
+    // Shown again: the person can see the app, whatever the lifecycle says.
+    inFront = true;
     try {
       await windowManager.show();
       await windowManager.focus();
@@ -202,13 +204,17 @@ class DesktopIntegration with TrayListener, WindowListener {
       unawaited(windowManager.destroy());
       return;
     }
+    // A window hidden in the tray is not in front, whatever the lifecycle
+    // still reports: calls, messages and knocks must notify.
+    inFront = false;
     unawaited(windowManager.hide());
     if (!_toldAboutTray) {
       _toldAboutTray = true;
       _notify(
         const Notice(
           'Sotto is still running',
-          'Calls and waiting guests still reach you. Quit from the tray icon.',
+          'Calls, messages and waiting guests still reach you. Quit from the '
+              'tray icon.',
         ),
       );
     }
