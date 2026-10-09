@@ -752,6 +752,9 @@ class CallController extends ChangeNotifier {
     await _host?.admit(knockId);
   }
 
+  /// Turns a waiting guest away: their page shows that they were declined.
+  void declineGuest(String knockId) => _host?.decline(knockId);
+
   void _onRelayMessage(RelayMessage message) {
     final codec = _codec;
     final manager = _manager;
