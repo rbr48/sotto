@@ -986,14 +986,7 @@ class _Bubble extends StatelessWidget {
           ),
           padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
           decoration: BoxDecoration(
-            gradient: outgoing
-                ? const LinearGradient(
-                    colors: [Color(0xFF6B5BA5), Color(0xFF5B4B8A)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  )
-                : null,
-            color: outgoing ? null : scheme.surfaceContainerLow,
+            color: outgoing ? scheme.primary : scheme.surfaceContainerLow,
             borderRadius: BorderRadius.only(
               topLeft: const Radius.circular(18),
               topRight: const Radius.circular(18),

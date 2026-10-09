@@ -198,6 +198,7 @@ void main() {
     });
 
     await store.add(_message(1));
+    await Future<void>.delayed(Duration.zero);
     expect(changeNotified, isTrue);
 
     await sub.cancel();
@@ -315,7 +316,7 @@ void main() {
     await store.add(newMsg);
 
     // Set retention to 1 hour (3600 seconds)
-    await store.setRetention('bob', const Duration(hours: 1));
+    await store.setRetention('bob', const Duration(hours: 1), clock: () => now);
     expect(await store.retention('bob'), const Duration(hours: 1));
 
     // Sweep with reference clock

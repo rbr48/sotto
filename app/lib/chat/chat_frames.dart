@@ -385,7 +385,7 @@ abstract final class ChatFrames {
   /// removes path separators, control characters, and leading dots; cuts to 120 chars;
   /// and prefixes reserved Windows names with 'file_'.
   static String cleanFileName(String filename) {
-    var name = filename.replaceAll(RegExp(r'[\\/]'), '_');
+    var name = filename.replaceAll(RegExp(r'\.*[\\/]'), '_');
     name = cleanText(name);
     while (name.startsWith('.')) {
       name = name.substring(1).trim();

@@ -473,18 +473,18 @@ class ChatStore {
   }
 
   /// Sets the disappearing message duration for [contactId]. Duration.zero turns it off.
-  Future<void> setRetention(String contactId, Duration duration) =>
-      _inOrder(() async {
-        if (duration <= Duration.zero) {
-          await _store.delete('$retentionPrefix$contactId');
-        } else {
-          await _store.write(
-            '$retentionPrefix$contactId',
-            '${duration.inSeconds}',
-          );
-        }
-        await _sweepInternal(contactId: contactId);
-      });
+  Future<void> setRetention(
+    String contactId,
+    Duration duration, {
+    DateTime Function()? clock,
+  }) => _inOrder(() async {
+    if (duration <= Duration.zero) {
+      await _store.delete('$retentionPrefix$contactId');
+    } else {
+      await _store.write('$retentionPrefix$contactId', '${duration.inSeconds}');
+    }
+    await _sweepInternal(contactId: contactId, clock: clock);
+  });
 
   /// Sweeps expired messages across all chats (or only [contactId]).
   /// Returns the number of purged messages.

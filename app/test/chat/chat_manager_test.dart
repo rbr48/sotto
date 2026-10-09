@@ -218,7 +218,7 @@ void main() {
     bool hideIp = false,
     bool failCreate = false,
     bool neverOpens = false,
-    Duration connectTimeout = const Duration(seconds: 30),
+    Duration connectTimeout = const Duration(milliseconds: 200),
     ChatStore? store,
     List<Map<String, dynamic>>? servers,
   }) {
