@@ -303,6 +303,8 @@ class _RecentChatsSection extends StatefulWidget {
 class _RecentChatsSectionState extends State<_RecentChatsSection> {
   List<ChatThreadSummary> _summaries = const [];
   StreamSubscription<void>? _sub;
+  bool _searchOpen = false;
+  String _search = '';
 
   @override
   void initState() {
@@ -358,21 +360,73 @@ class _RecentChatsSectionState extends State<_RecentChatsSection> {
   Widget build(BuildContext context) {
     if (_summaries.isEmpty) return const SizedBox.shrink();
     final theme = Theme.of(context);
+    final q = _search.trim().toLowerCase();
+    final filtered = q.isEmpty
+        ? _summaries
+        : _summaries.where((s) {
+            final contact = widget.contacts.contacts
+                .where((c) => c.identity.id == s.contactId)
+                .firstOrNull;
+            final name = contact?.name ?? s.contactId;
+            return name.toLowerCase().contains(q) ||
+                s.lastMessage.text.toLowerCase().contains(q);
+          }).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SectionLabel('Recent conversations · ${_summaries.length}'),
-        Card(
-          child: Column(
-            children: [
-              for (final (index, summary) in _summaries.indexed) ...[
-                if (index > 0) const Divider(indent: 72),
-                _buildTile(context, theme, summary),
-              ],
-            ],
-          ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            SectionLabel('Recent conversations · ${_summaries.length}'),
+            if (_summaries.length >= 3 || _searchOpen)
+              IconButton(
+                icon: Icon(_searchOpen ? Icons.close : Icons.search, size: 20),
+                onPressed: () => setState(() {
+                  _searchOpen = !_searchOpen;
+                  if (!_searchOpen) _search = '';
+                }),
+              ),
+          ],
         ),
+        if (_searchOpen)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: TextField(
+              autofocus: true,
+              decoration: const InputDecoration(
+                hintText: 'Search conversations…',
+                prefixIcon: Icon(Icons.search, size: 20),
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+              ),
+              onChanged: (val) => setState(() => _search = val),
+            ),
+          ),
+        if (filtered.isNotEmpty)
+          Card(
+            child: Column(
+              children: [
+                for (final (index, summary) in filtered.indexed) ...[
+                  if (index > 0) const Divider(indent: 72),
+                  _buildTile(context, theme, summary),
+                ],
+              ],
+            ),
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Center(
+              child: Text(
+                'No matching conversations',
+                style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+              ),
+            ),
+          ),
         const SizedBox(height: 16),
       ],
     );

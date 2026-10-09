@@ -570,6 +570,25 @@ class ChatStore {
     summaries.sort((a, b) => b.lastMessage.ts.compareTo(a.lastMessage.ts));
     return summaries;
   }
+
+  /// Searches all stored messages across all contacts matching [query].
+  Future<List<ChatMessage>> searchAll(String query) async {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return const [];
+    final ids = await _loadIndex();
+    final results = <ChatMessage>[];
+    for (final id in ids) {
+      final list = await _loadContact(id);
+      for (final msg in list) {
+        if (msg.text.toLowerCase().contains(q) ||
+            (msg.fileName?.toLowerCase().contains(q) ?? false)) {
+          results.add(msg);
+        }
+      }
+    }
+    results.sort((a, b) => b.ts.compareTo(a.ts));
+    return results;
+  }
 }
 
 /// A brief overview of a chat conversation for recent chat listings.

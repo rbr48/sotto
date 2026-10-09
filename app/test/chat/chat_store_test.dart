@@ -406,4 +406,52 @@ void main() {
     final page4 = await store.messages('bob', limit: 10, offset: 25);
     expect(page4, isEmpty);
   });
+
+  test('searchAll finds messages across all contacts matching query', () async {
+    await store.add(
+      ChatMessage(
+        id: _id(1),
+        contactId: 'alice',
+        outgoing: false,
+        ts: 1000,
+        text: 'Meeting at 3pm tomorrow',
+        state: ChatState.received,
+      ),
+    );
+    await store.add(
+      ChatMessage(
+        id: _id(2),
+        contactId: 'bob',
+        outgoing: true,
+        ts: 2000,
+        text: 'Sent the proposal document',
+        fileName: 'project_proposal.pdf',
+        state: ChatState.delivered,
+      ),
+    );
+    await store.add(
+      ChatMessage(
+        id: _id(3),
+        contactId: 'carol',
+        outgoing: false,
+        ts: 3000,
+        text: 'Just saying hello',
+        state: ChatState.received,
+      ),
+    );
+
+    final searchMeeting = await store.searchAll('meeting');
+    expect(searchMeeting, hasLength(1));
+    expect(searchMeeting.first.contactId, 'alice');
+
+    final searchProposal = await store.searchAll('proposal');
+    expect(searchProposal, hasLength(1));
+    expect(searchProposal.first.contactId, 'bob');
+
+    final searchNone = await store.searchAll('xyz123');
+    expect(searchNone, isEmpty);
+
+    final searchEmpty = await store.searchAll('');
+    expect(searchEmpty, isEmpty);
+  });
 }
