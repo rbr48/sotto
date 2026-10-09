@@ -78,26 +78,28 @@ You need a Linux server with a public IP address and at least 2 GB of RAM (the i
 
 What holds today:
 
-- Call setup and text messages are sealed end to end with libsodium (sealed boxes: X25519 and XSalsa20-Poly1305; Ed25519 signatures). Call audio and video use WebRTC's DTLS-SRTP, and its key fingerprints travel inside the sealed call setup, so neither the relay nor the TURN server can decrypt a call.
+- Call setup and chat set-up are sealed end to end with libsodium (sealed boxes: X25519 and XSalsa20-Poly1305; Ed25519 signatures). Call audio and video use WebRTC's DTLS-SRTP, and its key fingerprints travel inside the sealed call setup, so neither the relay nor the TURN server can decrypt a call.
 - Text messages go directly between the two devices over an encrypted WebRTC data channel. The relay carries only sealed set-up messages, never the text, and only your contacts can open a chat with you.
-- The relay and the TURN server keep nothing on disk. Undelivered messages wait in memory for up to 60 seconds. The web server keeps only its TLS certificate.
-- A relay that tampers with, replays or re-addresses messages is detected: every message is signed and checked for time and replay, and logins are signed challenges.
+- The relay and the TURN server keep no user data on disk: both containers run read-only, and TURN's logs are discarded. The relay's only log lines are its start and stop messages, which Docker keeps in a log capped at 1 MB. Undelivered messages wait in memory for up to 60 seconds. The web server keeps only TLS certificate data and writes no request logs.
+- A relay that tampers with, replays or re-addresses call and chat set-up messages is detected: each one is signed by its sender and checked for age (2 minutes) and for replay. Chat text is not signed message by message; it relies on the data channel's encryption. The replay check is kept in memory, so a message replayed within 2 minutes after an app restart is accepted. Logins are signed challenges.
 - Guest links are signed. Safety numbers reveal a man in the middle, once the two people compare them.
 - The code is open, so all of this can be checked.
 
 What doesn't hold yet (details in [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md)):
 
 - **No independent security audit yet**; one is planned before the public launch.
-- **Browser guests run the code the server sends them.** A compromised or compelled server could send modified code. Run your own server, or use one you trust; the apps don't have this problem.
+- **Everyone who uses the web app runs the code the server sends them**, guests and professionals alike. A compromised or compelled server could send modified code. Run your own server, or use one you trust; the apps don't have this problem.
 - **Call and chat set-up have no forward secrecy yet**; call media and chat message text do. A stolen identity key could decrypt recorded past set-up messages, which hold IP addresses, codec and connection details, the names shown on calls, guest link secrets and timing. They don't hold the conversation.
 - **Safety numbers only help if the two people compare them.** Until they do, a contact is not verified, and a contact link's name is whatever its sender chose.
-- **While the apps are connected, the relay sees** who is online, who sends to whom and when (calls and chat set-ups), message sizes and IP addresses. The TURN server sees the IP addresses, volume and timing of relayed calls. Nothing is stored.
+- **While the apps are connected, the relay sees** who is online, who sends to whom and when (calls and chat set-ups), message sizes and IP addresses. The TURN server sees the IP addresses, volume and timing of relayed calls and chats. The web server sees each visitor's IP address. Nothing is stored.
+- **A relay can drop or delay messages without anyone noticing**; calls and chats then fail or time out.
+- **A sender can tell whether someone is online.** The relay reports each message as *delivered* or *queued*, so anyone who can send to a Sotto ID learns whether it is connected. The apps ring for a stranger's call, and decline a stranger's chat.
 - **The other person can see your IP address** unless you turn on *Hide my IP address*, which sends calls and chats through the TURN server.
 - **Call links and contact links are permanent**: anyone who has one can ring you. Give clients a guest link instead, which can be replaced or used once.
-- **Your contacts, history and keys** are protected by the device's keystore and app lock. Malware on the device, or someone who can unlock it, can read them.
+- **Your contacts, history and keys** are encrypted on the device, with their keys kept in the device's keystore. The app lock (a PIN) hides the screens and guards sensitive settings, but it does not encrypt anything. Malware on the device, or someone who can unlock it, can read them.
 - **Chat history stays on your devices until you delete it.** It is never deleted automatically, and it is included in backups.
-- **The apps check GitHub for updates once a day by default**, which shows GitHub your IP address. Turn this off in Settings → Updates.
-- **"Remember me on this browser" is only as safe as that browser profile**, and its PIN check uses a fast hash rather than Argon2id. It is off by default; use it on your own computer only.
+- **The apps check GitHub for updates once a day by default**, and each time they start. The check shows GitHub your IP address and the Sotto version. Turn this off in Settings → Updates.
+- **"Remember me on this browser" is only as safe as that browser profile.** In a browser, the app-lock PIN is checked with a fast keyed hash rather than Argon2id, in every session and not only with *Remember me*. *Remember me* is off by default; use it on your own computer only.
 - **Devices whose clocks are more than 2 minutes off** cannot exchange messages.
 
 ## Repository
@@ -105,7 +107,7 @@ What doesn't hold yet (details in [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md)
 | Folder | What it is |
 |---|---|
 | `app/` | Flutter app: Android, Windows, Linux and the browser (web) |
-| `server/` | Relay server (Node.js + TypeScript). Keeps nothing on disk; holds undelivered envelopes in memory for up to 60 seconds |
+| `server/` | Relay server (Node.js + TypeScript). Keeps nothing on disk; holds undelivered messages in memory for up to 60 seconds |
 | `infra/` | Docker Compose deployment (relay, web app behind Caddy, coturn). `install.sh` sets it up for self-hosting and for the test server |
 | `e2e/` | End-to-end tests: real calls and messages between headless browsers, through the real relay and TURN server |
 | `packaging/` | Installer and package builds: Windows (Inno Setup), Linux (.deb, AppImage) |
@@ -143,14 +145,16 @@ CI also runs the end-to-end browser tests, the crypto test-vector check, the ins
 
 ## Plans, licence and languages
 
-- Sotto is free to use and to self-host. Paid hosted and business plans are planned; see [`docs/FEATURES.md`](docs/FEATURES.md).
-- Sotto is available in English, Bangla and Arabic. The Bangla and Arabic text has not yet been reviewed by a native speaker.
+- Sotto is free to use and to self-host. Planned, not yet available: a paid hosted plan (Pro) and a paid self-hosted licence (Business); see [`docs/FEATURES.md`](docs/FEATURES.md).
+- The app is available in English, Bangla and Arabic, but not every screen is translated yet. The Bangla and Arabic text has not yet been reviewed by a native speaker.
 
 ## Contact & Support
 
+Contacts for the hosted service at `call.sottocall.com`:
+
 - **Sotto Live Call Center:** [Call Support](https://call.sottocall.com/#c=n3qJ6HlYC0WI3DU_ixZTW6VaXCTX04zQTw5FjPj20CQ) (private, end-to-end encrypted call)
-- **General Inquiries:** [contact@sottocall.com](mailto:contact@sottocall.com)
-- **User & Technical Support:** [support@sottocall.com](mailto:support@sottocall.com)
+- **Contact:** [contact@sottocall.com](mailto:contact@sottocall.com)
+- **Support:** [support@sottocall.com](mailto:support@sottocall.com)
 
 > Sotto cannot call emergency services. In an emergency, use a phone to call your local emergency number.
 
