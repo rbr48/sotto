@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:audioplayers/audioplayers.dart';
+// The platform interface is a transitive package, the one audioplayers uses.
+// ignore: depend_on_referenced_packages
 import 'package:audioplayers_platform_interface/audioplayers_platform_interface.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -14,137 +15,7 @@ import 'package:sotto/chat/voice/voice_player.dart';
 import 'package:sotto/chat/voice/voice_recorder.dart';
 import 'package:sotto/crypto/sotto_crypto.dart';
 
-/// A stand-in for the platform recorder. It records no sound: a file route
-/// writes a fixed block of bytes to the path it is given, and a stream route
-/// hands out [pcm] for the test to fill.
-class _FakeRecord extends RecordPlatform {
-  /// The calls made, in order, by name.
-  final calls = <String>[];
-
-  bool permission = true;
-
-  /// When set, the permission prompt stays open until this completes.
-  Completer<bool>? permissionPrompt;
-
-  /// Thrown by start, when set.
-  Object? startError;
-
-  /// Thrown by stop, when set.
-  Object? stopError;
-
-  /// Whether a file-route stop returns the path. False returns null.
-  bool stopReturnsPath = true;
-
-  /// The level every amplitude reading reports, in dB.
-  double level = -160;
-
-  /// The configuration the platform reports as adjusted, when set.
-  RecordConfig? adjusted;
-
-  /// The path of the last file-route recording.
-  String? path;
-
-  /// The stream of the last stream-route recording.
-  StreamController<Uint8List>? pcm;
-
-  void Function(RecordConfig config)? _onConfig;
-
-  @override
-  Future<void> create(String recorderId) async {}
-
-  @override
-  Future<bool> hasPermission(String recorderId, {bool request = true}) async {
-    calls.add('hasPermission');
-    final prompt = permissionPrompt;
-    return prompt == null ? permission : prompt.future;
-  }
-
-  @override
-  Future<void> start(
-    String recorderId,
-    RecordConfig config, {
-    required String path,
-  }) async {
-    calls.add('start');
-    if (startError case final error?) throw error;
-    this.path = path;
-    await File(path).writeAsBytes(Uint8List.fromList(List.filled(1000, 9)));
-  }
-
-  @override
-  Future<Stream<Uint8List>> startStream(
-    String recorderId,
-    RecordConfig config,
-  ) async {
-    calls.add('startStream');
-    if (startError case final error?) throw error;
-    _onConfig?.call(adjusted ?? config);
-    final controller = StreamController<Uint8List>();
-    pcm = controller;
-    return controller.stream;
-  }
-
-  @override
-  Future<String?> stop(String recorderId) async {
-    calls.add('stop');
-    if (stopError case final error?) throw error;
-    final stream = pcm;
-    if (stream != null) {
-      await stream.close();
-      return null;
-    }
-    return stopReturnsPath ? path : null;
-  }
-
-  @override
-  Future<void> cancel(String recorderId) async {
-    calls.add('cancel');
-    await pcm?.close();
-  }
-
-  @override
-  Future<void> pause(String recorderId) async {}
-
-  @override
-  Future<void> resume(String recorderId) async {}
-
-  @override
-  Future<bool> isRecording(String recorderId) async => false;
-
-  @override
-  Future<bool> isPaused(String recorderId) async => false;
-
-  @override
-  Future<void> dispose(String recorderId) async {
-    calls.add('dispose');
-  }
-
-  @override
-  Future<Amplitude> getAmplitude(String recorderId) async =>
-      Amplitude(current: level, max: level);
-
-  @override
-  Future<bool> isEncoderSupported(
-    String recorderId,
-    AudioEncoder encoder,
-  ) async => true;
-
-  @override
-  Future<List<InputDevice>> listInputDevices(String recorderId) async =>
-      const [];
-
-  @override
-  Stream<RecordState> onStateChanged(String recorderId) =>
-      const Stream<RecordState>.empty();
-
-  @override
-  void setOnConfigChanged(
-    String recorderId,
-    void Function(RecordConfig config)? handler,
-  ) {
-    _onConfig = handler;
-  }
-}
+import 'fake_record.dart';
 
 /// A stand-in for the audioplayers platform. It plays nothing. It records the
 /// players created, the players resumed, and sends the prepared event when a
@@ -158,15 +29,12 @@ class _FakeAudioplayers extends AudioplayersPlatformInterface {
 
   final _events = <String, StreamController<AudioEvent>>{};
 
-  StreamController<AudioEvent> _controller(String playerId) =>
-      _events.putIfAbsent(
-        playerId,
-        () => StreamController<AudioEvent>.broadcast(),
-      );
+  StreamController<AudioEvent> _controller(String playerId) => _events
+      .putIfAbsent(playerId, () => StreamController<AudioEvent>.broadcast());
 
-  void complete(String playerId) => _controller(playerId).add(
-    const AudioEvent(eventType: AudioEventType.complete),
-  );
+  void complete(String playerId) =>
+      _controller(playerId)
+          .add(const AudioEvent(eventType: AudioEventType.complete));
 
   @override
   Future<void> create(String playerId) async {
@@ -263,7 +131,7 @@ void main() {
   late Directory root;
   late Directory received;
   late ReceivedFileStore files;
-  late _FakeRecord record;
+  late FakeRecord record;
 
   setUpAll(() async {
     sodium = await SottoCrypto.init();
@@ -280,7 +148,7 @@ void main() {
           (call) async =>
               call.method == 'getTemporaryDirectory' ? root.path : null,
         );
-    record = _FakeRecord();
+    record = FakeRecord();
     RecordPlatform.instance = record;
   });
 
@@ -579,25 +447,38 @@ void main() {
         await player.dispose();
       });
 
-      test('a stop during the copy write stops the start: no playback, no copy', () async {
-        final store = _GatedStore(sodium: sodium, directory: () async => received);
-        final player = VoicePlayer(copies: store);
-        final gate = store.gate = Completer<void>();
-        final starting = player.start(note, mime: 'audio/mp4', name: 'voice-1.m4a');
-        await _pump();
+      test(
+        'a stop during the copy write stops the start: no playback, no copy',
+        () async {
+          final store = _GatedStore(
+            sodium: sodium,
+            directory: () async => received,
+          );
+          final player = VoicePlayer(copies: store);
+          final gate = store.gate = Completer<void>();
+          final starting = player.start(
+            note,
+            mime: 'audio/mp4',
+            name: 'voice-1.m4a',
+          );
+          await _pump();
 
-        await player.stop();
-        gate.complete();
-        await starting;
-        await _pump();
+          await player.stop();
+          gate.complete();
+          await starting;
+          await _pump();
 
-        expect(fake.resumed, isEmpty);
-        expect(copies(), isEmpty);
-        await player.dispose();
-      });
+          expect(fake.resumed, isEmpty);
+          expect(copies(), isEmpty);
+          await player.dispose();
+        },
+      );
 
       test('a second note started while the first copy is written: the first never plays', () async {
-        final store = _GatedStore(sodium: sodium, directory: () async => received);
+        final store = _GatedStore(
+          sodium: sodium,
+          directory: () async => received,
+        );
         final first = VoicePlayer(copies: store);
         final second = VoicePlayer(copies: store);
         final gate = store.gate = Completer<void>();

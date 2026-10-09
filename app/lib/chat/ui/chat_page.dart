@@ -527,9 +527,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     } catch (_) {
       // The error is not shown: its text names internal types and limits.
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.chatVoiceUnavailable)),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l10n.chatVoiceUnavailable)));
     }
   }
 
@@ -689,7 +688,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   void _showFileError(Object error, String fallback) {
     if (!mounted) return;
-    final text = fileErrorMessage(AppLocalizations.of(context), error, fallback);
+    final text = fileErrorMessage(
+      AppLocalizations.of(context),
+      error,
+      fallback,
+    );
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 

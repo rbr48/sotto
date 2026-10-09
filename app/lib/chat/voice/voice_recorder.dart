@@ -339,10 +339,7 @@ class VoiceRecorder {
     // the cap is refused by the receiver.
     const blockAlign = voiceChannels * voiceBitsPerSample ~/ 8;
     final cap = _sampleRate * blockAlign * maxVoiceSeconds;
-    final length = math.min(
-      pcm.length - pcm.length % blockAlign,
-      cap,
-    );
+    final length = math.min(pcm.length - pcm.length % blockAlign, cap);
     if (length == 0) {
       throw const VoiceRecordException(VoiceFailure.unavailable);
     }

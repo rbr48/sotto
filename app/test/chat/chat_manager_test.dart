@@ -686,59 +686,53 @@ void main() {
     },
   );
 
-  test(
-    'with read receipts off, a chat opening sends no receipt for messages read on this device',
-    () async {
-      final aliceStore = ChatStore(MemorySecretStore());
-      final bobStore = ChatStore(MemorySecretStore());
-      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
-      device(
-        'bob',
-        contacts: {'alice'},
-        store: bobStore,
-        readReceiptsEnabled: () => false,
-      );
+  test('with read receipts off, a chat opening sends no receipt for messages read on this device', () async {
+    final aliceStore = ChatStore(MemorySecretStore());
+    final bobStore = ChatStore(MemorySecretStore());
+    final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+    device(
+      'bob',
+      contacts: {'alice'},
+      store: bobStore,
+      readReceiptsEnabled: () => false,
+    );
 
-      final first = await alice.sendText('bob', 'read this');
-      await _settle();
-      // Bob reads it on this device. With receipts off, nothing is sent.
-      await bobStore.markAsRead('alice');
-      await alice.close('bob');
-      await _settle();
+    final first = await alice.sendText('bob', 'read this');
+    await _settle();
+    // Bob reads it on this device. With receipts off, nothing is sent.
+    await bobStore.markAsRead('alice');
+    await alice.close('bob');
+    await _settle();
 
-      // The next chat opens between them, from Alice's side.
-      await alice.sendText('bob', 'next');
-      await _settle();
+    // The next chat opens between them, from Alice's side.
+    await alice.sendText('bob', 'next');
+    await _settle();
 
-      expect(
-        (await aliceStore.find('bob', first.id))!.state,
-        isNot(ChatState.read),
-      );
-      expect(
-        (await aliceStore.find('bob', first.id))!.state,
-        ChatState.delivered,
-      );
-    },
-  );
+    expect(
+      (await aliceStore.find('bob', first.id))!.state,
+      isNot(ChatState.read),
+    );
+    expect(
+      (await aliceStore.find('bob', first.id))!.state,
+      ChatState.delivered,
+    );
+  });
 
-  test(
-    'with read receipts on, a chat opening sends the receipt for messages read on this device',
-    () async {
-      final aliceStore = ChatStore(MemorySecretStore());
-      final bobStore = ChatStore(MemorySecretStore());
-      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
-      device('bob', contacts: {'alice'}, store: bobStore);
+  test('with read receipts on, a chat opening sends the receipt for messages read on this device', () async {
+    final aliceStore = ChatStore(MemorySecretStore());
+    final bobStore = ChatStore(MemorySecretStore());
+    final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+    device('bob', contacts: {'alice'}, store: bobStore);
 
-      final first = await alice.sendText('bob', 'read this');
-      await _settle();
-      await bobStore.markAsRead('alice');
-      await alice.close('bob');
-      await _settle();
+    final first = await alice.sendText('bob', 'read this');
+    await _settle();
+    await bobStore.markAsRead('alice');
+    await alice.close('bob');
+    await _settle();
 
-      await alice.sendText('bob', 'next');
-      await _settle();
+    await alice.sendText('bob', 'next');
+    await _settle();
 
-      expect((await aliceStore.find('bob', first.id))!.state, ChatState.read);
-    },
-  );
+    expect((await aliceStore.find('bob', first.id))!.state, ChatState.read);
+  });
 }
