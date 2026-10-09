@@ -683,8 +683,9 @@ class ChatSession {
             _write(FileDeclineFrame(id: id));
           } else {
             _events.add(FileOfferReceived(message));
-            // Files from contacts are accepted automatically so they transfer immediately without blocking
-            if (!_ended) await acceptFile(id);
+            // A voice note from a contact, within its cap, is downloaded at
+            // once, so it plays on a tap without an Accept first.
+            if (voice && !_ended) await acceptFile(id);
           }
         }
       case FileAcceptFrame(:final id):
