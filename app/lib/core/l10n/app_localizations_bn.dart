@@ -241,6 +241,12 @@ class AppLocalizationsBn extends AppLocalizations {
   String get chatFileReceived => 'ফাইল পাওয়া গেছে';
 
   @override
+  String get chatFileUnavailable => 'ফাইলটি আর এই ডিভাইসে নেই।';
+
+  @override
+  String get chatFileUnreadable => 'ফাইলটি খোলা যায়নি।';
+
+  @override
   String get chatFileSent => 'ফাইল পাঠানো হয়েছে';
 
   @override

@@ -77,9 +77,11 @@ class _FakeRtc implements ChatRtc {
   Future<void> close() async {
     closed = true;
     _markLost();
-    if (!_frames.isClosed) await _frames.close();
-    if (!_binaryFrames.isClosed) await _binaryFrames.close();
-    if (!_candidates.isClosed) await _candidates.close();
+    // Not awaited: a controller nobody listens to never completes its close,
+    // and that must not hang the caller (chat_rtc.dart does the same).
+    if (!_frames.isClosed) unawaited(_frames.close());
+    if (!_binaryFrames.isClosed) unawaited(_binaryFrames.close());
+    if (!_candidates.isClosed) unawaited(_candidates.close());
   }
 
   void _link(_FakeRtc other) {
@@ -134,8 +136,8 @@ class _FakeTransport implements ChatTransport {
 
   @override
   Future<void> close() async {
-    if (!owner._frames.isClosed) await owner._frames.close();
-    if (!owner._binaryFrames.isClosed) await owner._binaryFrames.close();
+    if (!owner._frames.isClosed) unawaited(owner._frames.close());
+    if (!owner._binaryFrames.isClosed) unawaited(owner._binaryFrames.close());
   }
 }
 

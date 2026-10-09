@@ -69,6 +69,8 @@
   "chatFileDownloading": "جارٍ الاستلام {percent}%",
   "chatFileUploading": "جارٍ الإرسال {percent}%",
   "chatFileReceived": "تم استلام الملف",
+  "chatFileUnavailable": "لم يعد هذا الملف موجودا على هذا الجهاز.",
+  "chatFileUnreadable": "تعذر فتح هذا الملف.",
   "chatFileSent": "تم إرسال الملف",
   "chatFileOpen": "فتح",
   "chatFileSaveAs": "حفظ باسم…",

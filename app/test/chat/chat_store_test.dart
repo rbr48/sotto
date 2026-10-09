@@ -315,13 +315,14 @@ void main() {
     await store.add(oldMsg);
     await store.add(newMsg);
 
-    // Set retention to 1 hour (3600 seconds)
+    // Setting a retention purges what is already too old, at once.
     await store.setRetention('bob', const Duration(hours: 1), clock: () => now);
     expect(await store.retention('bob'), const Duration(hours: 1));
+    expect(await store.messageCount('bob'), 1);
 
-    // Sweep with reference clock
+    // Nothing is left for a later sweep to purge.
     final purged = await store.sweepExpired(clock: () => now);
-    expect(purged, 1);
+    expect(purged, 0);
 
     final remaining = await store.messages('bob');
     expect(remaining, hasLength(1));

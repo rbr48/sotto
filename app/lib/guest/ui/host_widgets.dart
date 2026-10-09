@@ -116,6 +116,18 @@ class WaitingRoom extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
                 Expanded(
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: theme.colorScheme.error,
+                      minimumSize: const Size.fromHeight(46),
+                      textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    onPressed: () => controller.declineGuest(guest.knockId),
+                    child: const Text('Decline'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
                   child: PopupMenuButton<String>(
                     tooltip: 'Send quick note',
                     onSelected: (text) => host.message(guest.knockId, text),

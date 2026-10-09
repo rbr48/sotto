@@ -30,6 +30,7 @@ import '../chat/chat_manager.dart';
 import '../chat/chat_rtc.dart';
 import '../chat/chat_session.dart';
 import '../chat/chat_store.dart';
+import '../chat/file_storage.dart';
 
 /// Everything the call screens need: the relay connection, the current
 /// call, guest links and the waiting room.
@@ -399,7 +400,10 @@ class CallController extends ChangeNotifier {
       if (contacts != null) {
         final chat = _chat = ChatManager(
           myId: identity.id,
-          store: ChatStore(_settings),
+          store: ChatStore(
+            _settings,
+            files: kIsWeb ? null : ReceivedFileStore(sodium: sodium),
+          ),
           isContact: _isContactId,
           send: _sendChatEnvelope,
           iceServers: _iceServersForCall,
@@ -408,6 +412,7 @@ class CallController extends ChangeNotifier {
           clock: DateTime.now,
         );
         _subscriptions.add(chat.events.listen(_onChatEvent));
+        unawaited(chat.start());
       }
       _profiles = ProfileExchange(
         sodium: sodium,
@@ -426,6 +431,8 @@ class CallController extends ChangeNotifier {
             // Back online: a call that is reconnecting tries again now.
             if (status == RelayStatus.online) {
               unawaited(manager.networkChanged());
+              // Queued chat messages try again now that this device is back.
+              unawaited(_chat?.flushAllOutbox());
             }
             notifyListeners();
           }),
@@ -744,6 +751,9 @@ class CallController extends ChangeNotifier {
     if (call.active) return;
     await _host?.admit(knockId);
   }
+
+  /// Turns a waiting guest away: their page shows that they were declined.
+  void declineGuest(String knockId) => _host?.decline(knockId);
 
   void _onRelayMessage(RelayMessage message) {
     final codec = _codec;

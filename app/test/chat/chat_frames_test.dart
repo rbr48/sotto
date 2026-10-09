@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -6,6 +7,36 @@ import 'package:sotto/chat/chat_frames.dart';
 import 'package:sotto/crypto/encoding.dart';
 
 String _id(int n) => b64Encode(List<int>.filled(16, n));
+
+/// A well-formed SHA-256 digest: 64 lowercase hex characters.
+const _sha = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+
+/// [count] copies of the character with code point [codePoint].
+String _rep(int codePoint, int count) =>
+    String.fromCharCodes(List<int>.filled(count, codePoint));
+
+/// A file offer frame as it arrives on the wire. [changes] replace fields of
+/// a valid offer.
+String _offer([Map<String, Object?> changes = const {}]) => jsonEncode({
+  't': 'file.offer',
+  'id': _id(10),
+  'name': 'document.pdf',
+  'size': 100,
+  'mime': 'application/pdf',
+  'sha256': _sha,
+  'chunks': 1,
+  ...changes,
+});
+
+/// The reason [raw] is refused, or null if it is accepted.
+String? _refusal(String raw) {
+  try {
+    ChatFrames.decode(raw);
+    return null;
+  } on ChatFrameException catch (e) {
+    return e.reason;
+  }
+}
 
 void main() {
   group('frames round-trip', () {
@@ -176,7 +207,7 @@ void main() {
         name: 'document.pdf',
         size: 1024,
         mime: 'application/pdf',
-        sha256: 'abc123hash',
+        sha256: _sha,
         chunks: 1,
       );
       final accept = FileAcceptFrame(id: _id(10));
@@ -191,7 +222,7 @@ void main() {
       expect(decodedOffer.name, 'document.pdf');
       expect(decodedOffer.size, 1024);
       expect(decodedOffer.mime, 'application/pdf');
-      expect(decodedOffer.sha256, 'abc123hash');
+      expect(decodedOffer.sha256, _sha);
       expect(decodedOffer.chunks, 1);
 
       final decodedAccept =
@@ -216,25 +247,84 @@ void main() {
       expect(decodedCancel.reason, 'user-cancelled');
     });
 
-    test('rejects file offer with blocked extension or invalid parameters', () {
+    test('a valid file offer is accepted, with its name cleaned', () {
+      final offer =
+          ChatFrames.decode(_offer({'name': 'a\tb/c.pdf'})) as FileOfferFrame;
+      expect(offer.name, 'ab_c.pdf');
+      expect(offer.size, 100);
+      expect(offer.sha256, _sha);
+    });
+
+    test('a blocked name decodes, so the session can decline it', () {
+      final offer =
+          ChatFrames.decode(_offer({'name': 'malware.exe'})) as FileOfferFrame;
+      expect(offer.name, 'malware.exe');
+      expect(ChatFrames.isBlockedFileType(offer.name), isTrue);
+    });
+
+    test('size must be from 1 to the largest file size', () {
+      expect(_refusal(_offer({'size': 0, 'chunks': 1})), 'malformed');
+      expect(_refusal(_offer({'size': -5, 'chunks': 1})), 'malformed');
+      expect(_refusal(_offer({'size': 1.0})), 'malformed');
+      expect(_refusal(_offer({'size': 'big'})), 'malformed');
+      final tooBig = maxFileSizeNative + 1;
       expect(
-        () => ChatFrames.decode(
-          '{"t":"file.offer","id":"${_id(10)}","name":"malware.exe","size":100,"mime":"application/octet-stream","sha256":"hash","chunks":1}',
+        _refusal(
+          _offer({'size': tooBig, 'chunks': (tooBig / fileChunkSize).ceil()}),
         ),
-        throwsA(isA<ChatFrameException>()),
+        'malformed',
       );
+    });
+
+    test('chunks must be the number of 16 KiB pieces the size needs', () {
+      expect(_refusal(_offer({'chunks': 0})), 'malformed');
+      expect(_refusal(_offer({'size': 100, 'chunks': 2})), 'malformed');
       expect(
-        () => ChatFrames.decode(
-          '{"t":"file.offer","id":"${_id(10)}","name":"test.txt","size":0,"mime":"text/plain","sha256":"hash","chunks":1}',
-        ),
-        throwsA(isA<ChatFrameException>()),
+        _refusal(_offer({'size': fileChunkSize + 1, 'chunks': 1})),
+        'malformed',
       );
+      expect(_refusal(_offer({'size': 1, 'chunks': 2})), 'malformed');
+    });
+
+    test(
+      'a 1-byte file, and one of exactly fileChunkSize bytes, are accepted',
+      () {
+        expect(_refusal(_offer({'size': 1, 'chunks': 1})), isNull);
+        expect(_refusal(_offer({'size': fileChunkSize, 'chunks': 1})), isNull);
+        expect(
+          _refusal(_offer({'size': fileChunkSize + 1, 'chunks': 2})),
+          isNull,
+        );
+        expect(
+          _refusal(
+            _offer({
+              'size': maxFileSizeNative,
+              'chunks': maxFileSizeNative ~/ fileChunkSize,
+            }),
+          ),
+          isNull,
+        );
+      },
+    );
+
+    test('sha256 must be 64 lowercase hex characters', () {
+      expect(_refusal(_offer({'sha256': 'abc123hash'})), 'malformed');
+      expect(_refusal(_offer({'sha256': ''})), 'malformed');
+      expect(_refusal(_offer({'sha256': _sha.toUpperCase()})), 'malformed');
+      expect(_refusal(_offer({'sha256': '${_sha}0'})), 'malformed');
       expect(
-        () => ChatFrames.decode(
-          '{"t":"file.offer","id":"${_id(10)}","name":"test.txt","size":100,"mime":"text/plain","sha256":"hash","chunks":0}',
-        ),
-        throwsA(isA<ChatFrameException>()),
+        _refusal(_offer({'sha256': 'g${_sha.substring(1)}'})),
+        'malformed',
       );
+      expect(_refusal(_offer()), isNull);
+    });
+
+    test('mime is at most 128 characters, and name 1 to 512 characters', () {
+      expect(_refusal(_offer({'mime': 'a' * 128})), isNull);
+      expect(_refusal(_offer({'mime': 'a' * 129})), 'malformed');
+      expect(_refusal(_offer({'name': ''})), 'malformed');
+      expect(_refusal(_offer({'name': 'a' * 512})), isNull);
+      expect(_refusal(_offer({'name': 'a' * 513})), 'malformed');
     });
 
     test('encodeChunk and decodeChunk round trip', () {
@@ -281,11 +371,65 @@ void main() {
       expect(ChatFrames.cleanFileName('COM1.dat'), 'file_COM1.dat');
     });
 
-    test('truncates extremely long names while preserving extension', () {
-      final longName = '${'a' * 150}.pdf';
-      final cleaned = ChatFrames.cleanFileName(longName);
-      expect(cleaned.length, lessThanOrEqualTo(120));
+    test('truncates long names to 120 bytes, keeping the extension', () {
+      expect(ChatFrames.cleanFileName('${'a' * 150}.pdf'), '${'a' * 116}.pdf');
+      expect(
+        ChatFrames.cleanFileName('${'x' * 200}.docx'),
+        '${'x' * 115}.docx',
+      );
+    });
+
+    test('counts UTF-8 bytes, and never splits a character', () {
+      // Two bytes a letter: 58 letters fill the 116 bytes left by ".pdf".
+      expect(
+        ChatFrames.cleanFileName('${_rep(0xE9, 100)}.pdf'),
+        '${_rep(0xE9, 58)}.pdf',
+      );
+      // Three bytes a character: 38 of them, then ".txt", is 118 bytes.
+      expect(
+        ChatFrames.cleanFileName('${_rep(0x6587, 80)}.txt'),
+        '${_rep(0x6587, 38)}.txt',
+      );
+      // Four bytes a character: 29 of them, then ".jpg", is 120 bytes.
+      expect(
+        ChatFrames.cleanFileName('${_rep(0x1F600, 50)}.jpg'),
+        '${_rep(0x1F600, 29)}.jpg',
+      );
+    });
+
+    test('an extension longer than 40 bytes is cut to 40', () {
+      final cleaned = ChatFrames.cleanFileName('${'a' * 70}.${'b' * 60}');
+      expect(cleaned, '${'a' * 70}.${'b' * 39}');
+      expect(utf8.encode(cleaned).length, lessThanOrEqualTo(120));
+    });
+
+    test('the file_ prefix of a reserved name counts toward the cap', () {
+      final cleaned = ChatFrames.cleanFileName('CON.${'x' * 115}.pdf');
+      expect(cleaned.startsWith('file_CON.'), isTrue);
       expect(cleaned.endsWith('.pdf'), isTrue);
+      expect(utf8.encode(cleaned).length, lessThanOrEqualTo(120));
+    });
+
+    test('reserved names with a trailing space are prefixed too', () {
+      expect(ChatFrames.cleanFileName('CON .txt'), 'file_CON .txt');
+    });
+
+    test('never keeps a control character, a slash or a backslash', () {
+      expect(ChatFrames.cleanFileName('a\tb\nc\x00d\\e/f.txt'), 'abcd_e_f.txt');
+      expect(ChatFrames.cleanFileName('\x00\x01\t'), 'file');
+    });
+
+    test('cleaning a cleaned name changes nothing', () {
+      for (final name in [
+        'a/b\\c.txt',
+        '${'x' * 200}.pdf',
+        'nul.${_rep(0xE9, 150)}',
+        '${_rep(0x1F600, 50)}.jpg',
+        '\x00 name \x07.exe',
+      ]) {
+        final once = ChatFrames.cleanFileName(name);
+        expect(ChatFrames.cleanFileName(once), once, reason: name);
+      }
     });
   });
 
@@ -309,6 +453,139 @@ void main() {
       expect(ChatFrames.isBlockedFileType('video.mp4'), isFalse);
       expect(ChatFrames.isBlockedFileType('notes.txt'), isFalse);
       expect(ChatFrames.isBlockedFileType('archive.zip'), isFalse);
+    });
+
+    test('ignores case', () {
+      expect(ChatFrames.isBlockedFileType('SETUP.EXE'), isTrue);
+      expect(ChatFrames.isBlockedFileType('Setup.Exe'), isTrue);
+      expect(ChatFrames.isBlockedFileType('Report.PDF'), isFalse);
+    });
+
+    test('ignores trailing dots and spaces', () {
+      expect(ChatFrames.isBlockedFileType('setup.exe.'), isTrue);
+      expect(ChatFrames.isBlockedFileType('setup.exe..'), isTrue);
+      expect(ChatFrames.isBlockedFileType('run.EXE '), isTrue);
+      expect(ChatFrames.isBlockedFileType('run.exe . '), isTrue);
+      expect(ChatFrames.isBlockedFileType('report.pdf.'), isFalse);
+    });
+
+    test('ignores control and invisible characters inside the name', () {
+      expect(ChatFrames.isBlockedFileType('setup.exe\x00'), isTrue);
+      expect(ChatFrames.isBlockedFileType('set\x07up.ex\x01e'), isTrue);
+      expect(ChatFrames.isBlockedFileType('setup.exe\x7F'), isTrue);
+      expect(
+        ChatFrames.isBlockedFileType('setup.ex${String.fromCharCode(0x200B)}e'),
+        isTrue,
+      );
+    });
+
+    test('takes the last path segment, on either kind of slash', () {
+      expect(ChatFrames.isBlockedFileType(r'C:\Users\me\setup.exe'), isTrue);
+      expect(ChatFrames.isBlockedFileType('folder/setup.exe'), isTrue);
+      expect(ChatFrames.isBlockedFileType('setup.exe/readme.txt'), isFalse);
+      expect(ChatFrames.isBlockedFileType(r'folder.exe\readme.txt'), isFalse);
+    });
+
+    test('judges a double extension by its last part', () {
+      expect(ChatFrames.isBlockedFileType('report.pdf.exe'), isTrue);
+      expect(ChatFrames.isBlockedFileType('invoice.pdf.scr'), isTrue);
+      expect(ChatFrames.isBlockedFileType('my.exe.backup'), isFalse);
+    });
+
+    test('a right-to-left override does not hide the extension', () {
+      final override = String.fromCharCode(0x202E);
+      expect(ChatFrames.isBlockedFileType('invoice${override}fdp.exe'), isTrue);
+      expect(ChatFrames.isBlockedFileType('photo${override}gpj'), isFalse);
+    });
+
+    test('a name with no dot is not blocked', () {
+      expect(ChatFrames.isBlockedFileType('exe'), isFalse);
+      expect(ChatFrames.isBlockedFileType('setup'), isFalse);
+      expect(ChatFrames.isBlockedFileType('exe.'), isFalse);
+    });
+
+    test('blocks each type it lists, in any case', () {
+      const types = [
+        '.exe',
+        '.msi',
+        '.apk',
+        '.app',
+        '.dmg',
+        '.deb',
+        '.rpm',
+        '.appimage',
+        '.bat',
+        '.cmd',
+        '.ps1',
+        '.sh',
+        '.vbs',
+        '.js',
+        '.jar',
+        '.scr',
+        '.com',
+        '.lnk',
+        '.html',
+        '.htm',
+        '.xhtml',
+        '.shtml',
+        '.mht',
+        '.mhtml',
+        '.svg',
+        '.svgz',
+        '.hta',
+        '.pif',
+        '.gadget',
+        '.reg',
+        '.inf',
+        '.url',
+        '.scf',
+        '.wsf',
+        '.wsh',
+        '.vb',
+        '.vbe',
+        '.jse',
+        '.msc',
+        '.cpl',
+        '.msp',
+        '.mst',
+        '.chm',
+        '.pkg',
+        '.command',
+        '.ipa',
+        '.xap',
+        '.crx',
+        '.docm',
+        '.dotm',
+        '.xlsm',
+        '.xlsb',
+        '.pptm',
+        '.iso',
+        '.img',
+        '.vhd',
+        '.vhdx',
+      ];
+      for (final ext in types) {
+        expect(ChatFrames.isBlockedFileType('file$ext'), isTrue, reason: ext);
+        expect(
+          ChatFrames.isBlockedFileType('FILE${ext.toUpperCase()}'),
+          isTrue,
+          reason: ext,
+        );
+      }
+    });
+
+    test('allows ordinary documents, images, archives and media', () {
+      for (final name in [
+        'contract.docx',
+        'sheet.xlsx',
+        'deck.pptx',
+        'photo.jpeg',
+        'page.webp',
+        'song.mp3',
+        'readme.md',
+      ]) {
+        expect(ChatFrames.isBlockedFileType(name), isFalse, reason: name);
+      }
     });
   });
 }

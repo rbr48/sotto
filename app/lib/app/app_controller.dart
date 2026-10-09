@@ -11,6 +11,7 @@ import '../android/android_integration.dart';
 import '../call/call_controller.dart';
 import '../core/update_check.dart';
 import '../call/devices.dart';
+import '../chat/file_storage.dart';
 import '../contacts/contact_book.dart';
 import '../core/config.dart';
 import '../core/leave_warning.dart';
@@ -630,6 +631,7 @@ class AppController extends ChangeNotifier {
     _stopCalls();
     await IdentityStore(sodium, _keystore).delete();
     await Vault.erase(keys: _keystore, file: _vaultFile!);
+    await ReceivedFileStore(sodium: sodium).eraseAll();
     _vault?.dispose();
     _vault = null;
     _profile = null;
@@ -647,6 +649,8 @@ class AppController extends ChangeNotifier {
   /// in the keystore is kept).
   Future<void> resetStorage() async {
     await Vault.erase(keys: _keystore, file: _vaultFile!);
+    // The chat records that named these files are gone with the vault.
+    await ReceivedFileStore(sodium: sodium).eraseAll();
     await start();
   }
 

@@ -45,7 +45,9 @@ try {
   await typeInto(arun, 'Write a message', 'Salaam from Arun');
   await clickButton(arun, 'Send');
   await arun.getByText('Salaam from Arun').first().waitFor();
-  await arun.getByText('Delivered').first().waitFor();
+  // Meera has the chat open, so her read receipt can arrive first: either status
+  // means the message got to her device.
+  await arun.getByText(/Delivered|Read/).first().waitFor();
   await meera.getByText('Salaam from Arun').first().waitFor();
   console.log('✓ Arun wrote; Meera saw it arrive, and Arun sees it delivered');
 

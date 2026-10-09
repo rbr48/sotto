@@ -16,6 +16,18 @@ const int fileChunkSize = 16 * 1024; // 16 KiB binary chunks
 const int maxFileSizeNative = 100 * 1024 * 1024; // 100 MB
 const int maxFileSizeWeb = 25 * 1024 * 1024; // 25 MB
 
+/// The longest file name a file offer may carry, before cleaning (characters).
+const int maxFileNameChars = 512;
+
+/// The longest file name kept, in UTF-8 bytes, extension included.
+const int maxFileNameBytes = 120;
+
+/// The longest extension kept whole. A longer one is cut to this many bytes.
+const int maxExtensionBytes = 40;
+
+/// The longest MIME type a file offer may carry (characters).
+const int maxMimeChars = 128;
+
 sealed class ChatFrame {
   const ChatFrame();
 }
@@ -125,6 +137,7 @@ class ChatFrameException implements Exception {
 /// Encodes and decodes chat frames, rejecting anything malformed.
 abstract final class ChatFrames {
   static final _idPattern = RegExp(r'^[A-Za-z0-9_-]{22}$');
+  static final _sha256Pattern = RegExp(r'^[0-9a-f]{64}$');
 
   /// Sixteen random bytes as unpadded base64url: a message or session id.
   static String newId([Random? random]) {
@@ -262,16 +275,26 @@ abstract final class ChatFrames {
             chunks is! int) {
           throw const ChatFrameException('malformed');
         }
-        if (size <= 0 || chunks <= 0 || isBlockedFileType(rawName)) {
+        // A blocked type is not refused here. The session declines it, as it
+        // declines a file that is too large.
+        if (rawName.isEmpty || rawName.runes.length > maxFileNameChars) {
           throw const ChatFrameException('malformed');
         }
-        final cleanedName = cleanFileName(rawName);
+        if (size < 1 || size > maxFileSizeNative) {
+          throw const ChatFrameException('malformed');
+        }
+        if (chunks != (size + fileChunkSize - 1) ~/ fileChunkSize) {
+          throw const ChatFrameException('malformed');
+        }
+        if (mime.runes.length > maxMimeChars || !_sha256Pattern.hasMatch(sha)) {
+          throw const ChatFrameException('malformed');
+        }
         return FileOfferFrame(
           id: id,
-          name: cleanedName,
+          name: cleanFileName(rawName),
           size: size,
           mime: cleanText(mime),
-          sha256: cleanText(sha),
+          sha256: sha,
           chunks: chunks,
         );
       case 'file.accept':
@@ -351,6 +374,9 @@ abstract final class ChatFrames {
     'LPT9',
   };
 
+  /// File types that are never shared: executables, installers, scripts and
+  /// shortcuts; pages that a browser runs; macro-enabled Office files; and disk
+  /// images, which can hold any of these.
   static final _blockedExtensions = {
     '.exe',
     '.msi',
@@ -360,51 +386,171 @@ abstract final class ChatFrames {
     '.deb',
     '.rpm',
     '.appimage',
+    '.pkg',
+    '.command',
+    '.ipa',
+    '.xap',
+    '.crx',
+    '.msp',
+    '.mst',
+    '.msc',
+    '.cpl',
+    '.hta',
+    '.pif',
+    '.gadget',
+    '.com',
+    '.scr',
     '.bat',
     '.cmd',
     '.ps1',
     '.sh',
     '.vbs',
+    '.vb',
+    '.vbe',
     '.js',
-    '.jar',
-    '.scr',
-    '.com',
+    '.jse',
+    '.wsf',
+    '.wsh',
+    '.reg',
+    '.inf',
+    '.url',
+    '.scf',
     '.lnk',
+    '.html',
+    '.htm',
+    '.xhtml',
+    '.shtml',
+    '.mht',
+    '.mhtml',
+    '.svg',
+    '.svgz',
+    '.chm',
+    '.jar',
+    '.docm',
+    '.dotm',
+    '.xlsm',
+    '.xlsb',
+    '.pptm',
+    '.iso',
+    '.img',
+    '.vhd',
+    '.vhdx',
   };
 
-  /// Whether a file name has a blocked extension (executables, installers, scripts).
+  /// Whether [rune] is a control or an invisible format character: U+0000 to
+  /// U+001F, U+007F to U+009F, U+200B to U+200F, U+202A to U+202E, U+2066 to
+  /// U+2069, or U+FEFF. These are removed before a name is checked.
+  static bool _isInvisible(int rune) =>
+      rune < 0x20 ||
+      (rune >= 0x7F && rune <= 0x9F) ||
+      (rune >= 0x200B && rune <= 0x200F) ||
+      (rune >= 0x202A && rune <= 0x202E) ||
+      (rune >= 0x2066 && rune <= 0x2069) ||
+      rune == 0xFEFF;
+
+  /// Whether a file name has a blocked type.
+  ///
+  /// The check is on the final extension (the text after the last dot) of the
+  /// last path segment, once the name is normalised: control and invisible
+  /// characters are removed, trailing dots and spaces are stripped, and the
+  /// case is folded. So a path, a trailing dot or space, a control character
+  /// or a direction override cannot hide the type. A name with no dot is not
+  /// blocked.
   static bool isBlockedFileType(String filename) {
-    final lower = filename.trim().toLowerCase();
-    for (final ext in _blockedExtensions) {
-      if (lower.endsWith(ext)) return true;
-    }
-    return false;
+    final name = _normalisedName(filename);
+    final dot = name.lastIndexOf('.');
+    if (dot < 0) return false;
+    return _blockedExtensions.contains(name.substring(dot));
   }
 
-  /// Cleans a file name per safety specification:
-  /// removes path separators, control characters, and leading dots; cuts to 120 chars;
-  /// and prefixes reserved Windows names with 'file_'.
+  static String _normalisedName(String filename) {
+    final segment = filename.split(RegExp(r'[\\/]')).last;
+    final visible = StringBuffer();
+    for (final rune in segment.runes) {
+      if (!_isInvisible(rune)) visible.writeCharCode(rune);
+    }
+    var name = visible.toString().trimRight();
+    while (name.endsWith('.')) {
+      name = name.substring(0, name.length - 1).trimRight();
+    }
+    return name.toLowerCase();
+  }
+
+  /// Cleans a file name for storing and showing.
+  ///
+  /// Path separators become `_`. Control characters and lone surrogates are
+  /// removed, and so are the direction overrides that [cleanText] removes.
+  /// Leading dots are dropped, and an empty name becomes `file`. A base name
+  /// that is a reserved Windows device name gets `file_` in front.
+  ///
+  /// The result is at most [maxFileNameBytes] UTF-8 bytes. The stem is cut at a
+  /// character boundary, and the extension (from the last dot) is kept whole,
+  /// unless it is longer than [maxExtensionBytes], when it is cut to that
+  /// length. The result never contains a slash, a backslash or a control
+  /// character.
   static String cleanFileName(String filename) {
     var name = filename.replaceAll(RegExp(r'\.*[\\/]'), '_');
-    name = cleanText(name);
+    name = cleanText(_withoutControls(name));
     while (name.startsWith('.')) {
       name = name.substring(1).trim();
     }
     if (name.isEmpty) name = 'file';
-    if (name.length > 120) {
-      final dot = name.lastIndexOf('.');
-      if (dot > 0 && dot > name.length - 20) {
-        final ext = name.substring(dot);
-        name = '${name.substring(0, 120 - ext.length)}$ext';
-      } else {
-        name = name.substring(0, 120);
-      }
-    }
-    final baseWithoutExt = name.split('.').first.toUpperCase();
-    if (_reservedWindowsNames.contains(baseWithoutExt)) {
+    final base = name.split('.').first.trimRight().toUpperCase();
+    if (_reservedWindowsNames.contains(base)) {
       name = 'file_$name';
     }
-    return name;
+    return _capBytes(name, maxFileNameBytes);
+  }
+
+  /// [input] without control characters (U+0000 to U+001F and U+007F to
+  /// U+009F, line breaks and tabs included) and without lone surrogates.
+  static String _withoutControls(String input) {
+    final buffer = StringBuffer();
+    for (final rune in input.runes) {
+      final control =
+          rune < 0x20 ||
+          (rune >= 0x7F && rune <= 0x9F) ||
+          (rune >= 0xD800 && rune <= 0xDFFF);
+      if (!control) buffer.writeCharCode(rune);
+    }
+    return buffer.toString();
+  }
+
+  /// [name] cut to at most [maxBytes] UTF-8 bytes, keeping the extension.
+  static String _capBytes(String name, int maxBytes) {
+    if (_byteLength(name) <= maxBytes) return name;
+    final dot = name.lastIndexOf('.');
+    final stem = dot > 0 ? name.substring(0, dot) : name;
+    var ext = dot > 0 ? name.substring(dot) : '';
+    if (_byteLength(ext) > maxExtensionBytes) {
+      ext = _cutBytes(ext, maxExtensionBytes);
+    }
+    final room = maxBytes - _byteLength(ext);
+    return '${_cutBytes(stem, room).trimRight()}$ext';
+  }
+
+  static int _byteLength(String text) => utf8.encode(text).length;
+
+  /// The longest prefix of [text] that is at most [maxBytes] UTF-8 bytes. It
+  /// never splits a character.
+  static String _cutBytes(String text, int maxBytes) {
+    final buffer = StringBuffer();
+    var used = 0;
+    for (final rune in text.runes) {
+      final size = _runeBytes(rune);
+      if (used + size > maxBytes) break;
+      used += size;
+      buffer.writeCharCode(rune);
+    }
+    return buffer.toString();
+  }
+
+  /// The number of UTF-8 bytes that [rune] takes.
+  static int _runeBytes(int rune) {
+    if (rune < 0x80) return 1;
+    if (rune < 0x800) return 2;
+    if (rune < 0x10000) return 3;
+    return 4;
   }
 
   /// Whether [value] is an id made by [newId]: 16 bytes, unpadded base64url.

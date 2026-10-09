@@ -241,6 +241,12 @@ class AppLocalizationsAr extends AppLocalizations {
   String get chatFileReceived => 'تم استلام الملف';
 
   @override
+  String get chatFileUnavailable => 'لم يعد هذا الملف موجودا على هذا الجهاز.';
+
+  @override
+  String get chatFileUnreadable => 'تعذر فتح هذا الملف.';
+
+  @override
   String get chatFileSent => 'تم إرسال الملف';
 
   @override
