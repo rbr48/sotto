@@ -427,6 +427,64 @@ class SettingsTab extends StatelessWidget {
             ),
           ),
         ]),
+        _Section('About', [
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.info_outline),
+            title: const Text('About Sotto'),
+            subtitle: Text('Sotto $sottoVersion · Open source (AGPL-3.0)'),
+            onTap: () => showAboutDialog(
+              context: context,
+              applicationName: 'Sotto',
+              applicationVersion: 'v$sottoVersion',
+              applicationIcon: Image.asset(
+                'assets/brand/icon.png',
+                width: 48,
+                height: 48,
+              ),
+              applicationLegalese:
+                  '© 2026 Izhaan Intellect. Licensed under AGPL-3.0-or-later.',
+              children: [
+                const SizedBox(height: 16),
+                const Text(
+                  'Privacy-first calling and messaging app for professionals and their clients.\n\n'
+                  'Zero server storage. End-to-end encrypted WebRTC.',
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.language, size: 20),
+                  title: const Text('Website'),
+                  subtitle: const Text('https://sottocall.com'),
+                  onTap: () => launchUrl(
+                    Uri.parse('https://sottocall.com'),
+                    mode: LaunchMode.externalApplication,
+                  ),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.code, size: 20),
+                  title: const Text('GitHub repository'),
+                  subtitle: const Text('https://github.com/rbr48/sotto'),
+                  onTap: () => launchUrl(
+                    Uri.parse('https://github.com/rbr48/sotto'),
+                    mode: LaunchMode.externalApplication,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.code_outlined),
+            title: const Text('Source code & license'),
+            subtitle: const Text('AGPL-3.0-or-later on GitHub'),
+            onTap: () => launchUrl(
+              Uri.parse('https://github.com/rbr48/sotto'),
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
+        ]),
         _Section('Updates', [
           ListTile(
             contentPadding: EdgeInsets.zero,
