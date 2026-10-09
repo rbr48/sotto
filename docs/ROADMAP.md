@@ -690,6 +690,9 @@ Push wake-up, as a battery-saving alternative:
 - [ ] Load test the relay (k6 WebSocket clients)
 - [ ] Launch content for the target group: guides, case studies from pilots, association partnerships
 - [ ] Support channel and documentation site
+- [ ] Trademark search for the name Sotto (USPTO, EUIPO and the national office; classes 9 and 38)
+- [ ] Play Store name check
+- [ ] Social handles
 
 **Milestone M5 — Public launch (~month 9).**
 
