@@ -1,15 +1,25 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:record/record.dart';
+import 'package:sotto/call/call_controller.dart';
+import 'package:sotto/call/call_manager.dart';
+import 'package:sotto/call/screen_awake.dart';
 import 'package:sotto/chat/chat_frames.dart';
 import 'package:sotto/chat/chat_manager.dart';
 import 'package:sotto/chat/chat_store.dart';
+import 'package:sotto/chat/file_storage.dart';
 import 'package:sotto/chat/ui/chat_page.dart';
+import 'package:sotto/chat/ui/chat_tokens.dart';
 import 'package:sotto/core/l10n/app_localizations.dart';
 import 'package:sotto/core/l10n/language.dart';
 import 'package:sotto/core/theme.dart';
 import 'package:sotto/crypto/identity_store.dart';
+import 'package:sotto/chat/voice/voice_format.dart';
+
+import 'fake_record.dart';
 
 ChatMessage _message(
   String text, {
@@ -43,6 +53,26 @@ double _contrastRatio(Color a, Color b) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+class _NoScreenAwake implements ScreenAwake {
+  @override
+  Future<void> keepOn(bool on) async {}
+}
+
+/// A call controller whose call state the test sets.
+class _CallsOf extends CallController {
+  _CallsOf()
+    : super(
+        relayUrl: Uri.parse('ws://localhost:1/relay'),
+        linkBase: Uri.parse('http://localhost:1/'),
+        screenAwake: _NoScreenAwake(),
+      );
+
+  CallState state = CallState.idle;
+
+  @override
+  CallState get call => state;
+}
+
 void main() {
   late ChatStore store;
   late ChatManager chat;
@@ -70,6 +100,7 @@ void main() {
     WidgetTester tester, {
     ThemeData? theme,
     String name = 'Bob',
+    CallController? calls,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -77,7 +108,7 @@ void main() {
         locale: AppLanguage.english.locale,
         supportedLocales: AppLanguage.supported,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
-        home: ChatPage(chat: chat, contactId: 'bob', name: name),
+        home: ChatPage(chat: chat, contactId: 'bob', name: name, calls: calls),
       ),
     );
     // The store is read asynchronously; let it finish.
@@ -116,7 +147,7 @@ void main() {
     await pumpPage(tester);
     expect(
       find.text(
-        'No messages yet. Messages go directly to them while you are both online.',
+        'No messages yet. Messages are end-to-end encrypted and reach them even when their app is in the background.',
       ),
       findsOneWidget,
     );
@@ -128,6 +159,8 @@ void main() {
     await pumpPage(tester);
 
     await tester.enterText(find.byType(TextField), 'Salaam');
+    // The send button replaces the microphone once there is text.
+    await tester.pump();
     await tester.tap(find.byTooltip('Send'));
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 20)),
@@ -169,7 +202,7 @@ void main() {
     await pumpPage(tester);
 
     // Nobody answered the open: the plan's wording, with the name.
-    expect(find.text('Not sent: Bob is offline'), findsOneWidget);
+    expect(find.text('Not sent: Bob did not answer.'), findsOneWidget);
     // Any other failure says only "Not sent"; the banner explains it.
     expect(find.text('Not sent'), findsOneWidget);
   });
@@ -195,7 +228,7 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('Retry'), findsOneWidget);
     expect(
-      find.text('Not sent: Muhammad Abdul Rahman Al-Hashimi is offline'),
+      find.text('Not sent: Muhammad Abdul Rahman Al-Hashimi did not answer.'),
       findsOneWidget,
     );
   });
@@ -211,7 +244,7 @@ void main() {
 
       for (final theme in [SottoTheme.light(), SottoTheme.dark()]) {
         await pumpPage(tester, theme: theme);
-        final scheme = theme.colorScheme;
+        final tokens = theme.extension<ChatTokens>()!;
 
         // What is painted, not what the button is configured with: the label's
         // text colour, and the fill of the bubble behind it (its nearest
@@ -231,11 +264,11 @@ void main() {
             .first
             .color;
         expect(label, isNotNull, reason: 'the Retry label has no colour');
-        expect(label, scheme.onPrimary);
+        expect(label, tokens.sentText);
         expect(
           background,
-          scheme.primary,
-          reason: 'the bubble is not the primary colour',
+          tokens.sentFill,
+          reason: 'the bubble is not the sent-message fill',
         );
         expect(_contrastRatio(label!, background!), greaterThanOrEqualTo(4.5));
 
@@ -305,5 +338,226 @@ void main() {
     expect(find.text('Message to delete'), findsNothing);
     final remaining = await tester.runAsync(() => store.messages('bob'));
     expect(remaining, isEmpty);
+  });
+
+  test('a failed open or save shows its own text, never the exception', () {
+    for (final locale in [const Locale('en'), const Locale('ar')]) {
+      final l10n = lookupAppLocalizations(locale);
+      expect(
+        fileErrorMessage(
+          l10n,
+          StateError('/private/path: internal'),
+          l10n.chatFileOpenFailed,
+        ),
+        l10n.chatFileOpenFailed,
+        reason: '$locale',
+      );
+      expect(
+        fileErrorMessage(
+          l10n,
+          const ReceivedFileException('missing'),
+          l10n.chatFileSaveFailed,
+        ),
+        l10n.chatFileUnavailable,
+        reason: '$locale',
+      );
+      expect(
+        fileErrorMessage(
+          l10n,
+          const ReceivedFileException('damaged'),
+          l10n.chatFileOpenFailed,
+        ),
+        l10n.chatFileUnreadable,
+        reason: '$locale',
+      );
+    }
+  });
+
+  test('a refused file gives its error in the app language', () {
+    for (final locale in [const Locale('en'), const Locale('ar')]) {
+      final l10n = lookupAppLocalizations(locale);
+      expect(
+        offerErrorMessage(l10n, ArgumentError('Image could not be read')),
+        l10n.chatImageUnreadable,
+        reason: '$locale',
+      );
+      expect(
+        offerErrorMessage(
+          l10n,
+          ArgumentError('Image type not supported for sharing'),
+        ),
+        l10n.chatImageUnsupported,
+        reason: '$locale',
+      );
+      expect(
+        offerErrorMessage(l10n, ArgumentError('File exceeds max size limit')),
+        l10n.chatFileTooLarge,
+        reason: '$locale',
+      );
+      expect(
+        offerErrorMessage(l10n, ArgumentError('Blocked file type: setup.exe')),
+        l10n.chatFileBlocked,
+        reason: '$locale',
+      );
+    }
+    // Any other error keeps its text, as before.
+    final l10n = lookupAppLocalizations(const Locale('en'));
+    expect(
+      offerErrorMessage(l10n, StateError('Peer is offline')),
+      'Bad state: Peer is offline',
+    );
+  });
+
+  group('voice messages on the chat screen', () {
+    late FakeRecord record;
+
+    setUp(() {
+      record = FakeRecord();
+      RecordPlatform.instance = record;
+    });
+
+    /// A voice test on the stream route, which is the Linux route. It keeps
+    /// the audio in memory, so the page needs no file store to record. The
+    /// override is reset inside the test, since the framework checks it
+    /// before tearDown runs.
+    void voiceTest(
+      String description,
+      Future<void> Function(WidgetTester tester) body,
+    ) {
+      testWidgets(description, (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+        try {
+          await body(tester);
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      });
+    }
+
+    /// Taps the mic and lets the recorder start.
+    Future<void> startRecording(WidgetTester tester) async {
+      await tester.tap(find.byIcon(Icons.mic));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    /// Runs the recording to the 5-minute limit. The limit stops the capture,
+    /// which finishes its file work in real time, so the test lets that run.
+    Future<void> reachLimit(WidgetTester tester) async {
+      record.pcm!.add(Uint8List.fromList(List.filled(3200, 5)));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: maxVoiceSeconds));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      );
+      await tester.pump(const Duration(seconds: 3));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      );
+      await tester.pump();
+    }
+
+    voiceTest('leaving the screen discards a recording, and nothing is sent', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+      await startRecording(tester);
+      expect(find.byTooltip('Cancel recording'), findsOneWidget);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(record.calls, contains('cancel'));
+
+      // A paused app builds no frames, so the app comes back to see the screen.
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.byTooltip('Cancel recording'), findsNothing);
+      expect(await store.messages('bob'), isEmpty);
+    });
+
+    voiceTest(
+      'a call that starts discards a recording, and the mic stays off during the call',
+      (tester) async {
+        final calls = _CallsOf();
+        addTearDown(calls.dispose);
+        await pumpPage(tester, calls: calls);
+        await startRecording(tester);
+        expect(find.byTooltip('Cancel recording'), findsOneWidget);
+
+        calls.state = const CallState(phase: CallPhase.incoming);
+        calls.notifyListeners();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+
+        expect(find.byTooltip('Cancel recording'), findsNothing);
+        expect(record.calls, contains('cancel'));
+        final mic = tester.widget<IconButton>(
+          find.widgetWithIcon(IconButton, Icons.mic),
+        );
+        expect(mic.onPressed, isNull);
+        expect(
+          find.byTooltip('Voice messages are not available during a call.'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    voiceTest('the mic does not start while a call is active', (tester) async {
+      final calls = _CallsOf()
+        ..state = const CallState(phase: CallPhase.incoming);
+      addTearDown(calls.dispose);
+      await pumpPage(tester, calls: calls);
+
+      await tester.tap(find.byIcon(Icons.mic));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(record.calls, isNot(contains('startStream')));
+      expect(find.byTooltip('Cancel recording'), findsNothing);
+    });
+
+    voiceTest(
+      'a recording that reaches the 5-minute limit stops, and waits to be sent or cancelled',
+      (tester) async {
+        await pumpPage(tester);
+        await startRecording(tester);
+        await reachLimit(tester);
+
+        expect(record.calls, contains('stop'));
+        expect(
+          find.text(
+            'Recording stopped at the 5-minute limit. Send it or cancel.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.byTooltip('Send voice message'), findsOneWidget);
+        expect(await store.messages('bob'), isEmpty);
+      },
+    );
+
+    voiceTest(
+      'cancelling a note held at the limit drops it, and nothing is sent',
+      (tester) async {
+        await pumpPage(tester);
+        await startRecording(tester);
+        await reachLimit(tester);
+
+        await tester.tap(find.byTooltip('Cancel recording'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+
+        expect(
+          find.text(
+            'Recording stopped at the 5-minute limit. Send it or cancel.',
+          ),
+          findsNothing,
+        );
+        expect(find.byTooltip('Send voice message'), findsNothing);
+        expect(await store.messages('bob'), isEmpty);
+      },
+    );
   });
 }

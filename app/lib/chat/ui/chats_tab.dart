@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app/app_controller.dart';
 import '../../call/call_controller.dart';
 import '../../chat/chat_store.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../core/ui_kit.dart';
 import 'chat_page.dart';
 
@@ -152,7 +153,11 @@ class _ChatsTabState extends State<ChatsTab> {
                             : null,
                         onTap: () {
                           Navigator.pop(ctx);
-                          _openChat(c.identity.id, c.name);
+                          _openChat(
+                            c.identity.id,
+                            c.name,
+                            verified: c.verified,
+                          );
                         },
                       );
                     },
@@ -166,7 +171,7 @@ class _ChatsTabState extends State<ChatsTab> {
     );
   }
 
-  void _openChat(String contactId, String name) {
+  void _openChat(String contactId, String name, {bool verified = false}) {
     final chat = widget.calls.chat;
     if (chat == null) return;
     Navigator.of(context).push(
@@ -177,6 +182,8 @@ class _ChatsTabState extends State<ChatsTab> {
           name: name,
           sendTyping: widget.calls.sendTyping,
           sendReadReceipts: widget.calls.sendReadReceipts,
+          verified: verified,
+          calls: widget.calls,
         ),
       ),
     );
@@ -300,8 +307,9 @@ class _ChatsTabState extends State<ChatsTab> {
                 icon: Icons.chat_bubble_outline,
                 title: 'No conversations yet',
                 message:
-                    'Messages go directly between your devices while you are '
-                    'both online. Nothing is stored on any server.',
+                    'Messages are end-to-end encrypted. They go directly '
+                    'between your devices, or sealed through the relay, which '
+                    'holds them for at most a minute and cannot read them.',
               ),
             )
           else if (list.isEmpty)
@@ -414,7 +422,10 @@ class _ChatsTabState extends State<ChatsTab> {
             ],
             Expanded(
               child: Text(
-                last.text,
+                // A voice note shows as "Voice message", not its file name.
+                last.isAttachment && last.voiceNote
+                    ? AppLocalizations.of(context).chatVoiceMessage
+                    : last.text,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -449,7 +460,11 @@ class _ChatsTabState extends State<ChatsTab> {
           ],
         ),
       ),
-      onTap: () => _openChat(summary.contactId, name),
+      onTap: () => _openChat(
+        summary.contactId,
+        name,
+        verified: contact?.verified ?? false,
+      ),
     );
   }
 }

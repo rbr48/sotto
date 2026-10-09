@@ -10,6 +10,16 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String chatFilesTooMany(int max) {
+    return 'Only the first $max files were sent. Pick up to $max at a time.';
+  }
+
+  @override
+  String chatFilesSkipped(int count, String names) {
+    return '$count files were not sent: $names';
+  }
+
+  @override
   String get appName => 'Sotto';
 
   @override
@@ -68,17 +78,25 @@ class AppLocalizationsEn extends AppLocalizations {
   String get chatStatusNotSent => 'Not sent';
 
   @override
-  String chatStatusNotSentOffline(String name) {
-    return 'Not sent: $name is offline';
+  String chatStatusNotSentNoAnswer(String name) {
+    return 'Not sent: $name did not answer.';
   }
 
   @override
   String get chatEmptyHint =>
-      'No messages yet. Messages go directly to them while you are both online.';
+      'No messages yet. Messages are end-to-end encrypted and reach them even when their app is in the background.';
 
   @override
   String get chatDirectNote =>
-      'Messages go directly between your devices while you are both online. Nothing is stored on a server.';
+      'Messages are end-to-end encrypted. They go directly between your devices, or sealed through the relay, which holds them for at most a minute and cannot read them.';
+
+  @override
+  String get chatRelayNote =>
+      'Hide my IP is on, so messages go through the Sotto server instead of directly between your devices.';
+
+  @override
+  String get chatEmptyHintRelay =>
+      'No messages yet. Hide my IP is on, so messages go through the Sotto server.';
 
   @override
   String get chatDeleteMenu => 'Delete chat';
@@ -165,6 +183,75 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get chatStatusRead => 'Read';
+
+  @override
+  String get chatDayToday => 'Today';
+
+  @override
+  String get chatDayYesterday => 'Yesterday';
+
+  @override
+  String get chatVerifiedTooltip => 'You confirmed this safety number';
+
+  @override
+  String chatDisappearingActive(String duration) {
+    return 'Disappearing messages: $duration timer active';
+  }
+
+  @override
+  String chatRetentionMinutes(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count minutes',
+      one: '$count minute',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String chatRetentionHours(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count hours',
+      one: '$count hour',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String chatRetentionDays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count days',
+      one: '$count day',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get chatFileOpenFailed => 'Could not open file';
+
+  @override
+  String get chatFileSaveFailed => 'Could not save file';
+
+  @override
+  String chatBubbleSemanticsOwn(String time, String status, String text) {
+    return 'You, $time, $status: $text';
+  }
+
+  @override
+  String chatBubbleSemanticsOther(String name, String time, String text) {
+    return '$name, $time: $text';
+  }
+
+  @override
+  String get chatVoiceMessage => 'Voice message';
+
+  @override
+  String get chatStatusReceiving => 'Receiving';
 
   @override
   String chatTyping(String name) {
@@ -269,4 +356,52 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get chatFileBlocked => 'Executables and script files cannot be sent';
+
+  @override
+  String get chatImageUnreadable =>
+      'This image could not be read, so it was not sent.';
+
+  @override
+  String get chatImageUnsupported =>
+      'This image type cannot be sent. Save it as a JPEG or PNG and try again.';
+
+  @override
+  String chatVoiceRecording(String time) {
+    return 'Recording $time';
+  }
+
+  @override
+  String get chatVoiceCancel => 'Cancel recording';
+
+  @override
+  String get chatVoiceSend => 'Send voice message';
+
+  @override
+  String get chatVoiceTooLong =>
+      'Recording stopped at the 5-minute limit. Send it or cancel.';
+
+  @override
+  String get chatVoicePermission =>
+      'Sotto needs permission to use the microphone. Allow it in your device settings, then try again.';
+
+  @override
+  String get chatVoiceMicPrivacy =>
+      'No sound came from the microphone. Check microphone privacy settings in Windows, then try again. Nothing was sent.';
+
+  @override
+  String get chatVoiceUnavailable => 'Voice message unavailable';
+
+  @override
+  String get chatVoiceNeedsParecord =>
+      'Voice messages on Linux need the pulseaudio-utils package, which provides parecord. Install it, then try again.';
+
+  @override
+  String get chatVoiceInCall =>
+      'Voice messages are not available during a call.';
+
+  @override
+  String get chatVoicePlay => 'Play voice message';
+
+  @override
+  String get chatVoicePause => 'Pause voice message';
 }

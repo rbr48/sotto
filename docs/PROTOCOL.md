@@ -256,6 +256,8 @@ Envelope types. `callId` is the session id: 16 random bytes.
 | `chat.offer` / `chat.answer` | offerer ↔ winning device | `{"tag", "sdp"}` |
 | `chat.ice` | either, with the winning device | `{"tag", "candidate", "sdpMid", "sdpMLineIndex"}` |
 | `chat.close` | either | `{}` |
+| `chat.text` | sender → contact | `{"id", "ts", "text"}`: a text message, when no direct chat is ready |
+| `chat.text.ack` | contact → sender | `{"id"}`: the text is stored |
 
 - Only contacts can open a chat. Others get `chat.decline` with `not-contact`.
 - Every logged-in device of the contact answers `chat.open` with its own tag.
@@ -268,6 +270,16 @@ Envelope types. `callId` is the session id: 16 random bytes.
   Sotto ID keeps its own invitation; the other side answers it.
 - An open with no answer after 20 seconds fails. An answering device that
   hears nothing decisive after 20 seconds drops its session.
+- Texts through the relay. When no direct chat is ready, a text message also
+  goes as a `chat.text` envelope, sealed to the contact like every envelope, so
+  it reaches a device whose app runs in the background (the relay connection
+  is kept by the Android service and desktop tray mode). The relay holds it in
+  memory for at most 60 seconds and cannot read it. Every device of the
+  contact that is connected stores it; a device stores a message id once and
+  answers each copy with `chat.text.ack`, which marks it delivered. A message
+  that still waits is sent again on the next check (every 30 seconds) while the
+  sender's app runs, up to 20 per check. Files and voice notes need the direct
+  chat. Texts from anyone who is not a contact are dropped without an answer.
 
 Data-channel frames: UTF-8 JSON, at most 16 KiB each. Text is at most 4,000
 characters after cleaning: control characters (except line breaks and tabs)
@@ -340,7 +352,9 @@ plaintext = JSON {"v":1, "values": {"<key>": "<string>", …}}
 - A file whose key is missing, or that fails to decrypt, is never silently replaced: the app explains the problem and offers to start with empty storage (keeping the identity) or to restore a backup.
 - In the browser, the same vault lives in memory and disappears with the tab, unless the user turns on **Remember me on this browser** (below).
 
-**Received files** are not in the vault file. Each one is a separate blob in `received_files/` under the app's private support directory, named by 16 random bytes in hex (never the sender's file id or name). It is sealed with XChaCha20-Poly1305 under its own random 256-bit key, with the stored name as additional data. The key and the blob's name are kept in the chat record, so they are in the vault and are deleted with the message. Files from earlier versions, which were plaintext, are moved into this form the next time the app starts. "Open" writes a decrypted copy into the temporary folder for another app to open; that copy is removed when the app next starts, and on erase. The browser keeps no received files.
+**Received files** are not in the vault file. Each one is a separate blob in `received_files/` under the app's private support directory, named by 16 random bytes in hex (never the sender's file id or name). It is sealed with XChaCha20-Poly1305 under its own random 256-bit key, with the stored name as additional data. The key and the blob's name are kept in the chat record, so they are in the vault and are deleted with the message. Files from earlier versions, which were plaintext, are moved into this form the next time the app starts. "Open" writes a decrypted copy into the temporary folder for another app to open; that copy is removed when the app next starts, and on erase. The browser keeps no received files, except voice notes (below).
+
+**Voice notes** are files offered with `file.offer` (`FILE_SHARING_PLAN.md`) and marked by an optional `kind` field: `"voice"` for a voice note, and `"file"` or no field for an ordinary file. Any other `kind` makes the frame malformed. A receiver decides from `kind` alone, never from the MIME type, and older clients show a voice note as an ordinary file. A `voice` offer is declined (`file.decline`) unless its MIME type, with parameters ignored and case folded, is `audio/mp4` (AAC-LC in an MPEG-4 container, `.m4a`) or `audio/wav` (16-bit PCM, mono, 8 to 48 kHz, `.wav`), its name ends in the extension of that type, and its size is at most 2 MiB for `audio/mp4` or 9,600,044 bytes for `audio/wav`. A voice note lasts at most 300 seconds. The sender enforces that limit, and the receiver checks only the byte caps, so it cannot check the duration. An offer with no `kind`, including other audio such as `audio/mpeg`, is an ordinary file under the usual file limits. A completed voice note must look like its format (an `ftyp` box with the major brand `M4A `, `mp42` or `isom`; or a RIFF/WAVE file with a PCM `fmt ` chunk of 1 channel and 16 bits, followed by a `data` chunk), or it is treated as damaged and never saved. A voice note from a contact that passes these checks is downloaded at once; playback still needs a tap. It is kept encrypted like any received file, and so is the sender's own copy. Playback decrypts the note into memory on Android, Windows and in the browser. On iOS, macOS and Linux the player needs a file, so a decrypted copy is written into the temporary folder and removed when playback stops, completes or the player is disposed. A player disposed while its note is still being read neither plays it nor keeps a copy. Recording writes a temporary file, which is read and deleted at once, and it is deleted too when the recording fails to stop. Not yet signed off by the owner (see the voice decision's open questions): the `kind` field, and in the browser a voice note (sent or received) held in memory for the life of the tab only, never in storage, so after a reload it is unavailable.
 
 | Key | Contents |
 |---|---|

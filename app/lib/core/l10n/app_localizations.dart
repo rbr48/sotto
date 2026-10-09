@@ -100,6 +100,18 @@ abstract class AppLocalizations {
     Locale('en'),
   ];
 
+  /// No description provided for @chatFilesTooMany.
+  ///
+  /// In en, this message translates to:
+  /// **'Only the first {max} files were sent. Pick up to {max} at a time.'**
+  String chatFilesTooMany(int max);
+
+  /// No description provided for @chatFilesSkipped.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} files were not sent: {names}'**
+  String chatFilesSkipped(int count, String names);
+
   /// No description provided for @appName.
   ///
   /// In en, this message translates to:
@@ -214,23 +226,35 @@ abstract class AppLocalizations {
   /// **'Not sent'**
   String get chatStatusNotSent;
 
-  /// No description provided for @chatStatusNotSentOffline.
+  /// No description provided for @chatStatusNotSentNoAnswer.
   ///
   /// In en, this message translates to:
-  /// **'Not sent: {name} is offline'**
-  String chatStatusNotSentOffline(String name);
+  /// **'Not sent: {name} did not answer.'**
+  String chatStatusNotSentNoAnswer(String name);
 
   /// No description provided for @chatEmptyHint.
   ///
   /// In en, this message translates to:
-  /// **'No messages yet. Messages go directly to them while you are both online.'**
+  /// **'No messages yet. Messages are end-to-end encrypted and reach them even when their app is in the background.'**
   String get chatEmptyHint;
 
   /// No description provided for @chatDirectNote.
   ///
   /// In en, this message translates to:
-  /// **'Messages go directly between your devices while you are both online. Nothing is stored on a server.'**
+  /// **'Messages are end-to-end encrypted. They go directly between your devices, or sealed through the relay, which holds them for at most a minute and cannot read them.'**
   String get chatDirectNote;
+
+  /// No description provided for @chatRelayNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide my IP is on, so messages go through the Sotto server instead of directly between your devices.'**
+  String get chatRelayNote;
+
+  /// No description provided for @chatEmptyHintRelay.
+  ///
+  /// In en, this message translates to:
+  /// **'No messages yet. Hide my IP is on, so messages go through the Sotto server.'**
+  String get chatEmptyHintRelay;
 
   /// No description provided for @chatDeleteMenu.
   ///
@@ -387,6 +411,84 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Read'**
   String get chatStatusRead;
+
+  /// No description provided for @chatDayToday.
+  ///
+  /// In en, this message translates to:
+  /// **'Today'**
+  String get chatDayToday;
+
+  /// No description provided for @chatDayYesterday.
+  ///
+  /// In en, this message translates to:
+  /// **'Yesterday'**
+  String get chatDayYesterday;
+
+  /// No description provided for @chatVerifiedTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'You confirmed this safety number'**
+  String get chatVerifiedTooltip;
+
+  /// No description provided for @chatDisappearingActive.
+  ///
+  /// In en, this message translates to:
+  /// **'Disappearing messages: {duration} timer active'**
+  String chatDisappearingActive(String duration);
+
+  /// No description provided for @chatRetentionMinutes.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {{count} minute} other {{count} minutes}}'**
+  String chatRetentionMinutes(int count);
+
+  /// No description provided for @chatRetentionHours.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {{count} hour} other {{count} hours}}'**
+  String chatRetentionHours(int count);
+
+  /// No description provided for @chatRetentionDays.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {{count} day} other {{count} days}}'**
+  String chatRetentionDays(int count);
+
+  /// No description provided for @chatFileOpenFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not open file'**
+  String get chatFileOpenFailed;
+
+  /// No description provided for @chatFileSaveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save file'**
+  String get chatFileSaveFailed;
+
+  /// No description provided for @chatBubbleSemanticsOwn.
+  ///
+  /// In en, this message translates to:
+  /// **'You, {time}, {status}: {text}'**
+  String chatBubbleSemanticsOwn(String time, String status, String text);
+
+  /// No description provided for @chatBubbleSemanticsOther.
+  ///
+  /// In en, this message translates to:
+  /// **'{name}, {time}: {text}'**
+  String chatBubbleSemanticsOther(String name, String time, String text);
+
+  /// No description provided for @chatVoiceMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice message'**
+  String get chatVoiceMessage;
+
+  /// No description provided for @chatStatusReceiving.
+  ///
+  /// In en, this message translates to:
+  /// **'Receiving'**
+  String get chatStatusReceiving;
 
   /// No description provided for @chatTyping.
   ///
@@ -573,6 +675,84 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Executables and script files cannot be sent'**
   String get chatFileBlocked;
+
+  /// No description provided for @chatImageUnreadable.
+  ///
+  /// In en, this message translates to:
+  /// **'This image could not be read, so it was not sent.'**
+  String get chatImageUnreadable;
+
+  /// No description provided for @chatImageUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'This image type cannot be sent. Save it as a JPEG or PNG and try again.'**
+  String get chatImageUnsupported;
+
+  /// No description provided for @chatVoiceRecording.
+  ///
+  /// In en, this message translates to:
+  /// **'Recording {time}'**
+  String chatVoiceRecording(String time);
+
+  /// No description provided for @chatVoiceCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel recording'**
+  String get chatVoiceCancel;
+
+  /// No description provided for @chatVoiceSend.
+  ///
+  /// In en, this message translates to:
+  /// **'Send voice message'**
+  String get chatVoiceSend;
+
+  /// No description provided for @chatVoiceTooLong.
+  ///
+  /// In en, this message translates to:
+  /// **'Recording stopped at the 5-minute limit. Send it or cancel.'**
+  String get chatVoiceTooLong;
+
+  /// No description provided for @chatVoicePermission.
+  ///
+  /// In en, this message translates to:
+  /// **'Sotto needs permission to use the microphone. Allow it in your device settings, then try again.'**
+  String get chatVoicePermission;
+
+  /// No description provided for @chatVoiceMicPrivacy.
+  ///
+  /// In en, this message translates to:
+  /// **'No sound came from the microphone. Check microphone privacy settings in Windows, then try again. Nothing was sent.'**
+  String get chatVoiceMicPrivacy;
+
+  /// No description provided for @chatVoiceUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice message unavailable'**
+  String get chatVoiceUnavailable;
+
+  /// No description provided for @chatVoiceNeedsParecord.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice messages on Linux need the pulseaudio-utils package, which provides parecord. Install it, then try again.'**
+  String get chatVoiceNeedsParecord;
+
+  /// No description provided for @chatVoiceInCall.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice messages are not available during a call.'**
+  String get chatVoiceInCall;
+
+  /// No description provided for @chatVoicePlay.
+  ///
+  /// In en, this message translates to:
+  /// **'Play voice message'**
+  String get chatVoicePlay;
+
+  /// No description provided for @chatVoicePause.
+  ///
+  /// In en, this message translates to:
+  /// **'Pause voice message'**
+  String get chatVoicePause;
 }
 
 class _AppLocalizationsDelegate

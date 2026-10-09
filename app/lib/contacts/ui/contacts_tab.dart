@@ -95,6 +95,7 @@ class ContactsTab extends StatelessWidget {
                                 chat: chat,
                                 contactId: contact.identity.id,
                                 contactName: contact.name,
+                                verified: contact.verified,
                                 calls: calls,
                               ),
                             IconButton(
@@ -208,11 +209,13 @@ class _ContactChatButton extends StatefulWidget {
     required this.chat,
     required this.contactId,
     required this.contactName,
+    this.verified = false,
     this.calls,
   });
 
   final ChatManager chat;
   final String contactId;
+  final bool verified;
   final String contactName;
   final CallController? calls;
 
@@ -270,6 +273,8 @@ class _ContactChatButtonState extends State<_ContactChatButton> {
             name: widget.contactName,
             sendTyping: widget.calls?.sendTyping ?? true,
             sendReadReceipts: widget.calls?.sendReadReceipts ?? true,
+            verified: widget.verified,
+            calls: widget.calls,
           ),
         ),
       ),

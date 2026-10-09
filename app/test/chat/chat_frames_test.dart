@@ -255,6 +255,51 @@ void main() {
       expect(offer.sha256, _sha);
     });
 
+    test('a voice offer says so on the wire, and a plain one does not', () {
+      final voice = FileOfferFrame(
+        id: _id(10),
+        name: 'voice-1.m4a',
+        size: 100,
+        mime: 'audio/mp4',
+        sha256: _sha,
+        chunks: 1,
+        voice: true,
+      );
+      final encodedVoice = ChatFrames.encode(voice);
+      expect((jsonDecode(encodedVoice) as Map)['kind'], 'voice');
+      final decodedVoice = ChatFrames.decode(encodedVoice) as FileOfferFrame;
+      expect(decodedVoice.voice, isTrue);
+
+      final plain = FileOfferFrame(
+        id: _id(10),
+        name: 'song.m4a',
+        size: 100,
+        mime: 'audio/mp4',
+        sha256: _sha,
+        chunks: 1,
+      );
+      final encodedPlain = ChatFrames.encode(plain);
+      expect((jsonDecode(encodedPlain) as Map).containsKey('kind'), isFalse);
+      expect(
+        (ChatFrames.decode(encodedPlain) as FileOfferFrame).voice,
+        isFalse,
+      );
+    });
+
+    test('an offer with no kind is a plain file, even when it is audio', () {
+      final offer = ChatFrames.decode(
+        _offer({'mime': 'audio/mp4', 'name': 'song.m4a'}),
+      ) as FileOfferFrame;
+      expect(offer.voice, isFalse);
+    });
+
+    test('a kind this app does not know is refused', () {
+      expect(_refusal(_offer({'kind': 'video'})), 'malformed');
+      expect(_refusal(_offer({'kind': 7})), 'malformed');
+      expect(_refusal(_offer({'kind': 'file'})), isNull);
+      expect(_refusal(_offer({'kind': 'voice'})), isNull);
+    });
+
     test('a blocked name decodes, so the session can decline it', () {
       final offer =
           ChatFrames.decode(_offer({'name': 'malware.exe'})) as FileOfferFrame;
@@ -325,6 +370,23 @@ void main() {
       expect(_refusal(_offer({'name': ''})), 'malformed');
       expect(_refusal(_offer({'name': 'a' * 512})), isNull);
       expect(_refusal(_offer({'name': 'a' * 513})), 'malformed');
+    });
+
+    test('a name blocked only after cleaning is flagged, and a colon is not '
+        'a stream name', () {
+      final stream = ChatFrames.decode(
+        _offer({'name': r'setup.exe::$DATA'}),
+      ) as FileOfferFrame;
+      expect(stream.name, r'setup.exe__$DATA');
+      expect(stream.blocked, isFalse);
+
+      final hidden = ChatFrames.decode(
+        _offer({'name': '${'x' * 100}.exe${' ' * 40}x'}),
+      ) as FileOfferFrame;
+      expect(hidden.blocked, isTrue);
+
+      final plain = ChatFrames.decode(_offer()) as FileOfferFrame;
+      expect(plain.blocked, isFalse);
     });
 
     test('encodeChunk and decodeChunk round trip', () {
@@ -429,6 +491,119 @@ void main() {
       ]) {
         final once = ChatFrames.cleanFileName(name);
         expect(ChatFrames.cleanFileName(once), once, reason: name);
+      }
+    });
+
+    test('a reserved name left bare by the cut is prefixed too', () {
+      // The cut leaves "CON" and spaces, which trim to CON.
+      expect(ChatFrames.cleanFileName('CON${' ' * 200}x.txt'), 'file_CON.txt');
+      expect(ChatFrames.cleanFileName('CON${' ' * 130}x'), 'file_CON');
+    });
+
+    test('the other reserved device names are prefixed as well', () {
+      expect(ChatFrames.cleanFileName('COM0.txt'), 'file_COM0.txt');
+      expect(ChatFrames.cleanFileName('LPT0.txt'), 'file_LPT0.txt');
+      expect(ChatFrames.cleanFileName('COM¹.txt'), 'file_COM¹.txt');
+      expect(ChatFrames.cleanFileName('lpt².dat'), 'file_lpt².dat');
+      expect(ChatFrames.cleanFileName(r'CONIN$.txt'), r'file_CONIN$.txt');
+      expect(ChatFrames.cleanFileName(r'conout$.txt'), r'file_conout$.txt');
+    });
+
+    test('colons become underscores, so no stream name can be written', () {
+      expect(
+        ChatFrames.cleanFileName(r'setup.exe::$DATA'),
+        r'setup.exe__$DATA',
+      );
+      expect(
+        ChatFrames.cleanFileName('Meeting 10:30.pdf'),
+        'Meeting 10_30.pdf',
+      );
+    });
+
+    test('invisible characters are removed, and nothing left is file', () {
+      expect(ChatFrames.cleanFileName('\u200B\u200C\u200F\uFEFF'), 'file');
+      expect(ChatFrames.cleanFileName('a\u200Bb\u202Ec.pdf'), 'abc.pdf');
+    });
+
+    test('an extension cut in the middle of spaces leaves none at the end', () {
+      final once = ChatFrames.cleanFileName('${'x' * 10}.${' a' * 80}');
+      expect(once.endsWith(' '), isFalse);
+      expect(ChatFrames.cleanFileName(once), once);
+    });
+
+    test('any name cleans to a safe name that cleaning leaves alone', () {
+      final random = Random(20261009);
+      const pieces = [
+        'a',
+        'Z',
+        '.',
+        '..',
+        ' ',
+        '\\',
+        '/',
+        ':',
+        '\t',
+        '\n',
+        '\u0000',
+        '\u007F',
+        '\u200B',
+        '\u202E',
+        '\u2066',
+        '\uFEFF',
+        '\uD800',
+        'é',
+        '文',
+        '😀',
+        r'$',
+        'CON',
+        'nul',
+        'COM',
+        '1',
+        '¹',
+        'exe',
+        'pdf',
+      ];
+      final reserved = RegExp(
+        r'^(CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³]'
+        r'|CONIN\$|CONOUT\$)$',
+        caseSensitive: false,
+      );
+      bool unsafe(int rune) =>
+          rune < 0x20 ||
+          (rune >= 0x7F && rune <= 0x9F) ||
+          (rune >= 0x200B && rune <= 0x200F) ||
+          (rune >= 0x202A && rune <= 0x202E) ||
+          (rune >= 0x2066 && rune <= 0x2069) ||
+          rune == 0xFEFF ||
+          (rune >= 0xD800 && rune <= 0xDFFF) ||
+          rune == 0x2F ||
+          rune == 0x5C ||
+          rune == 0x3A;
+
+      for (var i = 0; i < 3000; i++) {
+        final raw = StringBuffer();
+        final length = random.nextInt(200);
+        for (var j = 0; j < length; j++) {
+          raw.write(pieces[random.nextInt(pieces.length)]);
+        }
+        final once = ChatFrames.cleanFileName(raw.toString());
+        final reason = 'case $i';
+
+        expect(once, isNotEmpty, reason: reason);
+        expect(
+          utf8.encode(once).length,
+          lessThanOrEqualTo(maxFileNameBytes),
+          reason: reason,
+        );
+        expect(once.runes.any(unsafe), isFalse, reason: reason);
+        expect(once.startsWith('.'), isFalse, reason: reason);
+        expect(once.endsWith(' '), isFalse, reason: reason);
+        expect(
+          reserved.hasMatch(once.split('.').first.trimRight()),
+          isFalse,
+          reason: reason,
+        );
+        expect(ChatFrames.cleanFileName(once), once, reason: reason);
       }
     });
   });
@@ -563,6 +738,26 @@ void main() {
         '.img',
         '.vhd',
         '.vhdx',
+        // Windows app packages, update packages and script components.
+        '.msix',
+        '.msixbundle',
+        '.appx',
+        '.appxbundle',
+        '.msu',
+        '.sct',
+        '.wsc',
+        '.ws',
+        '.jnlp',
+        '.application',
+        '.appref-ms',
+        '.library-ms',
+        // Office add-ins, macro-enabled templates and slide shows.
+        '.xlam',
+        '.xla',
+        '.ppam',
+        '.ppsm',
+        '.potm',
+        '.xltm',
       ];
       for (final ext in types) {
         expect(ChatFrames.isBlockedFileType('file$ext'), isTrue, reason: ext);
@@ -586,6 +781,40 @@ void main() {
       ]) {
         expect(ChatFrames.isBlockedFileType(name), isFalse, reason: name);
       }
+    });
+
+    test('the final extension decides, even when a colon comes before it', () {
+      // The colon is not split on: the name is judged by its last dot.
+      expect(ChatFrames.isBlockedFileType('report.pdf:setup.exe'), isTrue);
+      expect(ChatFrames.isBlockedFileType(r'setup.exe::$DATA'), isFalse);
+      expect(
+        ChatFrames.isBlockedFileType('payload.exe:Zone.Identifier'),
+        isFalse,
+      );
+      expect(ChatFrames.isBlockedFileType('setup.exe:readme.txt'), isFalse);
+    });
+
+    test('a colon does not block a name whose final extension is allowed', () {
+      expect(ChatFrames.isBlockedFileType('Meeting 10:30.pdf'), isFalse);
+      expect(ChatFrames.isBlockedFileType('notes.txt:stream'), isFalse);
+      expect(
+        ChatFrames.isBlockedFileType('Notes for acme.com: final.pdf'),
+        isFalse,
+      );
+      expect(
+        ChatFrames.isBlockedFileType('Summary of app.js: draft.pdf'),
+        isFalse,
+      );
+    });
+
+    test('a name blocked only once cleaned is found by cleaning it', () {
+      // The cut to 120 bytes leaves ".exe", and the spaces after it are cut.
+      final name = '${'x' * 100}.exe${' ' * 40}x';
+      expect(ChatFrames.isBlockedFileType(name), isFalse);
+      expect(
+        ChatFrames.isBlockedFileType(ChatFrames.cleanFileName(name)),
+        isTrue,
+      );
     });
   });
 }
