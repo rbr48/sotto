@@ -1625,6 +1625,67 @@ void main() {
         expect((await list.messages('bob')).single.text, 'one', reason: raw);
       }
     });
+
+    test(
+      'an unread count is read from the summary record, not the messages',
+      () async {
+        await store.add(
+          ChatMessage(
+            id: _id(1),
+            contactId: 'bob',
+            outgoing: false,
+            ts: 1000,
+            text: 'hello',
+            state: ChatState.received,
+            read: false,
+          ),
+        );
+        final counting = _CountingSecrets(secrets);
+
+        expect(await ChatStore(counting).unreadCount('bob'), 1);
+        expect(counting.messageReads, isEmpty);
+        expect(await ChatStore(counting).unreadCount('nobody'), 0);
+      },
+    );
+
+    test('an unreadable summary record is reported once, and its chat stays out of the list', () async {
+      await store.add(_message(1));
+      await secrets.write(ChatStore.summaryKey('bob'), 'not json');
+      final events = <String>[];
+      final list = ChatStore(secrets, log: events.add);
+
+      expect(await list.recentChats(), isEmpty);
+      expect(await list.totalUnreadCount(), 0);
+      expect(await list.recentChats(), isEmpty);
+      expect(events, ['chat summary cannot be read']);
+    });
+
+    test('a summary record that cannot be saved does not stop the list, and is reported once', () async {
+      // A chat as an earlier version left it: its messages, and no summary.
+      await store.add(
+        ChatMessage(
+          id: _id(1),
+          contactId: 'bob',
+          outgoing: false,
+          ts: 1000,
+          text: 'hello',
+          state: ChatState.received,
+          read: false,
+        ),
+      );
+      await secrets.delete(ChatStore.summaryKey('bob'));
+      final failing = _FailingSecrets(secrets)
+        ..failOn = (key) => key == ChatStore.summaryKey('bob');
+      final events = <String>[];
+      final list = ChatStore(failing, log: events.add);
+
+      final recent = await list.recentChats();
+      expect(recent.map((c) => c.contactId), ['bob']);
+      expect(recent.single.lastMessage.id, _id(1));
+      expect(recent.single.unreadCount, 1);
+      expect(await list.totalUnreadCount(), 1);
+      expect(events, ['chat summary cannot be saved']);
+    });
   });
 
   group('a failed write leaves the stored chat as it was', () {

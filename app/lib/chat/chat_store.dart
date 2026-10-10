@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../crypto/identity_store.dart';
+import '../diagnostics/event_log.dart';
 import 'chat_frames.dart';
 import 'file_storage.dart';
 
@@ -355,7 +356,20 @@ class ChatStore {
     this._store, {
     this.files,
     this.browserMemoryBytes = defaultBrowserMemoryBytes,
-  });
+    void Function(String event)? log,
+  }) : _log = log ?? EventLog.instance.add;
+
+  /// Where problems with a chat's records are reported (the diagnostic report).
+  /// Never a contact, an id or any text of a message.
+  final void Function(String event) _log;
+
+  /// The problems reported so far, by contact, so that a chat which stays
+  /// broken is reported once, not on every change.
+  final _reported = <String>{};
+
+  void _report(String contactId, String problem) {
+    if (_reported.add('$contactId $problem')) _log(problem);
+  }
 
   /// Where received files are kept, encrypted. Null in the browser, which
   /// keeps none.
@@ -1111,20 +1125,38 @@ class ChatStore {
   /// read throws [ChatStoreException], and is not overwritten here.
   Future<ChatThreadSummary?> threadSummary(String contactId) async {
     final raw = await _store.read(summaryKey(contactId));
-    if (raw != null) return _summaryFrom(contactId, raw);
+    if (raw != null) return _readSummary(contactId, raw);
     return _inOrder<ChatThreadSummary?>(() async {
       // A change that ran first may have written the record meanwhile.
       final again = await _store.read(summaryKey(contactId));
-      if (again != null) return _summaryFrom(contactId, again);
+      if (again != null) return _readSummary(contactId, again);
       final list = await _loadContact(contactId);
       if (list.isEmpty) return null;
-      await _store.write(summaryKey(contactId), _summaryJson(list));
+      try {
+        await _store.write(summaryKey(contactId), _summaryJson(list));
+      } catch (_) {
+        // The chat is listed from its messages all the same, and the record
+        // is written again the next time it is read.
+        _report(contactId, 'chat summary cannot be saved');
+      }
       return ChatThreadSummary(
         contactId: contactId,
         lastMessage: list.last,
         unreadCount: _unreadIn(list),
       );
     });
+  }
+
+  /// The summary held in [raw] for [contactId]. Throws [ChatStoreException]
+  /// when [raw] is not a summary, and reports it, since nothing else shows it:
+  /// the chat's messages still read fine.
+  ChatThreadSummary _readSummary(String contactId, String raw) {
+    try {
+      return _summaryFrom(contactId, raw);
+    } on ChatStoreException {
+      _report(contactId, 'chat summary cannot be read');
+      rethrow;
+    }
   }
 
   /// The summary held in [raw] for [contactId]. Throws [ChatStoreException]
@@ -1172,15 +1204,11 @@ class ChatStore {
     return count;
   }
 
-  /// The number of unread incoming messages with [contactId].
-  Future<int> unreadCount(String contactId) async {
-    final list = [...await _loadContact(contactId)];
-    var count = 0;
-    for (final message in list) {
-      if (!message.outgoing && !message.read) count++;
-    }
-    return count;
-  }
+  /// The number of unread incoming messages with [contactId]. Reads the
+  /// summary record, not the messages: the contacts list asks for it on every
+  /// change.
+  Future<int> unreadCount(String contactId) async =>
+      (await _tryLoadSummary(contactId))?.unreadCount ?? 0;
 
   /// Returns conversation threads that have messages, newest first. Reads the
   /// summary records, not the messages.
