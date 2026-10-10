@@ -1,0 +1,8 @@
+Self-hosted TURN servers relay UDP only again (TCP relaying off)
+Privacy policy and terms name the real server operator again
+Files from contacts are no longer downloaded automatically; turn it on in Settings
+Photo location data is removed from files sent while offline
+Safer opening and saving of files on Android
+Smaller profile photos that always reach people
+Fixes for files sent while offline
+Better read tick contrast; translated labels

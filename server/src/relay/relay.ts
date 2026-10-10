@@ -36,7 +36,7 @@ export interface RelayLimits {
 
 export const DEFAULT_LIMITS: RelayLimits = {
   authTimeoutMs: 10_000,
-  maxBodyChars: 128 * 1024,
+  maxBodyChars: 72 * 1024,
   messagesPerSec: 20,
   messageBurst: 60,
   maxConnectionsPerAddress: 20,

@@ -82,6 +82,15 @@ sudo ./infra/install.sh install --domain call.sottocall.com
 
 If you already started it by hand earlier, that's fine: the installer keeps the existing `infra/.env` secret.
 
+The privacy policy and terms (`/privacy.html`, `/terms.html`) name the operator and the support contacts from `infra/.env`. Set them once (later installs keep them):
+
+```bash
+sudo ./infra/install.sh install --domain call.sottocall.com \
+  --operator "Sotto (Izhaan Intellect)" --contact contact@sottocall.com \
+  --support-email support@sottocall.com \
+  --support-link 'https://call.sottocall.com/#c=n3qJ6HlYC0WI3DU_ixZTW6VaXCTX04zQTw5FjPj20CQ'
+```
+
 ## 5. Check it works
 
 ```bash

@@ -42,6 +42,34 @@ class AppLocalizationsBn extends AppLocalizations {
       'অ্যাপের ভাষা বদলায়। আপনার পরিচিতি ও কলে কোনো প্রভাব পড়ে না।';
 
   @override
+  String get avatarChangePhoto => 'ছবি বদলান';
+
+  @override
+  String get avatarRemovePhoto => 'ছবি সরান';
+
+  @override
+  String get avatarVisibilityNote =>
+      'যাদের কাছে আপনার কন্টাক্ট লিঙ্ক আছে, তারা আপনার ছবি দেখতে পারেন।';
+
+  @override
+  String get avatarInputTooLarge => '১০ MB-এর চেয়ে ছোট একটি ছবি বেছে নিন।';
+
+  @override
+  String get avatarUnreadable =>
+      'ফাইলটি ছবি হিসেবে পড়া যায়নি। একটি JPEG বা PNG ছবি দিয়ে চেষ্টা করুন।';
+
+  @override
+  String get avatarTooLarge =>
+      'ছবিটি শেয়ার করার মতো ছোট করা যায়নি। অন্য একটি ছবি দিয়ে চেষ্টা করুন।';
+
+  @override
+  String get avatarFailed => 'ছবিটি সেট করা যায়নি।';
+
+  @override
+  String get profileSaved =>
+      'সেভ হয়েছে। গেস্ট লিঙ্কে আপনার নতুন নাম দেখাবে; কন্টাক্ট লিঙ্কে আপনার নতুন নাম ও ছবি দেখাবে।';
+
+  @override
   String get navHome => 'হোম';
 
   @override
@@ -273,6 +301,15 @@ class AppLocalizationsBn extends AppLocalizations {
       'আপনি কখন তাদের বার্তা পড়েছেন তা পরিচিতিদের দেখতে দিন।';
 
   @override
+  String get privacyAutoDownloadFilesTitle =>
+      'ফাইল স্বয়ংক্রিয়ভাবে ডাউনলোড করুন';
+
+  @override
+  String privacyAutoDownloadFilesDesc(int megabytes) {
+    return 'পরিচিতিদের পাঠানো $megabytes MB পর্যন্ত ফাইল জিজ্ঞাসা ছাড়াই ডাউনলোড হবে। বড় ফাইল, বা একসাথে কয়েকটির বেশি ফাইল হলে, তখনও জিজ্ঞাসা করা হবে। ভয়েস বার্তা সবসময় ডাউনলোড হয়।';
+  }
+
+  @override
   String get chatDisappearingTitle => 'স্বয়ংক্রিয় বার্তা মুছে ফেলা';
 
   @override
@@ -405,4 +442,144 @@ class AppLocalizationsBn extends AppLocalizations {
 
   @override
   String get chatVoicePause => 'ভয়েস বার্তা থামান';
+
+  @override
+  String get chatPickMedia => 'ছবি ও ভিডিও';
+
+  @override
+  String get chatPickAudio => 'অডিও';
+
+  @override
+  String get chatPickDocuments => 'নথি';
+
+  @override
+  String get chatAttachGallery => 'গ্যালারি';
+
+  @override
+  String get chatAttachDocument => 'নথি';
+
+  @override
+  String get chatAttachAudio => 'অডিও';
+
+  @override
+  String chatFileDownloadingWeb(String name) {
+    return '$name ডাউনলোড হচ্ছে…';
+  }
+
+  @override
+  String chatFileSavedToDownloads(String name) {
+    return 'ডাউনলোডসে সংরক্ষিত: $name';
+  }
+
+  @override
+  String get chatFileTypeCannotOpen =>
+      'এই ধরনের ফাইল এখানে খোলা যায় না। এর বদলে সংরক্ষণ করুন।';
+
+  @override
+  String chatVideoCallTooltip(String name) {
+    return '$name-কে ভিডিও কল';
+  }
+
+  @override
+  String chatVoiceCallTooltip(String name) {
+    return '$name-কে ভয়েস কল';
+  }
+
+  @override
+  String get chatImage => 'ছবি';
+
+  @override
+  String get chatImageOpenWith => 'অ্যাপ দিয়ে খুলুন';
+
+  @override
+  String get chatImageSave => 'ডিভাইসে সংরক্ষণ করুন';
+
+  @override
+  String get chatImageLoadFailed => 'ছবিটি লোড করা যায়নি';
+
+  @override
+  String get chatEmojiSmileys => 'স্মাইলি';
+
+  @override
+  String get chatEmojiPeople => 'মানুষ';
+
+  @override
+  String get chatEmojiAnimals => 'প্রাণী ও প্রকৃতি';
+
+  @override
+  String get chatEmojiFood => 'খাবার ও পানীয়';
+
+  @override
+  String get chatEmojiActivities => 'কার্যকলাপ';
+
+  @override
+  String get chatEmojiTravel => 'ভ্রমণ ও স্থান';
+
+  @override
+  String get chatEmojiObjects => 'বস্তু';
+
+  @override
+  String get chatEmojiSymbols => 'প্রতীক';
+
+  @override
+  String get chatEmojiBackspace => 'মুছুন';
+
+  @override
+  String get chatVoiceDiscardTitle => 'ভয়েস বার্তা বাতিল করবেন?';
+
+  @override
+  String get chatVoiceDiscardBody =>
+      'আপনি একটি ভয়েস বার্তা রেকর্ড করছেন। চলে গেলে এটি মুছে যাবে এবং পাঠানো হবে না।';
+
+  @override
+  String get chatVoiceDiscard => 'বাতিল করুন';
+
+  @override
+  String get chatsAddContactsFirst =>
+      'প্রথমে পরিচিতি ট্যাব থেকে পরিচিতি যোগ করুন।';
+
+  @override
+  String get chatsNewConversation => 'নতুন কথোপকথন';
+
+  @override
+  String get chatsNewChat => 'নতুন চ্যাট';
+
+  @override
+  String get chatsSearchHint => 'কথোপকথন খুঁজুন…';
+
+  @override
+  String chatsFilterAll(int count) {
+    return 'সব ($count)';
+  }
+
+  @override
+  String get chatsFilterUnread => 'অপঠিত';
+
+  @override
+  String get chatsEmptyTitle => 'এখনও কোনো কথোপকথন নেই';
+
+  @override
+  String get chatsNoMatches => 'মিলে যাওয়া কোনো কথোপকথন নেই';
+
+  @override
+  String chatsUnknownContact(String id) {
+    return 'পরিচিতি $id';
+  }
+
+  @override
+  String get chatsYouPrefix => 'আপনি: ';
+
+  @override
+  String get chatKeyboardTooltip => 'কীবোর্ড';
+
+  @override
+  String get chatEmojiTooltip => 'ইমোজি';
+
+  @override
+  String get chatFileNoApp =>
+      'এই ডিভাইসে এমন কোনো অ্যাপ নেই যা এই ফাইলটি খুলতে পারে।';
+
+  @override
+  String get chatFileStoragePermission =>
+      'স্টোরেজ ব্যবহারের অনুমতি দিন, তারপর আবার সংরক্ষণে আলতো চাপুন।';
 }

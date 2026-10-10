@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../../app/app_controller.dart';
 import '../../call/call_controller.dart';
@@ -8,6 +9,7 @@ import '../../chat/chat_store.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/ui_kit.dart';
 import 'chat_page.dart';
+import 'chat_tokens.dart';
 
 /// The dedicated Chats tab: full conversation inbox, search, unread filters,
 /// and direct confidential message threading.
@@ -70,29 +72,33 @@ class _ChatsTabState extends State<ChatsTab> {
     if (mounted) setState(() => _summaries = list);
   }
 
-  String _formatTime(int ts) {
+  /// The time of the last message: the time today, "Yesterday", the
+  /// weekday within a week, else the date, all in the app's language.
+  String _formatTime(BuildContext context, int ts) {
     final date = DateTime.fromMillisecondsSinceEpoch(ts);
     final now = DateTime.now();
-    if (now.year == date.year &&
-        now.month == date.month &&
-        now.day == date.day) {
-      final hour = date.hour.toString().padLeft(2, '0');
-      final minute = date.minute.toString().padLeft(2, '0');
-      return '$hour:$minute';
+    final locale = Localizations.localeOf(context).toLanguageTag();
+    switch (chatDayLabel(day: date, now: now)) {
+      case ChatDayLabel.today:
+        return MaterialLocalizations.of(context).formatTimeOfDay(
+          TimeOfDay.fromDateTime(date),
+          alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
+        );
+      case ChatDayLabel.yesterday:
+        return AppLocalizations.of(context).chatDayYesterday;
+      case ChatDayLabel.other:
+        if (now.difference(date).inDays < 7) {
+          return DateFormat.E(locale).format(date);
+        }
+        return DateFormat.Md(locale).format(date);
     }
-    final diff = now.difference(date);
-    if (diff.inDays == 1) return 'Yesterday';
-    if (diff.inDays < 7) {
-      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-      return days[date.weekday - 1];
-    }
-    return '${date.month}/${date.day}';
   }
 
   IconData _statusIcon(ChatState state) => switch (state) {
     ChatState.sending => Icons.schedule,
     ChatState.queued => Icons.hourglass_top,
-    ChatState.delivered => Icons.done_all,
+    // One tick for delivered, two for read: the shape tells them apart.
+    ChatState.delivered => Icons.done,
     ChatState.read => Icons.done_all,
     ChatState.notSent => Icons.error_outline,
     ChatState.received => Icons.done,
@@ -102,8 +108,8 @@ class _ChatsTabState extends State<ChatsTab> {
     final contacts = widget.app.contacts.contacts;
     if (contacts.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Add contacts from the Contacts tab first.'),
+        SnackBar(
+          content: Text(AppLocalizations.of(context).chatsAddContactsFirst),
         ),
       );
       return;
@@ -122,7 +128,7 @@ class _ChatsTabState extends State<ChatsTab> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  'New conversation',
+                  AppLocalizations.of(ctx).chatsNewConversation,
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -145,10 +151,12 @@ class _ChatsTabState extends State<ChatsTab> {
                             ? Text(c.organisation)
                             : null,
                         trailing: c.verified
-                            ? const Icon(
+                            ? Icon(
                                 Icons.verified,
-                                color: Color(0xFF10B981),
+                                color: ChatTokens.of(ctx).verifiedIcon,
                                 size: 18,
+                                semanticLabel: AppLocalizations.of(ctx)
+                                    .chatVerifiedTooltip,
                               )
                             : null,
                         onTap: () {
@@ -201,6 +209,7 @@ class _ChatsTabState extends State<ChatsTab> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final chat = widget.calls.chat;
+    final l10n = AppLocalizations.of(context);
 
     if (chat == null) {
       return const Center(child: CircularProgressIndicator());
@@ -225,7 +234,7 @@ class _ChatsTabState extends State<ChatsTab> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _startNewChat,
         icon: const Icon(Icons.chat_bubble_outline),
-        label: const Text('New chat'),
+        label: Text(l10n.chatsNewChat),
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
@@ -234,7 +243,7 @@ class _ChatsTabState extends State<ChatsTab> {
           TextField(
             controller: _searchController,
             decoration: InputDecoration(
-              hintText: 'Search conversations…',
+              hintText: l10n.chatsSearchHint,
               prefixIcon: const Icon(Icons.search, size: 20),
               suffixIcon: _searchQuery.isNotEmpty
                   ? IconButton(
@@ -259,7 +268,7 @@ class _ChatsTabState extends State<ChatsTab> {
             child: Row(
               children: [
                 ChoiceChip(
-                  label: Text('All (${_summaries.length})'),
+                  label: Text(l10n.chatsFilterAll(_summaries.length)),
                   selected: _selectedFilter == 0,
                   onSelected: (selected) {
                     if (selected) setState(() => _selectedFilter = 0);
@@ -270,7 +279,7 @@ class _ChatsTabState extends State<ChatsTab> {
                   label: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text('Unread'),
+                      Text(l10n.chatsFilterUnread),
                       if (_summaries
                           .where((s) => s.unreadCount > 0)
                           .isNotEmpty) ...[
@@ -308,15 +317,12 @@ class _ChatsTabState extends State<ChatsTab> {
 
           // Conversation List or Empty State
           if (_summaries.isEmpty)
-            const Padding(
-              padding: EdgeInsets.only(top: 40),
+            Padding(
+              padding: const EdgeInsets.only(top: 40),
               child: EmptyState(
                 icon: Icons.chat_bubble_outline,
-                title: 'No conversations yet',
-                message:
-                    'Messages are end-to-end encrypted. They go directly '
-                    'between your devices, or sealed through the relay, which '
-                    'holds them for at most a minute and cannot read them.',
+                title: l10n.chatsEmptyTitle,
+                message: l10n.chatDirectNote,
               ),
             )
           else if (list.isEmpty)
@@ -324,7 +330,7 @@ class _ChatsTabState extends State<ChatsTab> {
               padding: const EdgeInsets.symmetric(vertical: 48),
               child: Center(
                 child: Text(
-                  'No matching conversations',
+                  l10n.chatsNoMatches,
                   style: TextStyle(color: scheme.onSurfaceVariant),
                 ),
               ),
@@ -354,10 +360,12 @@ class _ChatsTabState extends State<ChatsTab> {
     final contact = widget.app.contacts.contacts
         .where((c) => c.identity.id == summary.contactId)
         .firstOrNull;
+    final l10n = AppLocalizations.of(context);
+    final tokens = ChatTokens.of(context);
     final name =
         contact?.name ??
         (summary.contactId.length > 8
-            ? 'Contact ${summary.contactId.substring(0, 8)}'
+            ? l10n.chatsUnknownContact(summary.contactId.substring(0, 8))
             : summary.contactId);
     final last = summary.lastMessage;
 
@@ -368,10 +376,15 @@ class _ChatsTabState extends State<ChatsTab> {
         children: [
           InitialsAvatar(name: name, avatar: contact?.avatar, radius: 24),
           if (contact?.verified ?? false)
-            const Positioned(
-              right: -2,
+            PositionedDirectional(
+              end: -2,
               bottom: -2,
-              child: Icon(Icons.verified, color: Color(0xFF10B981), size: 16),
+              child: Icon(
+                Icons.verified,
+                color: tokens.verifiedIcon,
+                size: 16,
+                semanticLabel: l10n.chatVerifiedTooltip,
+              ),
             ),
         ],
       ),
@@ -392,7 +405,7 @@ class _ChatsTabState extends State<ChatsTab> {
           ),
           const SizedBox(width: 8),
           Text(
-            _formatTime(last.ts),
+            _formatTime(context, last.ts),
             style: TextStyle(
               fontSize: 12,
               color: summary.unreadCount > 0
@@ -414,12 +427,12 @@ class _ChatsTabState extends State<ChatsTab> {
                 _statusIcon(last.state),
                 size: 14,
                 color: last.state == ChatState.read
-                    ? const Color(0xFF7C6EE6)
+                    ? tokens.readTick
                     : scheme.onSurfaceVariant,
               ),
               const SizedBox(width: 4),
               Text(
-                'You: ',
+                l10n.chatsYouPrefix,
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
@@ -431,7 +444,7 @@ class _ChatsTabState extends State<ChatsTab> {
               child: Text(
                 // A voice note shows as "Voice message", not its file name.
                 last.isAttachment && last.voiceNote
-                    ? AppLocalizations.of(context).chatVoiceMessage
+                    ? l10n.chatVoiceMessage
                     : last.text,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,

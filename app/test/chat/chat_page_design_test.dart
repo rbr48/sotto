@@ -290,6 +290,34 @@ void main() {
       await _unmount(tester, chat);
     });
 
+    testWidgets('the header claims no presence or path it does not know', (
+      tester,
+    ) async {
+      for (final hideIp in [false, true]) {
+        for (final verified in [false, true]) {
+          final headerChat = _chatWith(hideIp: () => hideIp);
+          await _pump(tester, headerChat, verified: verified);
+          final header = find.byType(AppBar);
+          for (final claim in ['online', 'relayed', 'verified contact']) {
+            expect(
+              find.descendant(of: header, matching: find.text(claim)),
+              findsNothing,
+              reason: '$claim with hideIp $hideIp, verified $verified',
+            );
+          }
+          // Only the name (and the avatar's initial): no line under it.
+          final texts = tester
+              .widgetList<Text>(
+                find.descendant(of: header, matching: find.byType(Text)),
+              )
+              .map((t) => t.data)
+              .toSet();
+          expect(texts, {'B', 'Bob'});
+          await _unmount(tester, headerChat);
+        }
+      }
+    });
+
     testWidgets('the composer shows a microphone until there is text', (
       tester,
     ) async {
@@ -956,13 +984,6 @@ void main() {
   });
 
   group('the golden matrix', () {
-    setUpAll(() {
-      final current = goldenFileComparator;
-      if (current is LocalFileComparator) {
-        goldenFileComparator = _TolerantGoldenComparator(current.basedir);
-      }
-    });
-
     // One picture per light or dark, direction, language and text scale. Each
     // picture holds every state in section 11 of the spec.
     List<ChatMessage> allStates() => [
@@ -1078,6 +1099,27 @@ void main() {
         'did not answer',
         'Nothing is stored',
         'You confirmed this safety number',
+        // The header claims no presence it does not know.
+        'online',
+        'relayed',
+        'verified contact',
+        // The rest of the strings now from the ARB files.
+        'Images and Videos',
+        "'Gallery'",
+        'Downloading \$',
+        'Saved to Downloads',
+        'Video call \$',
+        'Voice call \$',
+        'Open with app',
+        'Save to device',
+        'Could not load image',
+        "'Smileys'",
+        "'Backspace'",
+        "'Keyboard'",
+        // No plaintext copy written straight to the shared Downloads folder.
+        '/storage/emulated',
+        // The read tick colour comes from the tokens.
+        '53BDEB',
       ]) {
         expect(
           source.contains(banned),
@@ -1087,26 +1129,4 @@ void main() {
       }
     },
   );
-}
-
-class _TolerantGoldenComparator extends LocalFileComparator {
-  _TolerantGoldenComparator(super.testFile);
-
-  @override
-  Future<bool> compare(Uint8List imageBytes, Uri golden) async {
-    try {
-      return await super.compare(imageBytes, golden);
-    } catch (_) {
-      // Golden images evolve with theme/UI improvements (e.g. WhatsApp skin, emoji picker).
-      // Layout soundness across locales, text scales and themes is verified by expect(tester.takeException(), isNull).
-      return true;
-    }
-  }
-
-  @override
-  Future<void> update(Uri golden, Uint8List imageBytes) async {
-    try {
-      await super.update(golden, imageBytes);
-    } catch (_) {}
-  }
 }

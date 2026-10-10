@@ -37,15 +37,38 @@ class _Link implements ChatTransport {
     return true;
   }
 
+  /// Binary chunks this end has sent.
+  int binarySent = 0;
+
+  /// After this many chunks, [sendBinary] refuses (null: never).
+  int? refuseBinaryAfter;
+
+  /// What [bufferedAmountNow] reports next, one value per call; 0 once empty.
+  final bufferedReports = <int>[];
+
+  /// How often [bufferedAmountNow] was asked.
+  int bufferedAsks = 0;
+
   @override
   bool sendBinary(Uint8List data) {
     if (closed || !connected || peer == null || peer!.closed) return false;
+    final refuseAfter = refuseBinaryAfter;
+    if (refuseAfter != null && binarySent >= refuseAfter) return false;
+    binarySent++;
     peer!._incomingBinary.add(data);
     return true;
   }
 
+  /// The cached value: always says the buffer is empty, as a stale native
+  /// value can.
   @override
   int get bufferedAmount => 0;
+
+  @override
+  Future<int> bufferedAmountNow() async {
+    bufferedAsks++;
+    return bufferedReports.isEmpty ? 0 : bufferedReports.removeAt(0);
+  }
 
   @override
   Stream<String> get frames => _incoming.stream;
@@ -109,13 +132,21 @@ class _Side {
   final events = <ChatSessionEvent>[];
   int _ids = 0;
 
-  void start({List<ChatMessage> resend = const []}) {
+  void start({
+    List<ChatMessage> resend = const [],
+    bool Function()? autoAccept,
+    Future<void> Function()? bufferWait,
+    int maxFileBytes = maxFileSizeNative,
+  }) {
     session = ChatSession(
       contactId: contact,
       transport: link,
       store: store,
       clock: clock,
       newId: () => _id(100 + (_ids++)),
+      autoAcceptFiles: autoAccept ?? () => false,
+      bufferWait: bufferWait,
+      maxFileBytes: maxFileBytes,
     );
     session.events.listen(events.add);
     unawaited(session.start(resend: resend));
@@ -1039,6 +1070,424 @@ void main() {
       expect(root.listSync(recursive: true).whereType<File>(), isEmpty);
     },
   );
+
+  group('review fixes', () {
+    /// An offer frame from Alice's side for a file of [size] bytes.
+    String offerFrame(String id, int size, {String name = 'notes.txt'}) =>
+        ChatFrames.encode(
+          FileOfferFrame(
+            id: id,
+            name: name,
+            size: size,
+            mime: 'text/plain',
+            sha256: _digest,
+            chunks: (size + fileChunkSize - 1) ~/ fileChunkSize,
+          ),
+        );
+
+    bool accepted(_Link link, String id) =>
+        link.sentFrames.contains(ChatFrames.encode(FileAcceptFrame(id: id)));
+
+    test('a file from a contact is not downloaded unless the setting is on, '
+        'and a change applies to the next offer', () async {
+      final (a, b) = _pair();
+      _Side('alice', 'bob', a, clock: clock).start();
+      var autoOn = false;
+      final bob = _Side('bob', 'alice', b, clock: clock)
+        ..start(autoAccept: () => autoOn);
+      await _settle();
+
+      a.send(offerFrame(_id(1), 100));
+      await _settle();
+      expect(accepted(b, _id(1)), isFalse);
+      expect((await bob.store.find('alice', _id(1)))?.fileStatus, 'offered');
+
+      autoOn = true;
+      a.send(offerFrame(_id(2), 100));
+      await _settle();
+      expect(accepted(b, _id(2)), isTrue);
+      expect(accepted(b, _id(1)), isFalse);
+    });
+
+    test(
+      'a voice note from a contact downloads with the setting off',
+      () async {
+        final (a, b) = _pair();
+        final alice = _Side('alice', 'bob', a, clock: clock)..start();
+        final bob = _Side('bob', 'alice', b, clock: clock)..start();
+        await _settle();
+
+        final note = await alice.session.offerFile(
+          name: 'voice.m4a',
+          bytes: _m4a(),
+          mime: 'audio/mp4',
+          voice: true,
+        );
+        await _settle();
+        expect(
+          (await bob.store.find('alice', note.id))?.fileStatus,
+          'completed',
+        );
+      },
+    );
+
+    test('with the setting on, only files up to the limit download', () async {
+      final (a, b) = _pair();
+      _Side('alice', 'bob', a, clock: clock).start();
+      _Side('bob', 'alice', b, clock: clock).start(autoAccept: () => true);
+      await _settle();
+
+      a.send(offerFrame(_id(1), ChatSession.autoAcceptMaxBytes));
+      a.send(offerFrame(_id(2), ChatSession.autoAcceptMaxBytes + 1));
+      await _settle();
+      expect(accepted(b, _id(1)), isTrue);
+      expect(accepted(b, _id(2)), isFalse);
+    });
+
+    test('with the setting on, at most two transfers run; others wait to be '
+        'accepted by hand', () async {
+      final (a, b) = _pair();
+      _Side('alice', 'bob', a, clock: clock).start();
+      final bob = _Side('bob', 'alice', b, clock: clock)
+        ..start(autoAccept: () => true);
+      await _settle();
+
+      for (var i = 1; i <= 3; i++) {
+        a.send(offerFrame(_id(i), 100));
+      }
+      await _settle();
+      expect(accepted(b, _id(1)), isTrue);
+      expect(accepted(b, _id(2)), isTrue);
+      expect(accepted(b, _id(3)), isFalse);
+      expect((await bob.store.find('alice', _id(3)))?.fileStatus, 'offered');
+
+      // By hand it is accepted.
+      await bob.session.acceptFile(_id(3));
+      expect(accepted(b, _id(3)), isTrue);
+    });
+
+    test('with the setting on, a session downloads at most its budget without '
+        'asking', () async {
+      final (a, b) = _pair();
+      _Side('alice', 'bob', a, clock: clock).start();
+      _Side('bob', 'alice', b, clock: clock).start(autoAccept: () => true);
+      await _settle();
+
+      const size = ChatSession.autoAcceptMaxBytes;
+      const fits = ChatSession.autoAcceptBudgetBytes ~/ size;
+      for (var i = 1; i <= fits + 1; i++) {
+        a.send(offerFrame(_id(i), size));
+        await _settle();
+        // The sender cancels, so the transfer does not hold a slot.
+        a.send(ChatFrames.encode(FileCancelFrame(id: _id(i))));
+        await _settle();
+      }
+      for (var i = 1; i <= fits; i++) {
+        expect(accepted(b, _id(i)), isTrue, reason: 'offer $i');
+      }
+      expect(accepted(b, _id(fits + 1)), isFalse);
+    });
+
+    test('an accept after the sender cancelled sends nothing', () async {
+      final (a, b) = _pair();
+      final alice = _Side('alice', 'bob', a, clock: clock)..start();
+      _Side('bob', 'alice', b, clock: clock).start();
+      await _settle();
+
+      final offer = await alice.session.offerFile(
+        name: 'notes.txt',
+        bytes: Uint8List.fromList(List.filled(40000, 3)),
+        mime: 'text/plain',
+      );
+      await _settle();
+      await alice.session.cancelFile(offer.id);
+      await _settle();
+      b.send(ChatFrames.encode(FileAcceptFrame(id: offer.id)));
+      await _settle();
+
+      expect(a.binarySent, 0);
+      expect(
+        (await alice.store.find('bob', offer.id))?.fileStatus,
+        'cancelled',
+      );
+    });
+
+    test('an accept after a decline sends nothing', () async {
+      final (a, b) = _pair();
+      final alice = _Side('alice', 'bob', a, clock: clock)..start();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+
+      final offer = await alice.session.offerFile(
+        name: 'notes.txt',
+        bytes: Uint8List.fromList(List.filled(40000, 3)),
+        mime: 'text/plain',
+      );
+      await _settle();
+      await bob.session.declineFile(offer.id);
+      await _settle();
+      b.send(ChatFrames.encode(FileAcceptFrame(id: offer.id)));
+      await _settle();
+
+      expect(a.binarySent, 0);
+      expect((await alice.store.find('bob', offer.id))?.fileStatus, 'declined');
+    });
+
+    test('a second accept does not send the file again', () async {
+      final (a, b) = _pair();
+      final alice = _Side('alice', 'bob', a, clock: clock)..start();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+
+      final offer = await alice.session.offerFile(
+        name: 'notes.txt',
+        bytes: Uint8List.fromList(List.filled(40000, 3)),
+        mime: 'text/plain',
+      );
+      await _settle();
+      await bob.session.acceptFile(offer.id);
+      b.send(ChatFrames.encode(FileAcceptFrame(id: offer.id)));
+      await _settle();
+      b.send(ChatFrames.encode(FileAcceptFrame(id: offer.id)));
+      await _settle();
+
+      expect(a.binarySent, 3);
+      expect(
+        (await alice.store.find('bob', offer.id))?.fileStatus,
+        'completed',
+      );
+    });
+
+    test(
+      'an accept for a file not offered in this session sends nothing',
+      () async {
+        final (a, b) = _pair();
+        final alice = _Side('alice', 'bob', a, clock: clock)..start();
+        _Side('bob', 'alice', b, clock: clock).start();
+        await _settle();
+
+        // An outgoing file from an earlier session, whose bytes are still here.
+        final id = _id(60);
+        final bytes = Uint8List.fromList([1, 2, 3]);
+        alice.store.rememberFile(id, bytes);
+        await alice.store.add(
+          ChatMessage(
+            id: id,
+            contactId: 'bob',
+            outgoing: true,
+            ts: 1,
+            text: 'old.txt',
+            state: ChatState.sending,
+            fileId: id,
+            fileName: 'old.txt',
+            fileSize: 3,
+            fileStatus: 'failed',
+            filePath: 'web:$id',
+          ),
+        );
+        b.send(ChatFrames.encode(FileAcceptFrame(id: id)));
+        await _settle();
+
+        expect(a.binarySent, 0);
+        expect((await alice.store.find('bob', id))?.fileStatus, 'failed');
+      },
+    );
+
+    test('chunks wait while the channel really is full, asked before each '
+        'chunk', () async {
+      final (a, b) = _pair();
+      var waits = 0;
+      final alice = _Side('alice', 'bob', a, clock: clock)
+        ..start(
+          bufferWait: () async {
+            waits++;
+          },
+        );
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+
+      final offer = await alice.session.offerFile(
+        name: 'notes.txt',
+        bytes: Uint8List.fromList(List.filled(40000, 3)),
+        mime: 'text/plain',
+      );
+      await _settle();
+      // The cached value says empty; the channel says full, twice.
+      a.bufferedReports.addAll([
+        ChatSession.maxBufferedBytes + 1,
+        ChatSession.maxBufferedBytes + 1,
+      ]);
+      await bob.session.acceptFile(offer.id);
+      await _settle();
+
+      expect(waits, 2);
+      // Three chunks, each asked for (two of the asks for the first chunk
+      // were full).
+      expect(a.bufferedAsks, 5);
+      expect(a.binarySent, 3);
+      expect(
+        (await alice.store.find('bob', offer.id))?.fileStatus,
+        'completed',
+      );
+    });
+
+    test('a chunk the channel refuses stops the transfer as failed', () async {
+      final (a, b) = _pair();
+      final alice = _Side('alice', 'bob', a, clock: clock)..start();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+
+      final offer = await alice.session.offerFile(
+        name: 'notes.txt',
+        bytes: Uint8List.fromList(List.filled(40000, 3)),
+        mime: 'text/plain',
+      );
+      await _settle();
+      a.refuseBinaryAfter = 1;
+      await bob.session.acceptFile(offer.id);
+      await _settle();
+
+      expect(a.binarySent, 1);
+      expect((await alice.store.find('bob', offer.id))?.fileStatus, 'failed');
+      expect(
+        a.sentFrames,
+        isNot(contains(ChatFrames.encode(FileDoneFrame(id: offer.id)))),
+      );
+      expect(alice.ofType<FileTransferFailed>().single.reason, 'failed');
+      expect(
+        (await bob.store.find('alice', offer.id))?.fileStatus,
+        'cancelled',
+      );
+    });
+
+    test('a queued file is offered once when the other side is ready, never '
+        'as a text', () async {
+      final (a, b) = _pair();
+      final aliceStore = ChatStore(MemorySecretStore());
+      final id = _id(70);
+      final bytes = Uint8List.fromList(List.filled(100, 9));
+      final queued = await aliceStore.keepOutgoingFile(
+        ChatMessage(
+          id: id,
+          contactId: 'bob',
+          outgoing: true,
+          ts: 1,
+          text: 'notes.txt',
+          state: ChatState.queued,
+          fileId: id,
+          fileName: 'notes.txt',
+          fileSize: bytes.length,
+          fileMime: 'text/plain',
+          fileStatus: 'offered',
+        ),
+        bytes,
+      );
+      await aliceStore.add(queued);
+      expect(queued.filePath, 'web:$id');
+
+      final alice = _Side(
+        'alice',
+        'bob',
+        a,
+        clock: clock,
+        sharedStore: aliceStore,
+      )..start(resend: [queued]);
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      // Asked again, as the outbox flush does: nothing more is offered.
+      expect(await alice.session.offerStoredFile(queued), isFalse);
+      await _settle();
+
+      final offers = a.sentFrames
+          .map(ChatFrames.decode)
+          .whereType<FileOfferFrame>()
+          .toList();
+      expect(offers.map((f) => f.id), [id]);
+      expect(
+        a.sentFrames.map(ChatFrames.decode).whereType<MessageFrame>(),
+        isEmpty,
+      );
+      expect((await aliceStore.find('bob', id))?.state, ChatState.sending);
+
+      final received = await bob.store.messages('alice');
+      expect(received.single.isAttachment, isTrue);
+      await bob.session.acceptFile(id);
+      await _settle();
+      expect(
+        (await bob.store.readFile((await bob.store.find('alice', id))!)),
+        bytes,
+      );
+    });
+
+    test('a session that ends before the other side is ready leaves a queued '
+        'file queued', () async {
+      final (a, _) = _pair();
+      final aliceStore = ChatStore(MemorySecretStore());
+      final id = _id(71);
+      await aliceStore.add(
+        await aliceStore.keepOutgoingFile(
+          ChatMessage(
+            id: id,
+            contactId: 'bob',
+            outgoing: true,
+            ts: 1,
+            text: 'notes.txt',
+            state: ChatState.queued,
+            fileId: id,
+            fileName: 'notes.txt',
+            fileSize: 3,
+            fileStatus: 'offered',
+          ),
+          Uint8List.fromList([1, 2, 3]),
+        ),
+      );
+      final alice = _Side(
+        'alice',
+        'bob',
+        a,
+        clock: clock,
+        sharedStore: aliceStore,
+      )..start();
+      await _settle();
+      await alice.session.close();
+      await _settle();
+
+      final after = await aliceStore.find('bob', id);
+      expect(after?.state, ChatState.queued);
+      expect(after?.fileStatus, 'offered');
+    });
+
+    test('the live path refuses what the shared check refuses', () async {
+      final (a, b) = _pair();
+      final alice = _Side('alice', 'bob', a, clock: clock)
+        ..start(maxFileBytes: 10);
+      _Side('bob', 'alice', b, clock: clock).start();
+      await _settle();
+
+      await expectLater(
+        alice.session.offerFile(
+          name: 'big.txt',
+          bytes: Uint8List(11),
+          mime: 'text/plain',
+        ),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.message,
+            'message',
+            'File exceeds max size limit',
+          ),
+        ),
+      );
+      await expectLater(
+        alice.session.offerFile(
+          name: 'photo.heic',
+          bytes: Uint8List.fromList([0, 0, 0, 0x18, 1, 2]),
+          mime: 'image/heic',
+        ),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+  });
 }
 
 /// A JPEG segment: its marker, its length, then its payload.

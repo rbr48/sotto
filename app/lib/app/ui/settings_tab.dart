@@ -1,10 +1,8 @@
-import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../android/android_integration.dart';
 import '../../call/call_controller.dart';
-import '../../core/avatar_helper.dart';
 import '../../core/downloads.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/l10n/language.dart';
@@ -212,6 +210,20 @@ class SettingsTab extends StatelessWidget {
                   ),
                   value: calls.sendReadReceipts,
                   onChanged: calls.setSendReadReceipts,
+                ),
+                SwitchListTile(
+                  key: const Key('auto-download-files'),
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    AppLocalizations.of(context).privacyAutoDownloadFilesTitle,
+                  ),
+                  subtitle: Text(
+                    AppLocalizations.of(context).privacyAutoDownloadFilesDesc(
+                      calls.autoDownloadMaxMegabytes,
+                    ),
+                  ),
+                  value: calls.autoDownloadFiles,
+                  onChanged: calls.setAutoDownloadFiles,
                 ),
               ],
             ),
@@ -916,34 +928,10 @@ class _ProfileFormState extends State<_ProfileForm> {
   }
 
   Future<void> _pickAvatar() async {
-    try {
-      final file = await openFile(
-        acceptedTypeGroups: const [
-          XTypeGroup(
-            label: 'Images',
-            extensions: ['jpg', 'jpeg', 'png', 'webp'],
-            mimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
-          ),
-        ],
-      );
-      if (file == null) return;
-      final bytes = await file.readAsBytes();
-      if (bytes.length > 10 * 1024 * 1024) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Avatar image must be under 10 MB')),
-        );
-        return;
-      }
-      final thumbnail = await resizeAvatarImage(bytes);
-      final b64 = avatarBytesToDataUrl(thumbnail);
-      await widget.app.updateAvatar(b64);
-      if (mounted) setState(() {});
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Could not set avatar')));
-    }
+    final picture = await chooseAvatarPicture(context);
+    if (picture == null) return;
+    await widget.app.updateAvatar(picture);
+    if (mounted) setState(() {});
   }
 
   Future<void> _removeAvatar() async {
@@ -953,6 +941,7 @@ class _ProfileFormState extends State<_ProfileForm> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final avatar = widget.app.profile?.avatar;
     final name = _name.text.isNotEmpty
         ? _name.text
@@ -962,26 +951,10 @@ class _ProfileFormState extends State<_ProfileForm> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Center(
-          child: Stack(
-            children: [
-              InitialsAvatar(name: name, avatar: avatar, radius: 44),
-              Positioned(
-                right: -4,
-                bottom: -4,
-                child: Material(
-                  color: Theme.of(context).colorScheme.primaryContainer,
-                  shape: const CircleBorder(),
-                  child: InkWell(
-                    customBorder: const CircleBorder(),
-                    onTap: _pickAvatar,
-                    child: const Padding(
-                      padding: EdgeInsets.all(8.0),
-                      child: Icon(Icons.photo_camera, size: 20),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+          child: EditableAvatar(
+            name: name,
+            avatar: avatar,
+            onPick: _pickAvatar,
           ),
         ),
         if (avatar != null) ...[
@@ -990,10 +963,16 @@ class _ProfileFormState extends State<_ProfileForm> {
             child: TextButton.icon(
               onPressed: _removeAvatar,
               icon: const Icon(Icons.delete_outline, size: 16),
-              label: const Text('Remove photo'),
+              label: Text(l10n.avatarRemovePhoto),
             ),
           ),
         ],
+        const SizedBox(height: 4),
+        Text(
+          l10n.avatarVisibilityNote,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
         const SizedBox(height: 16),
         TextField(
           controller: _name,
@@ -1020,11 +999,7 @@ class _ProfileFormState extends State<_ProfileForm> {
                 clearAvatar: avatar == null || avatar.isEmpty,
               );
               messenger.showSnackBar(
-                const SnackBar(
-                  content: Text(
-                    'Saved. Guest links and your contact link now show the new name.',
-                  ),
-                ),
+                SnackBar(content: Text(l10n.profileSaved)),
               );
             },
             child: const Text('Save profile'),

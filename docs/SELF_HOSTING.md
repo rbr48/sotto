@@ -136,7 +136,9 @@ Your server serves a privacy policy and terms of use at `https://<domain>/privac
 sudo ./infra/install.sh install --domain calls.example.org --operator "Your Practice Ltd" --contact privacy@yourpractice.org
 ```
 
-(kept in `infra/.env` as `SOTTO_OPERATOR` and `SOTTO_CONTACT`; later installs keep them). Without them the pages say "the operator of <domain>". If you put Sotto behind your own reverse proxy, keep its access logs off (`access_log off;` in Nginx, as in the configuration above), or the pages' "no request logs" is no longer true. Have them checked for your country's rules before you rely on them.
+(kept in `infra/.env` as `SOTTO_OPERATOR` and `SOTTO_CONTACT`; later installs keep them). Without them the pages say "the operator of <domain>". The contact can be an email address or an `https://` link.
+
+Two more settings are optional: `--support-email help@yourpractice.org` adds a support address, and `--support-link 'https://calls.example.org/#c=…'` adds a live support link (for example your own Sotto call link). They are kept as `SOTTO_SUPPORT_EMAIL` and `SOTTO_SUPPORT_LINK`, and the pages show them only when they are set. All these values are shown as plain text: markup is refused or escaped. If you put Sotto behind your own reverse proxy, keep its access logs off (`access_log off;` in Nginx, as in the configuration above), or the pages' "no request logs" is no longer true. Have them checked for your country's rules before you rely on them.
 
 ## Backups
 
@@ -151,7 +153,7 @@ While running, the relay knows which Sotto IDs (public keys) are online and who 
 ## Security notes
 
 - Containers run read-only, without Linux capabilities (except Caddy binding ports 80/443), with `no-new-privileges`.
-- coturn refuses to relay to private, loopback and other special networks, so the server can't be used to reach your internal network. TCP relaying is off; there are per-user and total quotas and a bandwidth cap per session.
+- coturn refuses to relay to private, loopback and other special networks, so the server can't be used to reach your internal network. It also refuses the server's own public address when it is behind NAT (`SOTTO_TURN_EXTERNAL_IP`). TCP relaying is off; there are per-user and total quotas and a bandwidth cap per session.
 - TURN credentials are short-lived (6 hours) and handed out only to devices logged in to the relay.
 - Keep the server updated (`unattended-upgrades` on Ubuntu/Debian) and run `install.sh update` when new Sotto versions are out.
 

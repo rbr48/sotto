@@ -246,18 +246,61 @@ class ChatStoreException implements Exception {
 /// with a directory index under `sotto.chats.contacts.v1`.
 /// Legacy monolithic stores (`sotto.chats.v1`) are automatically migrated.
 class ChatStore {
-  ChatStore(this._store, {this.files});
+  ChatStore(
+    this._store, {
+    this.files,
+    this.browserMemoryBytes = defaultBrowserMemoryBytes,
+  });
 
   /// Where received files are kept, encrypted. Null in the browser, which
   /// keeps none.
   final ReceivedFileStore? files;
 
-  /// Voice notes the browser holds for the life of the tab, by message id.
-  /// Never in the vault or in browser storage, so a reload loses them.
-  final _browserVoice = <String, Uint8List>{};
+  /// How many bytes of files and voice notes the browser holds at most.
+  static const defaultBrowserMemoryBytes = 150 * 1024 * 1024;
 
-  /// Files (attachments) the browser holds for the life of the tab, by file/message id.
-  final _browserFiles = <String, Uint8List>{};
+  /// The most bytes of files the browser holds in memory. Past it, the files
+  /// used least recently are let go, and show as no longer on this device.
+  final int browserMemoryBytes;
+
+  /// Files and voice notes the browser holds for the life of the tab, least
+  /// recently used first. Keys are `f:<file id>` for files and `v:<message
+  /// id>` for voice notes. Never in the vault or in browser storage, so a
+  /// reload loses them.
+  final _browserHeld = <String, Uint8List>{};
+
+  /// The bytes in [_browserHeld], in all.
+  int _browserHeldBytes = 0;
+
+  /// The bytes of files and voice notes the browser holds now.
+  int get browserHeldBytes => _browserHeldBytes;
+
+  static String _fileKey(String id) => 'f:$id';
+  static String _voiceKey(String id) => 'v:$id';
+
+  void _hold(String key, Uint8List bytes) {
+    _drop(key);
+    _browserHeld[key] = bytes;
+    _browserHeldBytes += bytes.length;
+    // The oldest go first; the one just added always stays.
+    while (_browserHeldBytes > browserMemoryBytes && _browserHeld.length > 1) {
+      final oldest = _browserHeld.keys.first;
+      if (oldest == key) break;
+      _drop(oldest);
+    }
+  }
+
+  /// The bytes held under [key], now the most recently used.
+  Uint8List? _held(String key) {
+    final bytes = _browserHeld.remove(key);
+    if (bytes != null) _browserHeld[key] = bytes;
+    return bytes;
+  }
+
+  void _drop(String key) {
+    final bytes = _browserHeld.remove(key);
+    if (bytes != null) _browserHeldBytes -= bytes.length;
+  }
 
   /// Legacy storage key for monolithic chat storage.
   static const storageKey = 'sotto.chats.v1';
@@ -496,9 +539,9 @@ class ChatStore {
   Future<void> _discardFiles(Iterable<ChatMessage> messages) async {
     for (final message in messages) {
       await files?.remove(message.filePath);
-      _browserVoice.remove(message.id);
-      _browserFiles.remove(message.fileId ?? message.id);
-      _browserFiles.remove(message.id);
+      _drop(_voiceKey(message.id));
+      _drop(_fileKey(message.fileId ?? message.id));
+      _drop(_fileKey(message.id));
     }
   }
 
@@ -510,9 +553,10 @@ class ChatStore {
     final key = message.fileKey;
     final fileId = message.fileId ?? message.id;
     if (store == null || name == null || key == null) {
-      final heldFile = _browserFiles[fileId] ?? _browserFiles[message.id];
-      if (heldFile != null) return heldFile;
-      final held = _browserVoice[message.id];
+      final held =
+          _held(_fileKey(fileId)) ??
+          _held(_fileKey(message.id)) ??
+          _held(_voiceKey(message.id));
       if (held != null) return held;
       throw const ReceivedFileException('missing');
     }
@@ -523,16 +567,16 @@ class ChatStore {
   /// store, or held by the browser for this tab.
   bool hasFile(ChatMessage message) {
     final fileId = message.fileId ?? message.id;
-    return _browserFiles.containsKey(fileId) ||
-        _browserFiles.containsKey(message.id) ||
-        _browserVoice.containsKey(message.id) ||
+    return _browserHeld.containsKey(_fileKey(fileId)) ||
+        _browserHeld.containsKey(_fileKey(message.id)) ||
+        _browserHeld.containsKey(_voiceKey(message.id)) ||
         (files != null && message.filePath != null && message.fileKey != null);
   }
 
   /// Whether the bytes of a voice note are still here to play: in the file
   /// store, or held by the browser for this tab.
   bool hasVoice(ChatMessage message) =>
-      _browserVoice.containsKey(message.id) ||
+      _browserHeld.containsKey(_voiceKey(message.id)) ||
       (files != null && message.filePath != null && message.fileKey != null);
 
   /// Keeps the bytes of a voice note the sender offered, so its own bubble
@@ -541,7 +585,7 @@ class ChatStore {
   Future<ChatMessage> keepVoice(ChatMessage message, Uint8List bytes) async {
     final store = files;
     if (store == null) {
-      _browserVoice[message.id] = bytes;
+      rememberVoice(message.id, bytes);
       return message;
     }
     try {
@@ -557,22 +601,46 @@ class ChatStore {
 
   /// Keeps a voice note the browser received, for this tab (see [readFile]).
   void rememberVoice(String id, Uint8List bytes) {
-    _browserVoice[id] = bytes;
+    _hold(_voiceKey(id), bytes);
   }
 
   /// Drops a voice note the browser held, when its message is gone.
   void forgetVoice(String id) {
-    _browserVoice.remove(id);
+    _drop(_voiceKey(id));
   }
 
   /// Keeps a file attachment the browser sent or received, for this tab.
+  /// Within [browserMemoryBytes]: older files may be let go.
   void rememberFile(String id, Uint8List bytes) {
-    _browserFiles[id] = bytes;
+    _hold(_fileKey(id), bytes);
   }
 
   /// Drops a file attachment the browser held, when its message is gone.
   void forgetFile(String id) {
-    _browserFiles.remove(id);
+    _drop(_fileKey(id));
+  }
+
+  /// Keeps the bytes of a file this device sends, so it can be sent when the
+  /// contact accepts it (and shown here). Native: an encrypted file. Browser:
+  /// memory for this tab (a voice note as one, any other file as a file),
+  /// with a `web:` path. Returns [message] with where the file is kept; the
+  /// message itself is not stored here.
+  Future<ChatMessage> keepOutgoingFile(
+    ChatMessage message,
+    Uint8List bytes,
+  ) async {
+    final store = files;
+    final id = message.fileId ?? message.id;
+    if (store == null) {
+      if (message.voiceNote) {
+        rememberVoice(message.id, bytes);
+      } else {
+        rememberFile(id, bytes);
+      }
+      return message.copyWith(filePath: 'web:$id');
+    }
+    final kept = await store.save(bytes);
+    return message.copyWith(filePath: kept.name, fileKey: kept.key);
   }
 
   /// A decrypted copy of a received file, for another app to open. The copy

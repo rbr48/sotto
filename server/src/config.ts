@@ -20,7 +20,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return {
     host: env.HOST ?? '0.0.0.0',
     port: parseIntOr(env.PORT, 8080, 0),
-    maxMessageBytes: parseIntOr(env.SOTTO_MAX_MESSAGE_BYTES, 160 * 1024),
+    maxMessageBytes: parseIntOr(env.SOTTO_MAX_MESSAGE_BYTES, 96 * 1024),
     heartbeatMs: parseIntOr(env.SOTTO_HEARTBEAT_MS, 25_000),
     trustProxy: env.SOTTO_TRUST_PROXY === '1',
     ice: {

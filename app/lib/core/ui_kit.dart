@@ -1,7 +1,8 @@
-import 'dart:convert';
-import 'dart:typed_data';
-
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+
+import 'avatar_helper.dart';
+import 'l10n/app_localizations.dart';
 
 /// How much a [NoticeCard] asks for attention.
 enum NoticeTone { info, warning, success }
@@ -177,8 +178,12 @@ class SectionLabel extends StatelessWidget {
   }
 }
 
-/// A circle with someone's initials, tinted from their name so each
-/// contact keeps the same colour.
+/// A circle with someone's picture, or their initials tinted from their name
+/// so each contact keeps the same colour.
+///
+/// The picture is shown only when it passes [AvatarData.parse] (a JPEG or PNG
+/// data URI of at most [AvatarData.maxSharedLength] characters and
+/// [AvatarData.maxSide] pixels a side); otherwise the initials are.
 class InitialsAvatar extends StatelessWidget {
   const InitialsAvatar({
     super.key,
@@ -190,34 +195,57 @@ class InitialsAvatar extends StatelessWidget {
   final String name;
   final double radius;
 
-  /// Optional base64-encoded avatar image data or data URL.
+  /// Optional picture as a `data:image/jpeg` or `data:image/png` base64 URI.
   final String? avatar;
 
   static const _hues = [262.0, 210.0, 170.0, 25.0, 330.0, 140.0, 45.0, 290.0];
 
-  Uint8List? _decodeAvatar() {
-    if (avatar == null || avatar!.isEmpty) return null;
-    try {
-      var raw = avatar!.trim();
-      final comma = raw.indexOf(',');
-      if (raw.startsWith('data:') && comma != -1) {
-        raw = raw.substring(comma + 1);
-      }
-      return base64Decode(raw);
-    } catch (_) {
-      return null;
+  /// Checked, decoded pictures by data URI, most recently used last, so a
+  /// rebuild reuses the same bytes (and the image cache keeps the decoded
+  /// image) instead of decoding the base64 again. Rejected URIs are kept too
+  /// (as null) so they are not checked again on every build.
+  static final _pictures = <String, MemoryImage?>{};
+  static const _cacheSize = 64;
+
+  static MemoryImage? _picture(String uri) {
+    if (_pictures.containsKey(uri)) {
+      final cached = _pictures.remove(uri);
+      return _pictures[uri] = cached;
     }
+    final data = AvatarData.parse(uri);
+    final picture = data == null ? null : MemoryImage(data.bytes);
+    _pictures[uri] = picture;
+    if (_pictures.length > _cacheSize) _pictures.remove(_pictures.keys.first);
+    return picture;
   }
+
+  /// How many pictures are cached (for tests).
+  @visibleForTesting
+  static int get cachedPictures => _pictures.length;
+
+  @visibleForTesting
+  static void clearCache() => _pictures.clear();
 
   @override
   Widget build(BuildContext context) {
-    final imageBytes = _decodeAvatar();
-    if (imageBytes != null && imageBytes.isNotEmpty) {
+    final uri = avatar;
+    final picture = uri == null || uri.isEmpty ? null : _picture(uri);
+    if (picture != null) {
+      final pixels = (radius * 2 * MediaQuery.devicePixelRatioOf(context))
+          .ceil();
       return ExcludeSemantics(
         child: CircleAvatar(
           radius: radius,
           backgroundColor: Colors.transparent,
-          backgroundImage: MemoryImage(imageBytes),
+          backgroundImage: ResizeImage(
+            picture,
+            width: pixels,
+            height: pixels,
+            allowUpscaling: true,
+          ),
+          // A picture that fails to decode after all shows nothing rather
+          // than throwing.
+          onBackgroundImageError: (_, _) {},
         ),
       );
     }
@@ -277,4 +305,100 @@ class InitialsAvatar extends StatelessWidget {
     return '${parts.first.characters.first}${parts.last.characters.first}'
         .toUpperCase();
   }
+}
+
+/// A large [InitialsAvatar] with a camera button on its corner to choose a
+/// picture. The button sits inside the avatar's square (so all of it can be
+/// tapped), at its end corner (left in right-to-left languages), and is
+/// labelled for screen readers.
+class EditableAvatar extends StatelessWidget {
+  const EditableAvatar({
+    super.key,
+    required this.name,
+    required this.onPick,
+    this.avatar,
+    this.radius = 44,
+  });
+
+  final String name;
+  final String? avatar;
+  final double radius;
+  final VoidCallback onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = AppLocalizations.of(context).avatarChangePhoto;
+    return SizedBox.square(
+      dimension: radius * 2,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          InitialsAvatar(name: name, avatar: avatar, radius: radius),
+          PositionedDirectional(
+            end: 0,
+            bottom: 0,
+            child: Semantics(
+              button: true,
+              label: label,
+              onTap: onPick,
+              excludeSemantics: true,
+              child: Tooltip(
+                message: label,
+                excludeFromSemantics: true,
+                child: Material(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: onPick,
+                    child: const Padding(
+                      padding: EdgeInsets.all(8),
+                      child: Icon(Icons.photo_camera, size: 20),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Lets the user choose an image file and makes it a profile picture (see
+/// [makeAvatarDataUri]). Returns the picture's data URI, or null when no file
+/// was chosen or it could not be used, in which case a snackbar says why.
+Future<String?> chooseAvatarPicture(BuildContext context) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final l10n = AppLocalizations.of(context);
+  try {
+    final file = await openFile(
+      acceptedTypeGroups: const [
+        XTypeGroup(
+          label: 'Images',
+          extensions: ['jpg', 'jpeg', 'png', 'webp'],
+          mimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+        ),
+      ],
+    );
+    if (file == null) return null;
+    if (await file.length() > maxAvatarInputBytes) {
+      throw const AvatarException(AvatarError.inputTooLarge);
+    }
+    return await makeAvatarDataUri(await file.readAsBytes());
+  } on AvatarException catch (e) {
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(switch (e.error) {
+          AvatarError.inputTooLarge => l10n.avatarInputTooLarge,
+          AvatarError.unreadable => l10n.avatarUnreadable,
+          AvatarError.tooLarge => l10n.avatarTooLarge,
+        }),
+      ),
+    );
+  } catch (_) {
+    messenger.showSnackBar(SnackBar(content: Text(l10n.avatarFailed)));
+  }
+  return null;
 }

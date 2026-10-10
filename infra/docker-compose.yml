@@ -40,6 +40,9 @@ services:
       # Who runs this server, for /privacy.html and /terms.html.
       SOTTO_OPERATOR: ${SOTTO_OPERATOR:-}
       SOTTO_CONTACT: ${SOTTO_CONTACT:-}
+      # Optional; shown on the same pages only when set.
+      SOTTO_SUPPORT_EMAIL: ${SOTTO_SUPPORT_EMAIL:-}
+      SOTTO_SUPPORT_LINK: ${SOTTO_SUPPORT_LINK:-}
     ports:
       - '80:80'
       - '443:443'

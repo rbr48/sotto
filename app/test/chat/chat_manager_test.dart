@@ -7,6 +7,7 @@ import 'package:sotto/chat/chat_manager.dart';
 import 'package:sotto/chat/chat_rtc.dart';
 import 'package:sotto/chat/chat_session.dart';
 import 'package:sotto/chat/chat_store.dart';
+import 'package:sotto/chat/image_metadata.dart';
 import 'package:sotto/crypto/identity_store.dart';
 
 /// A connection that links to its peer when the answer is applied, the way
@@ -138,6 +139,9 @@ class _FakeTransport implements ChatTransport {
   int get bufferedAmount => 0;
 
   @override
+  Future<int> bufferedAmountNow() async => 0;
+
+  @override
   Future<void> close() async {
     if (!owner._frames.isClosed) unawaited(owner._frames.close());
     if (!owner._binaryFrames.isClosed) unawaited(owner._binaryFrames.close());
@@ -232,6 +236,8 @@ void main() {
     ChatStore? store,
     List<Map<String, dynamic>>? servers,
     bool Function()? readReceiptsEnabled,
+    bool Function()? autoDownloadFiles,
+    int maxFileBytes = maxFileSizeNative,
   }) {
     final manager = ChatManager(
       myId: myId,
@@ -256,6 +262,9 @@ void main() {
       clock: () => now,
       connectTimeout: connectTimeout,
       readReceiptsEnabled: readReceiptsEnabled ?? () => true,
+      autoDownloadFiles: autoDownloadFiles ?? () => false,
+      maxFileBytes: maxFileBytes,
+      offerReadyWait: Duration.zero,
     );
     managers.add(manager);
     (net.managers[myId] ??= []).add(manager);
@@ -949,4 +958,231 @@ void main() {
       expect(net.sent.where((s) => s.type == ChatManager.relayText), isEmpty);
     });
   });
+
+  group('files', () {
+    /// Makes Alice's queued file go to Bob, who comes online only now: the
+    /// chat Alice opened while Bob was away times out, and the next check
+    /// opens one with Bob.
+    Future<void> bobComesOnline(ChatManager alice, ChatStore bobStore) async {
+      device('bob', contacts: {'alice'}, store: bobStore);
+      now = now.add(const Duration(seconds: 21));
+      await alice.tick();
+      await _settle();
+    }
+
+    test('a queued image has its metadata removed, like a live one', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+
+      final queued = await alice.offerFile(
+        contact: 'bob',
+        name: 'photo.jpg',
+        bytes: _jpegWithGps(),
+        mime: 'image/jpeg',
+      );
+      expect(queued.state, ChatState.queued);
+      final kept = await aliceStore.readFile(queued);
+      expect(kept, ImageMetadata.clean(_jpegWithGps(), 'image/jpeg'));
+      expect(String.fromCharCodes(kept).contains('GPSLatitude'), isFalse);
+    });
+
+    test('a queued image that cannot be cleaned is refused, with the live '
+        "path's error, and nothing is kept", () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+
+      await expectLater(
+        alice.offerFile(
+          contact: 'bob',
+          name: 'photo.heic',
+          bytes: Uint8List.fromList([0, 0, 0, 0x18, ...'ftypheic'.codeUnits]),
+          mime: 'image/heic',
+        ),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.message,
+            'message',
+            'Image type not supported for sharing',
+          ),
+        ),
+      );
+      await expectLater(
+        alice.offerFile(
+          contact: 'bob',
+          name: 'broken.jpg',
+          bytes: Uint8List.fromList([0xFF, 0xD8, 0xFF, 0x00]),
+          mime: 'image/jpeg',
+        ),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.message,
+            'message',
+            'Image could not be read',
+          ),
+        ),
+      );
+      await expectLater(
+        alice.offerFile(
+          contact: 'bob',
+          name: 'run.exe',
+          bytes: Uint8List.fromList([1, 2, 3]),
+          mime: 'application/octet-stream',
+        ),
+        throwsA(isA<ArgumentError>()),
+      );
+      expect(await aliceStore.messages('bob'), isEmpty);
+    });
+
+    test('the size limit given to the manager applies to sending', () async {
+      final alice = device('alice', contacts: {'bob'}, maxFileBytes: 10);
+      await expectLater(
+        alice.offerFile(
+          contact: 'bob',
+          name: 'big.txt',
+          bytes: Uint8List(11),
+          mime: 'text/plain',
+        ),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.message,
+            'message',
+            'File exceeds max size limit',
+          ),
+        ),
+      );
+    });
+
+    test('a queued file in the browser is offered once when the contact is '
+        'online, and is never sent as a text', () async {
+      // Neither store keeps files on disk, as in the browser.
+      final aliceStore = ChatStore(MemorySecretStore());
+      final bobStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      final bytes = Uint8List.fromList(List.generate(40000, (i) => i % 251));
+
+      final queued = await alice.offerFile(
+        contact: 'bob',
+        name: 'notes.txt',
+        bytes: bytes,
+        mime: 'text/plain',
+      );
+      await _settle();
+      expect(queued.filePath, 'web:${queued.id}');
+      expect(
+        (await aliceStore.find('bob', queued.id))!.state,
+        ChatState.queued,
+      );
+
+      await bobComesOnline(alice, bobStore);
+      // Flushed again while the chat is ready: still offered once.
+      await alice.flushOutbox('bob');
+      await _settle();
+
+      final atBob = await bobStore.messages('alice');
+      expect(atBob, hasLength(1));
+      expect(atBob.single.id, queued.id);
+      expect(atBob.single.isAttachment, isTrue);
+      // Downloads only when accepted (the setting is off).
+      expect(atBob.single.fileStatus, 'offered');
+      expect(
+        (await aliceStore.find('bob', queued.id))!.state,
+        ChatState.sending,
+      );
+
+      await net.managers['bob']!.single.acceptFile('alice', queued.id);
+      await _settle();
+      final done = await bobStore.find('alice', queued.id);
+      expect(done!.fileStatus, 'completed');
+      expect(await bobStore.readFile(done), bytes);
+      expect(
+        (await aliceStore.find('bob', queued.id))!.fileStatus,
+        'completed',
+      );
+
+      // The next chat does not offer it again.
+      await alice.close('bob');
+      await _settle();
+      await alice.sendText('bob', 'again');
+      await _settle();
+      expect(
+        (await bobStore.messages('alice')).where((m) => m.isAttachment),
+        hasLength(1),
+      );
+    });
+
+    test('a queued file stays queued across a chat that never connects, and '
+        'across a restart', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      final queued = await alice.offerFile(
+        contact: 'bob',
+        name: 'notes.txt',
+        bytes: Uint8List.fromList([1, 2, 3]),
+        mime: 'text/plain',
+      );
+      now = now.add(const Duration(seconds: 21));
+      await alice.tick();
+      await _settle();
+      await alice.recoverInterrupted();
+
+      final after = await aliceStore.find('bob', queued.id);
+      expect(after!.state, ChatState.queued);
+      expect(after.fileStatus, 'offered');
+    });
+
+    test('files from a contact download only with the setting on', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final bobStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      var autoOn = false;
+      device(
+        'bob',
+        contacts: {'alice'},
+        store: bobStore,
+        autoDownloadFiles: () => autoOn,
+      );
+      await alice.sendText('bob', 'hi');
+      await _settle();
+
+      final first = await alice.offerFile(
+        contact: 'bob',
+        name: 'a.txt',
+        bytes: Uint8List.fromList([1, 2, 3]),
+        mime: 'text/plain',
+      );
+      await _settle();
+      expect((await bobStore.find('alice', first.id))!.fileStatus, 'offered');
+
+      autoOn = true;
+      final second = await alice.offerFile(
+        contact: 'bob',
+        name: 'b.txt',
+        bytes: Uint8List.fromList([4, 5, 6]),
+        mime: 'text/plain',
+      );
+      await _settle();
+      expect(
+        (await bobStore.find('alice', second.id))!.fileStatus,
+        'completed',
+      );
+      expect((await bobStore.find('alice', first.id))!.fileStatus, 'offered');
+    });
+  });
 }
+
+/// A JPEG segment: its marker, its length, then its payload.
+List<int> _segment(int marker, List<int> payload) {
+  final length = payload.length + 2;
+  return [0xFF, marker, length >> 8, length & 0xFF, ...payload];
+}
+
+/// A small JPEG with a GPS position in its APP1 (EXIF) segment.
+Uint8List _jpegWithGps() => Uint8List.fromList([
+  0xFF, 0xD8, //
+  ..._segment(0xE0, [...'JFIF'.codeUnits, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0]),
+  ..._segment(0xE1, 'GPSLatitude=51.5074'.codeUnits),
+  ..._segment(0xDB, List<int>.filled(65, 1)),
+  ..._segment(0xDA, [1, 1, 0, 0, 63, 0]),
+  0x12, 0x34, 0xFF, 0x00, 0x56, //
+  0xFF, 0xD9,
+]);

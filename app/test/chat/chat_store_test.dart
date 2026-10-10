@@ -1,5 +1,8 @@
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sotto/chat/chat_store.dart';
+import 'package:sotto/chat/file_storage.dart';
 import 'package:sotto/crypto/encoding.dart';
 import 'package:sotto/crypto/identity_store.dart';
 
@@ -512,5 +515,77 @@ void main() {
 
     final searchEmpty = await store.searchAll('');
     expect(searchEmpty, isEmpty);
+  });
+
+  group('files the browser holds', () {
+    ChatMessage file(int n, {bool voice = false}) => ChatMessage(
+      id: _id(n),
+      contactId: 'bob',
+      outgoing: false,
+      ts: n,
+      text: 'f$n',
+      state: ChatState.received,
+      fileId: _id(n),
+      fileName: voice ? 'voice.m4a' : 'f$n.bin',
+      fileStatus: 'completed',
+      filePath: 'web:${_id(n)}',
+      voiceNote: voice,
+    );
+
+    test(
+      'are held up to a total, and the least recently used go first',
+      () async {
+        final held = ChatStore(MemorySecretStore(), browserMemoryBytes: 300);
+        held.rememberFile(_id(1), Uint8List(100));
+        held.rememberFile(_id(2), Uint8List(100));
+        held.rememberVoice(_id(3), Uint8List(100));
+        expect(held.browserHeldBytes, 300);
+
+        // Reading the first makes it the most recent, so the second goes.
+        await held.readFile(file(1));
+        held.rememberFile(_id(4), Uint8List(100));
+
+        expect(held.browserHeldBytes, 300);
+        expect(held.hasFile(file(1)), isTrue);
+        expect(held.hasFile(file(2)), isFalse);
+        expect(held.hasVoice(file(3, voice: true)), isTrue);
+        expect(held.hasFile(file(4)), isTrue);
+        // A file let go reads as no longer on this device.
+        await expectLater(
+          held.readFile(file(2)),
+          throwsA(isA<ReceivedFileException>()),
+        );
+      },
+    );
+
+    test('a file larger than the total is still held, alone', () {
+      final held = ChatStore(MemorySecretStore(), browserMemoryBytes: 150);
+      held.rememberFile(_id(1), Uint8List(100));
+      held.rememberFile(_id(2), Uint8List(200));
+      expect(held.hasFile(file(1)), isFalse);
+      expect(held.hasFile(file(2)), isTrue);
+      expect(held.browserHeldBytes, 200);
+    });
+
+    test('forgetting a file frees its bytes', () {
+      final held = ChatStore(MemorySecretStore());
+      held.rememberFile(_id(1), Uint8List(100));
+      held.rememberVoice(_id(2), Uint8List(50));
+      held.forgetFile(_id(1));
+      held.forgetVoice(_id(2));
+      expect(held.browserHeldBytes, 0);
+    });
+
+    test('an outgoing file is kept once, with a web path', () async {
+      final held = ChatStore(MemorySecretStore());
+      final bytes = Uint8List.fromList([1, 2, 3]);
+      final kept = await held.keepOutgoingFile(file(5), bytes);
+      expect(kept.filePath, 'web:${_id(5)}');
+      expect(await held.readFile(kept), bytes);
+
+      final voice = await held.keepOutgoingFile(file(6, voice: true), bytes);
+      expect(held.hasVoice(voice), isTrue);
+      expect(held.browserHeldBytes, 6);
+    });
   });
 }

@@ -1,0 +1,4 @@
+Emoji show in colour in the web app
+File sharing fixes on the web and Android: steadier transfers and downloads
+Profile photos are resized to fit; you can remove your photo
+Adding a contact by link no longer fails when their photo is large

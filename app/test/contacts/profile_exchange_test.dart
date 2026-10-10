@@ -1,11 +1,33 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sodium/sodium.dart';
 import 'package:sotto/contacts/contact_link.dart';
 import 'package:sotto/contacts/profile_exchange.dart';
+import 'package:sotto/core/avatar_data.dart';
 import 'package:sotto/crypto/encoding.dart';
 import 'package:sotto/crypto/sotto_crypto.dart';
+
+/// A PNG data URI of [length] characters (up to 3 fewer) whose
+/// header says [width] × [height]: the rest of the bytes are filler, which
+/// the checks on receipt do not read.
+String _pngUri(int length, {int width = 64, int height = 64}) {
+  const prefix = 'data:image/png;base64,';
+  final header = ByteData(33)
+    ..setUint32(0, 0x89504E47)
+    ..setUint32(4, 0x0D0A1A0A)
+    ..setUint32(8, 13)
+    ..setUint32(12, 0x49484452) // IHDR
+    ..setUint32(16, width)
+    ..setUint32(20, height);
+  final bytes = Uint8List((length - prefix.length) ~/ 4 * 3)
+    ..setAll(0, header.buffer.asUint8List());
+  final uri = '$prefix${base64Encode(bytes)}';
+  assert(uri.length <= length && uri.length > length - 4);
+  return uri;
+}
 
 /// Two people on an in-memory relay: [from] is what the relay would report.
 class _Relay {
@@ -178,6 +200,104 @@ void main() {
       now = now.add(ProfileExchange.perRequesterGap);
       meeraSide.answer(visitor.id, request);
       expect(relay.sent, hasLength(2));
+    });
+  });
+
+  group('profile pictures', () {
+    test('a 16 KB picture, the largest this app makes, travels in the '
+        'lookup reply', () async {
+      final avatar = _pngUri(AvatarData.maxCreatedLength);
+      exchange(
+        meera,
+        profile: (
+          name: 'Dr Meera Rao',
+          organisation: 'Rao Physiotherapy',
+          avatar: avatar,
+        ),
+      );
+      final invite = await exchange(visitor)
+          .fetch(meera.publicIdentity.signKey);
+      expect(invite.name, 'Dr Meera Rao');
+      expect(invite.avatar, avatar);
+    });
+
+    test('the largest picture sent, with the longest name and organisation, '
+        'seals within the envelope limit', () {
+      final codec = EnvelopeCodec(sodium, meera, clock: () => now);
+      final longest = 'M' * 80;
+      for (final length in [
+        AvatarData.maxCreatedLength,
+        AvatarData.maxSharedLength,
+      ]) {
+        final body = {'n': longest, 'o': longest, 'av': _pngUri(length)};
+        expect(
+          jsonEncode(body).length,
+          lessThan(EnvelopeCodec.maxInnerBytes - 4096),
+          reason: 'room left for the card and envelope fields',
+        );
+        expect(
+          () => codec.seal(
+            recipient: visitor.publicIdentity,
+            type: ProfileExchange.replyType,
+            body: body,
+          ),
+          returnsNormally,
+        );
+      }
+    });
+
+    test(
+      'a picture that would not be accepted is not sent; the name is',
+      () async {
+        for (final avatar in [
+          _pngUri(AvatarData.maxSharedLength + 4),
+          _pngUri(1024, width: 4000),
+          'data:image/gif;base64,R0lGODlhAQABAAAAACw=',
+          'https://example.com/me.png',
+        ]) {
+          relay = _Relay();
+          exchange(
+            meera,
+            profile: (name: 'Dr Meera Rao', organisation: '', avatar: avatar),
+          );
+          final invite = await exchange(visitor)
+              .fetch(meera.publicIdentity.signKey);
+          expect(invite.name, 'Dr Meera Rao');
+          expect(invite.avatar, isNull);
+        }
+      },
+    );
+
+    test('a received picture that fails the checks is dropped, the name and '
+        'organisation kept', () async {
+      final meeraCodec = EnvelopeCodec(sodium, meera, clock: () => now);
+      final bad = <String, Object>{
+        'too long': _pngUri(AvatarData.maxSharedLength + 4),
+        'too many pixels': _pngUri(2048, width: 512, height: 513),
+        'PNG bytes called JPEG': _pngUri(2048)
+            .replaceFirst('image/png', 'image/jpeg'),
+        'not base64': 'data:image/png;base64,!!!!',
+        'another type': 'data:image/svg+xml;base64,PHN2Zy8+',
+        'not a string': 42,
+      };
+      for (final entry in bad.entries) {
+        // Meera's side answers with a hand-made reply carrying the picture.
+        relay.inboxes[meera.id] = (from, body) {
+          relay.sender(meera.id)(
+            from,
+            meeraCodec.seal(
+              recipient: visitor.publicIdentity,
+              type: ProfileExchange.replyType,
+              body: {'n': 'Dr Meera Rao', 'o': 'Rao Physio', 'av': entry.value},
+            ),
+          );
+        };
+        final invite = await exchange(visitor)
+            .fetch(meera.publicIdentity.signKey);
+        expect(invite.name, 'Dr Meera Rao', reason: entry.key);
+        expect(invite.organisation, 'Rao Physio', reason: entry.key);
+        expect(invite.avatar, isNull, reason: entry.key);
+      }
     });
   });
 }
