@@ -480,7 +480,7 @@ plain     = the payload, cut into segments of 65,536 bytes; the last holds 1 to 
 - `salt`, `nonce` and each `<segment>` are unpadded base64url (section 1). A segment is the ciphertext followed by its 16-byte tag. `i` counts segments from 0. `last` is `true` for the final segment and `false` for every other, so a file cut short or with segments reordered does not open.
 - The passphrase is trimmed and must be at least 12 characters, as for backups.
 - Opening accepts only `1 ≤ ops ≤ 10`, `8 MiB ≤ mem ≤ 1 GiB`, a 16-byte salt, a 24-byte nonce and at least one segment. A file that fails any of these is not a chat export. A file with another `sotto` tag is not a chat export. One with another version or key algorithm is refused as unsupported. A segment that fails to open is reported as a wrong passphrase, or as changed or damaged, as for backups.
-- The app writes the header first, then each segment as it is sealed, then `]}`. A long chat is therefore never held whole in memory, and writing in pieces gives the same bytes as writing in one piece. The salt and nonce are drawn before the first byte is written.
+- The app writes the header first, then each segment as it is sealed, then `]}`, and waits for the file to take each 64 KiB before it seals the next. A long chat's text is therefore never held whole in memory, and writing in pieces gives the same bytes as writing in one piece. The salt and nonce are drawn before the first byte is written.
 
 ### Payload
 

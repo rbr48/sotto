@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sodium/sodium_sumo.dart';
@@ -24,16 +26,51 @@ ChatMessage _message(String text, {required bool outgoing}) => ChatMessage(
 );
 
 /// Records what the dialog asks to save. [answer] is where it says it went;
-/// null stands for a cancelled choice of place.
+/// null stands for a cancelled choice of place. [gate], when set, holds the
+/// save until it completes, so a test can see the dialog while it is busy.
 class _Saves {
-  final files = <({String name, String mime, String text})>[];
+  final files =
+      <({String name, String mime, String text, int pieces, int flushes})>[];
   String? answer = '/saved/place';
   bool fail = false;
+  Completer<void>? gate;
 
-  Future<String?> call(String name, String mime, String text) async {
-    files.add((name: name, mime: mime, text: text));
+  Future<String?> call(
+    String name,
+    String mime,
+    Future<void> Function(ExportSink file) write,
+  ) async {
+    await gate?.future;
+    final recording = _Recording();
+    await write(recording);
+    files.add((
+      name: name,
+      mime: mime,
+      text: recording.text.toString(),
+      pieces: recording.pieces,
+      flushes: recording.flushes,
+    ));
     if (fail) throw StateError('disk full');
     return answer;
+  }
+}
+
+/// Keeps the text the dialog writes, and counts the pieces and the waits for
+/// the file to flush.
+class _Recording implements ExportSink {
+  final text = StringBuffer();
+  int pieces = 0;
+  int flushes = 0;
+
+  @override
+  void write(String piece) {
+    pieces++;
+    text.write(piece);
+  }
+
+  @override
+  Future<void> flush() async {
+    flushes++;
   }
 }
 
@@ -189,6 +226,66 @@ void main() {
       // test at teardown, under the widget test's fake clock.
     },
   );
+
+  testWidgets('a long export reaches the file in pieces, flushed as it goes', (
+    tester,
+  ) async {
+    final saves = _Saves();
+    final long = [
+      for (var i = 0; i < 1200; i++)
+        _message('message $i ${'x' * 150}', outgoing: i.isEven),
+    ];
+    await _open(
+      tester,
+      sodium: sodium,
+      saves: saves,
+      messages: long,
+      onResult: (_) {},
+    );
+
+    await tester.enterText(find.byType(TextField).at(0), _passphrase);
+    await tester.enterText(find.byType(TextField).at(1), _passphrase);
+    await _tapSave(tester);
+
+    final file = saves.files.single;
+    expect(file.pieces, greaterThan(3), reason: 'header, segments, end');
+    expect(
+      file.flushes,
+      greaterThan(1),
+      reason: 'waits for the file as it goes',
+    );
+    expect(file.text, startsWith('{"sotto":"chat-export","v":1,'));
+    expect(file.text, endsWith(']}'));
+  });
+
+  testWidgets('a progress bar shows while the export is made', (tester) async {
+    final saves = _Saves()..gate = Completer<void>();
+    String? result;
+    await _open(
+      tester,
+      sodium: sodium,
+      saves: saves,
+      messages: messages,
+      onResult: (value) => result = value,
+    );
+
+    await tester.enterText(find.byType(TextField).at(0), _passphrase);
+    await tester.enterText(find.byType(TextField).at(1), _passphrase);
+    await tester.tap(_saveButton());
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    expect(
+      tester.widget<FilledButton>(_saveButton()).onPressed,
+      isNull,
+      reason: 'no second save while the first is being made',
+    );
+
+    saves.gate!.complete();
+    await tester.pumpAndSettle();
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+    expect(result, '/saved/place');
+  });
 
   testWidgets('plain text is blocked until the warning is confirmed', (
     tester,

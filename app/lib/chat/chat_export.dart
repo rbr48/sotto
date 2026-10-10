@@ -80,8 +80,9 @@ final class ChatExportLabels {
 ///
 /// The payload is cut into segments of up to [segmentBytes]. Each segment is
 /// sealed under the one key the passphrase derives, with a nonce of its own.
-/// So a long chat is written as it is made and never held whole in memory, and
-/// the file is still one valid JSON document.
+/// The text comes out as pieces, one segment at a time, so a long chat's text
+/// is never held whole in memory, and the file is still one valid JSON
+/// document.
 abstract final class ChatExport {
   static const int version = 1;
   static const String _tag = 'chat-export';
@@ -102,11 +103,11 @@ abstract final class ChatExport {
   /// this long.
   static const int segmentBytes = 64 * 1024;
 
-  /// Writes the encrypted export of [messages] to [out], oldest first. The text
-  /// goes out as each segment is sealed, so [out] can be a file. [contactName]
-  /// is the name the chat shows for the other person.
-  static void writeEncrypted(
-    StringSink out,
+  /// Begins the encrypted export of [messages], oldest first. The passphrase is
+  /// checked and its key derived here, once. The text then comes from
+  /// [EncryptedChatExport.pieces]. [contactName] is the name the chat shows for
+  /// the other person.
+  static EncryptedChatExport begin(
     SodiumSumo sodium, {
     required String passphrase,
     required String contactName,
@@ -130,6 +131,20 @@ abstract final class ChatExport {
         sodium.randombytes.buf(
           sodium.crypto.aeadXChaCha20Poly1305IETF.nonceBytes,
         );
+    final fields = <Object>[
+      version,
+      _alg,
+      opsLimit,
+      memLimit,
+      b64Encode(salt),
+      b64Encode(nonce),
+    ];
+    final kdf = jsonEncode({
+      'alg': _alg,
+      'ops': opsLimit,
+      'mem': memLimit,
+      'salt': b64Encode(salt),
+    });
     final key = PassphraseBox.derive(
       sodium: sodium,
       passphrase: secret,
@@ -137,40 +152,56 @@ abstract final class ChatExport {
       opsLimit: opsLimit,
       memLimit: memLimit,
     );
-    try {
-      final kdf = jsonEncode({
-        'alg': _alg,
-        'ops': opsLimit,
-        'mem': memLimit,
-        'salt': b64Encode(salt),
-      });
-      out.write(
+    final header =
         '{"sotto":"$_tag","v":$version,"kdf":$kdf,'
-        '"nonce":"${b64Encode(nonce)}","data":[',
-      );
-      final header = <Object>[
-        version,
-        _alg,
-        opsLimit,
-        memLimit,
-        b64Encode(salt),
-        b64Encode(nonce),
-      ];
-      final segments = _Segments(
-        key: key,
-        out: out,
+        '"nonce":"${b64Encode(nonce)}","data":[';
+    return EncryptedChatExport._(
+      key,
+      _encryptedPieces(
+        key,
         header: header,
+        fields: fields,
         fileNonce: nonce,
-      );
-      _writePayload(
-        segments.add,
-        contactName: contactName,
-        exportedAt: exportedAt,
-        messages: messages,
-      );
-      segments.close();
+        payload: _payloadParts(
+          contactName: contactName,
+          exportedAt: exportedAt,
+          messages: messages,
+        ),
+      ),
+    );
+  }
+
+  /// Writes the whole encrypted export to [out]: the same text as [begin]'s
+  /// pieces, in one go.
+  static void writeEncrypted(
+    StringSink out,
+    SodiumSumo sodium, {
+    required String passphrase,
+    required String contactName,
+    required DateTime exportedAt,
+    required Iterable<ChatMessage> messages,
+    int opsLimit = defaultOpsLimit,
+    int memLimit = defaultMemLimit,
+    @visibleForTesting Uint8List? fixedSalt,
+    @visibleForTesting Uint8List? fixedNonce,
+  }) {
+    final export = begin(
+      sodium,
+      passphrase: passphrase,
+      contactName: contactName,
+      exportedAt: exportedAt,
+      messages: messages,
+      opsLimit: opsLimit,
+      memLimit: memLimit,
+      fixedSalt: fixedSalt,
+      fixedNonce: fixedNonce,
+    );
+    try {
+      for (final piece in export.pieces) {
+        out.write(piece);
+      }
     } finally {
-      key.dispose();
+      export.dispose();
     }
   }
 
@@ -311,9 +342,9 @@ abstract final class ChatExport {
     utf8.encode(jsonEncode([...header, index, last])),
   ]);
 
-  /// Writes [messages] as plain text, oldest first, one message at a time.
-  /// Nothing is encrypted: whoever has the file can read the chat. The export
-  /// screen warns before it is written.
+  /// Writes [messages] as plain text, oldest first. Nothing is encrypted:
+  /// whoever has the file can read the chat. The export screen warns before it
+  /// is written.
   static void writePlain(
     StringSink out, {
     required String contactName,
@@ -321,16 +352,32 @@ abstract final class ChatExport {
     required Iterable<ChatMessage> messages,
     ChatExportLabels labels = const ChatExportLabels(),
   }) {
-    out.write(
-      '$contactName\n${labels.exported} ${_time(exportedAt.millisecondsSinceEpoch)}\n',
-    );
+    for (final piece in plainPieces(
+      contactName: contactName,
+      exportedAt: exportedAt,
+      messages: messages,
+      labels: labels,
+    )) {
+      out.write(piece);
+    }
+  }
+
+  /// The plain text as pieces, in order: the header, then one piece for each
+  /// message, made as it is asked for.
+  static Iterable<String> plainPieces({
+    required String contactName,
+    required DateTime exportedAt,
+    required Iterable<ChatMessage> messages,
+    ChatExportLabels labels = const ChatExportLabels(),
+  }) sync* {
+    yield '$contactName\n${labels.exported} ${_time(exportedAt.millisecondsSinceEpoch)}\n';
     for (final message in messages) {
       final lines = _plainLines(
         message,
         contactName: contactName,
         labels: labels,
       );
-      out.write('\n${lines.join('\n')}\n');
+      yield '\n${lines.join('\n')}\n';
     }
   }
 
@@ -382,25 +429,21 @@ abstract final class ChatExport {
     return '${utc.toIso8601String().split('.').first}Z';
   }
 
-  /// Writes the payload, one message at a time, through [write].
-  static void _writePayload(
-    void Function(String text) write, {
+  /// The payload as text, in order: the header, then one part for each message.
+  static Iterable<String> _payloadParts({
     required String contactName,
     required DateTime exportedAt,
     required Iterable<ChatMessage> messages,
-  }) {
-    write(
-      '{"with":${jsonEncode(contactName)},'
-      '"exported":${jsonEncode(exportedAt.toUtc().toIso8601String())},'
-      '"messages":[',
-    );
+  }) sync* {
+    yield '{"with":${jsonEncode(contactName)},'
+        '"exported":${jsonEncode(exportedAt.toUtc().toIso8601String())},'
+        '"messages":[';
     var first = true;
     for (final message in messages) {
-      if (!first) write(',');
+      yield '${first ? '' : ','}${jsonEncode(_record(message))}';
       first = false;
-      write(jsonEncode(_record(message)));
     }
-    write(']}');
+    yield ']}';
   }
 
   /// One message in the payload. `out` is true for the owner's own messages;
@@ -435,49 +478,53 @@ abstract final class ChatExport {
   }
 }
 
-/// Seals the payload in segments as it is written. A segment is sealed only
-/// once more text has come after it, so the last one, and only the last, is
-/// marked final in its additional data.
-final class _Segments {
-  _Segments({
-    required this.key,
-    required this.out,
-    required this.header,
-    required this.fileNonce,
-  });
+/// An encrypted export under way. Its key is held until [dispose]. [pieces] is
+/// the file's text, in order, and each piece is made when it is asked for. Take
+/// the pieces once, and dispose the export whether or not all were taken.
+final class EncryptedChatExport {
+  EncryptedChatExport._(this._key, this.pieces);
 
-  final PassphraseKey key;
-  final StringSink out;
-  final List<Object> header;
-  final Uint8List fileNonce;
-  final _pending = BytesBuilder();
-  var _count = 0;
+  final PassphraseKey _key;
+  final Iterable<String> pieces;
 
-  void add(String text) {
-    _pending.add(utf8.encode(text));
-    while (_pending.length > ChatExport.segmentBytes) {
-      final bytes = _pending.takeBytes();
-      _seal(
+  void dispose() => _key.dispose();
+}
+
+/// The file's text, in order: the header, each segment as it is sealed, then
+/// the end. A segment is sealed only once more payload has come after it, so
+/// the last one, and only the last, is marked final.
+Iterable<String> _encryptedPieces(
+  PassphraseKey key, {
+  required String header,
+  required List<Object> fields,
+  required Uint8List fileNonce,
+  required Iterable<String> payload,
+}) sync* {
+  yield header;
+  final pending = BytesBuilder();
+  var index = 0;
+  String seal(Uint8List plain, {required bool last}) {
+    final cipher = key.seal(
+      nonce: ChatExport._segmentNonce(fileNonce, index),
+      additionalData: ChatExport._segmentAd(fields, index, last: last),
+      plain: plain,
+    );
+    final piece = '${index > 0 ? ',' : ''}"${b64Encode(cipher)}"';
+    index++;
+    return piece;
+  }
+
+  for (final part in payload) {
+    pending.add(utf8.encode(part));
+    while (pending.length > ChatExport.segmentBytes) {
+      final bytes = pending.takeBytes();
+      yield seal(
         Uint8List.sublistView(bytes, 0, ChatExport.segmentBytes),
         last: false,
       );
-      _pending.add(Uint8List.sublistView(bytes, ChatExport.segmentBytes));
+      pending.add(Uint8List.sublistView(bytes, ChatExport.segmentBytes));
     }
   }
-
-  void close() {
-    _seal(_pending.takeBytes(), last: true);
-    out.write(']}');
-  }
-
-  void _seal(Uint8List plain, {required bool last}) {
-    final index = _count++;
-    final cipher = key.seal(
-      nonce: ChatExport._segmentNonce(fileNonce, index),
-      additionalData: ChatExport._segmentAd(header, index, last: last),
-      plain: plain,
-    );
-    if (index > 0) out.write(',');
-    out.write('"${b64Encode(cipher)}"');
-  }
+  yield seal(pending.takeBytes(), last: true);
+  yield ']}';
 }

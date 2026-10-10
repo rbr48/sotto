@@ -1,7 +1,6 @@
-import 'dart:convert';
+import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:sodium/sodium_sumo.dart';
 
@@ -10,12 +9,20 @@ import '../../storage/backup.dart';
 import '../chat_export.dart';
 import '../chat_store.dart';
 
-/// Saves an export as [fileName] and returns where it went, or null when the
-/// person cancels the choice of place. [mimeType] is the file's type.
+/// Where an export's text goes, in order. [write] adds text, and [flush]
+/// completes once the text written so far has reached the file.
+abstract interface class ExportSink {
+  void write(String text);
+  Future<void> flush();
+}
+
+/// Saves an export as [fileName], writing it through [write], and returns where
+/// it went, or null when the person cancels the choice of place. [mimeType] is
+/// the file's type.
 typedef ChatExportSave = Future<String?> Function(
   String fileName,
   String mimeType,
-  String text,
+  Future<void> Function(ExportSink file) write,
 );
 
 /// Opens the export dialog for one chat. Returns the path the file was saved
@@ -43,17 +50,13 @@ Future<String?> showExportChatDialog(
 );
 
 /// Saves an export the way backups are saved: the person picks the place, or
-/// on Android a folder. Nothing is written until a place is chosen.
+/// on Android a folder. Nothing is written until a place is chosen. The place
+/// is chosen by name, so the type is not needed to write the file.
 Future<String?> saveChatExport(
   String fileName,
   String mimeType,
-  String text,
+  Future<void> Function(ExportSink file) write,
 ) async {
-  final file = XFile.fromData(
-    Uint8List.fromList(utf8.encode(text)),
-    mimeType: mimeType,
-    name: fileName,
-  );
   String? path;
   try {
     path = (await getSaveLocation(suggestedName: fileName))?.path;
@@ -63,8 +66,55 @@ Future<String?> saveChatExport(
     if (folder != null) path = '$folder/$fileName';
   }
   if (path == null) return null;
-  await file.saveTo(path);
+  await writeExportFile(path, write);
   return path;
+}
+
+/// Writes an export to [path] by way of a temporary file beside it. The
+/// temporary file is renamed onto [path] only once every piece is written, so
+/// a failed write leaves [path] as it was and no partial file behind.
+Future<void> writeExportFile(
+  String path,
+  Future<void> Function(ExportSink file) write,
+) async {
+  final temp = File('$path.part');
+  final io = temp.openWrite();
+  try {
+    await write(_FileExportSink(io));
+    await io.close();
+    await temp.rename(path);
+  } catch (_) {
+    await io.close().catchError((Object _) {});
+    await temp.delete().catchError((Object _) => temp);
+    rethrow;
+  }
+}
+
+final class _FileExportSink implements ExportSink {
+  _FileExportSink(this._io);
+
+  final IOSink _io;
+
+  @override
+  void write(String text) => _io.write(text);
+
+  @override
+  Future<void> flush() => _io.flush();
+}
+
+/// Writes [pieces] to [file], in order. Waits for the file every
+/// [ChatExport.segmentBytes] characters, so the next piece is made only once
+/// the text before it is on disk.
+Future<void> _writeInPieces(ExportSink file, Iterable<String> pieces) async {
+  var unflushed = 0;
+  for (final piece in pieces) {
+    file.write(piece);
+    unflushed += piece.length;
+    if (unflushed >= ChatExport.segmentBytes) {
+      unflushed = 0;
+      await file.flush();
+    }
+  }
 }
 
 enum _Format { encrypted, plain }
@@ -140,14 +190,13 @@ class _ExportChatDialogState extends State<_ExportChatDialog> {
       _busy = true;
       _error = null;
     });
-    // Let the spinner paint before the key is derived.
+    // Let the progress bar paint before the key is derived.
     await Future<void>.delayed(const Duration(milliseconds: 16));
     try {
-      final text = encrypted ? _encrypted() : _plain(l10n);
       final path = await widget.save(
         _fileName(encrypted),
         encrypted ? 'application/json' : 'text/plain',
-        text,
+        (file) => encrypted ? _writeEncrypted(file) : _writePlain(file, l10n),
       );
       if (mounted && path != null) Navigator.of(context).pop(path);
     } catch (_) {
@@ -157,39 +206,45 @@ class _ExportChatDialogState extends State<_ExportChatDialog> {
     }
   }
 
-  String _encrypted() => ChatExport.encrypt(
-    widget.sodium,
-    passphrase: _passphrase.text,
-    contactName: widget.contactName,
-    exportedAt: widget.exportedAt,
-    messages: widget.messages,
-    opsLimit: widget.opsLimit,
-    memLimit: widget.memLimit,
-  );
-
-  String _plain(AppLocalizations l10n) {
-    final out = StringBuffer();
-    ChatExport.writePlain(
-      out,
+  Future<void> _writeEncrypted(ExportSink file) async {
+    final export = ChatExport.begin(
+      widget.sodium,
+      passphrase: _passphrase.text,
       contactName: widget.contactName,
       exportedAt: widget.exportedAt,
       messages: widget.messages,
-      labels: ChatExportLabels(
-        you: l10n.chatYou,
-        exported: l10n.chatExportedLabel,
-        file: l10n.chatExportFileLabel,
-        bytes: l10n.chatExportBytesLabel,
-        deleted: l10n.chatMessageDeleted,
-        replyTo: l10n.chatExportReplyLabel,
-        reactions: l10n.chatExportReactionsLabel,
-        edited: l10n.chatEdited,
-        forwarded: l10n.chatForwarded,
-        delivered: l10n.chatStatusDelivered,
-        read: l10n.chatStatusRead,
-      ),
+      opsLimit: widget.opsLimit,
+      memLimit: widget.memLimit,
     );
-    return out.toString();
+    try {
+      await _writeInPieces(file, export.pieces);
+    } finally {
+      export.dispose();
+    }
   }
+
+  Future<void> _writePlain(ExportSink file, AppLocalizations l10n) =>
+      _writeInPieces(
+        file,
+        ChatExport.plainPieces(
+          contactName: widget.contactName,
+          exportedAt: widget.exportedAt,
+          messages: widget.messages,
+          labels: ChatExportLabels(
+            you: l10n.chatYou,
+            exported: l10n.chatExportedLabel,
+            file: l10n.chatExportFileLabel,
+            bytes: l10n.chatExportBytesLabel,
+            deleted: l10n.chatMessageDeleted,
+            replyTo: l10n.chatExportReplyLabel,
+            reactions: l10n.chatExportReactionsLabel,
+            edited: l10n.chatEdited,
+            forwarded: l10n.chatForwarded,
+            delivered: l10n.chatStatusDelivered,
+            read: l10n.chatStatusRead,
+          ),
+        ),
+      );
 
   String _fileName(bool encrypted) {
     final day = widget.exportedAt.toIso8601String().substring(0, 10);
@@ -266,6 +321,10 @@ class _ExportChatDialogState extends State<_ExportChatDialog> {
                             setState(() => _plainConfirmed = value ?? false),
                   title: Text(l10n.chatExportPlainConfirm),
                 ),
+              ],
+              if (_busy) ...[
+                const SizedBox(height: 12),
+                const LinearProgressIndicator(),
               ],
               if (_error case final message?) ...[
                 const SizedBox(height: 8),
