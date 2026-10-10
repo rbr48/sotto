@@ -400,5 +400,47 @@
   "chatMessageInfo": "Message info",
   "chatInfoSent": "Sent",
   "chatStarredMessages": "Starred messages",
-  "chatStarredEmpty": "No starred messages. Star a message to find it here."
+  "chatStarredEmpty": "No starred messages. Star a message to find it here.",
+  "chatExportChat": "Export chat",
+  "chatExportBody": "The export holds this chat's messages, their times and marks, and the names and sizes of files. It never holds file contents, keys or other chats.",
+  "chatExportEncrypted": "Encrypted (recommended)",
+  "chatExportPlain": "Plain text",
+  "chatExportPassphrase": "Passphrase (at least {count} characters)",
+  "@chatExportPassphrase": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "chatExportConfirmPassphrase": "Confirm passphrase",
+  "chatExportPassphraseShort": "Use a passphrase of at least {count} characters.",
+  "@chatExportPassphraseShort": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "chatExportPassphraseMismatch": "The passphrases do not match.",
+  "chatExportPlainWarning": "Anyone who has this file can read the whole chat. It is not encrypted, and your passphrase does not protect it.",
+  "chatExportPlainConfirm": "I understand that anyone with this file can read it.",
+  "chatExportSave": "Save export",
+  "chatExportSaved": "Chat exported to {path}",
+  "@chatExportSaved": {
+    "placeholders": {
+      "path": {
+        "type": "String",
+        "example": "/home/you/Downloads/sotto-chat-2026-10-10.sottochat"
+      }
+    }
+  },
+  "chatExportedLabel": "Exported",
+  "chatExportFileLabel": "File",
+  "chatExportBytesLabel": "bytes",
+  "chatExportReplyLabel": "Reply to",
+  "chatExportReactionsLabel": "Reactions",
+  "chatExportStarredLabel": "Starred"
 }
