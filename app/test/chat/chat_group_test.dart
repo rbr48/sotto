@@ -168,6 +168,9 @@ void main() {
       expect(ChatGroups.cleanName('  Family  '), 'Family');
       expect(ChatGroups.cleanName('a\u0007b'), 'ab');
       expect(ChatGroups.cleanName('line\none\tline'), 'lineoneline');
+      expect(ChatGroups.cleanName('a b'), 'ab');
+      expect(ChatGroups.cleanName('a b'), 'ab');
+      expect(ChatGroups.cleanName('a\u0085b'), 'ab');
       expect(ChatGroups.cleanName('x\u{202E}y\u{2066}z'), 'xyz');
       expect(ChatGroups.cleanName('\u0000\u007F'), '');
     });

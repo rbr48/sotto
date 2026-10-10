@@ -51,6 +51,8 @@ abstract final class ChatGroups {
       final dropped =
           rune < 0x20 ||
           (rune >= 0x7F && rune <= 0x9F) ||
+          rune == 0x2028 ||
+          rune == 0x2029 ||
           (rune >= 0x202A && rune <= 0x202E) ||
           (rune >= 0x2066 && rune <= 0x2069) ||
           (rune >= 0xD800 && rune <= 0xDFFF);
