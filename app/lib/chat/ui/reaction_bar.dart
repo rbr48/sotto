@@ -117,6 +117,7 @@ class _Chip extends StatelessWidget {
         child: SizedBox(
           height: 48,
           child: Center(
+            widthFactor: 1,
             child: Container(
               constraints: const BoxConstraints(minWidth: 40),
               padding: const EdgeInsetsDirectional.symmetric(
@@ -128,7 +129,6 @@ class _Chip extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: tokens.receivedBorder, width: 0.8),
               ),
-              alignment: Alignment.center,
               child: Text(
                 emoji,
                 style: const TextStyle(
