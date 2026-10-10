@@ -149,6 +149,28 @@ final _bobPayload = {
   ],
 };
 
+/// The keys PROTOCOL.md section 8A documents for a payload. Any other key in an
+/// export is a leak until the spec says otherwise.
+const _documentedKeys = {
+  'with',
+  'exported',
+  'messages',
+  'out',
+  'sent',
+  'delivered',
+  'read',
+  'edited',
+  'forwarded',
+  'text',
+  'file',
+  'name',
+  'size',
+  'quote',
+  'reactions',
+  'emoji',
+  'deleted',
+};
+
 Matcher _problem(ChatExportProblem problem) =>
     isA<ChatExportException>().having((e) => e.problem, 'problem', problem);
 
@@ -300,6 +322,45 @@ void main() {
       expect(dump, isNot(contains(key)), reason: key);
     }
     expect(dump, contains('Hi Bob'));
+  });
+
+  test('the payload has only the documented keys, and no message id', () {
+    final payload = open(encrypt(_bobChat()));
+    final keys = <String>{};
+    void collect(Object? node) {
+      if (node is Map) {
+        for (final entry in node.entries) {
+          keys.add(entry.key as String);
+          collect(entry.value);
+        }
+      } else if (node is List) {
+        node.forEach(collect);
+      }
+    }
+
+    collect(payload);
+    expect(
+      keys.difference(_documentedKeys),
+      isEmpty,
+      reason: 'keys that section 8A does not document',
+    );
+
+    final plain = StringBuffer();
+    ChatExport.writePlain(
+      plain,
+      contactName: 'Bob',
+      exportedAt: _exportedAt,
+      messages: _bobChat(),
+    );
+    final dump = jsonEncode(payload);
+    for (var n = 1; n <= 7; n++) {
+      expect(dump, isNot(contains(_msgId(n))), reason: 'message $n in JSON');
+      expect(
+        plain.toString(),
+        isNot(contains(_msgId(n))),
+        reason: 'message $n',
+      );
+    }
   });
 
   test('a file exports its name and size, never its bytes or its keys', () {
