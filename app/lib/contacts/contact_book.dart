@@ -52,6 +52,7 @@ class Contact {
     bool? autoAnswer,
     bool? autoAnswerVideo,
     String? avatar,
+    bool clearAvatar = false,
   }) => Contact(
     identity: identity,
     name: name ?? this.name,
@@ -59,7 +60,7 @@ class Contact {
     verified: verified ?? this.verified,
     autoAnswer: autoAnswer ?? this.autoAnswer,
     autoAnswerVideo: autoAnswerVideo ?? this.autoAnswerVideo,
-    avatar: avatar ?? this.avatar,
+    avatar: clearAvatar ? null : (avatar ?? this.avatar),
     addedAt: addedAt,
   );
 
@@ -257,7 +258,12 @@ class ContactBook extends ChangeNotifier {
   Future<void> setAvatar(PublicIdentity identity, String? avatar) async {
     final contact = find(identity);
     if (contact == null) return;
-    await update(contact.copyWith(avatar: avatar));
+    await update(
+      contact.copyWith(
+        avatar: avatar,
+        clearAvatar: avatar == null || avatar.isEmpty,
+      ),
+    );
   }
 
   Future<void> remove(PublicIdentity identity) async {

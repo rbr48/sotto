@@ -1,12 +1,10 @@
-import 'dart:convert';
-
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../android/android_integration.dart';
 import '../../call/call_controller.dart';
-import '../../chat/image_metadata.dart';
+import '../../core/avatar_helper.dart';
 import '../../core/downloads.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/l10n/language.dart';
@@ -930,18 +928,23 @@ class _ProfileFormState extends State<_ProfileForm> {
       );
       if (file == null) return;
       final bytes = await file.readAsBytes();
-      if (bytes.length > 500 * 1024) {
+      if (bytes.length > 10 * 1024 * 1024) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Avatar image must be under 500 KB')),
+          const SnackBar(content: Text('Avatar image must be under 10 MB')),
         );
         return;
       }
-      final clean = ImageMetadata.clean(bytes, file.mimeType ?? 'image/jpeg');
-      final b64 = 'data:image/jpeg;base64,${base64Encode(clean)}';
+      final thumbnail = await resizeAvatarImage(bytes);
+      final b64 = avatarBytesToDataUrl(thumbnail);
       await widget.app.updateAvatar(b64);
       if (mounted) setState(() {});
-    } catch (_) {}
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not set avatar')),
+      );
+    }
   }
 
   Future<void> _removeAvatar() async {
@@ -1015,6 +1018,7 @@ class _ProfileFormState extends State<_ProfileForm> {
                 name: _name.text,
                 practice: _practice.text,
                 avatar: avatar,
+                clearAvatar: avatar == null || avatar.isEmpty,
               );
               messenger.showSnackBar(
                 const SnackBar(

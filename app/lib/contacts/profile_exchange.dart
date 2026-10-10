@@ -112,9 +112,32 @@ class ProfileExchange {
     final name = profile.name.trim();
     final organisation = profile.organisation.trim();
     final avatar = profile.avatar?.trim();
-    _send(
-      from,
-      _codec.seal(
+
+    String? sealed;
+    // Only attempt to include avatar if it is small enough (< 24 KB base64)
+    // so it doesn't exceed EnvelopeCodec.maxInnerBytes (48 KB) or relay limits.
+    if (avatar != null && avatar.isNotEmpty && avatar.length <= 24 * 1024) {
+      try {
+        sealed = _codec.seal(
+          recipient: requester,
+          type: replyType,
+          body: {
+            'n': name.isEmpty
+                ? 'Sotto user'
+                : name.substring(0, name.length.clamp(0, 80)),
+            if (organisation.isNotEmpty)
+              'o': organisation.substring(0, organisation.length.clamp(0, 80)),
+            'av': avatar,
+          },
+        );
+      } catch (_) {
+        sealed = null;
+      }
+    }
+
+    // Fallback: send reply without avatar so lookup never crashes or times out
+    try {
+      sealed ??= _codec.seal(
         recipient: requester,
         type: replyType,
         body: {
@@ -123,10 +146,12 @@ class ProfileExchange {
               : name.substring(0, name.length.clamp(0, 80)),
           if (organisation.isNotEmpty)
             'o': organisation.substring(0, organisation.length.clamp(0, 80)),
-          if (avatar != null && avatar.isNotEmpty) 'av': avatar,
         },
-      ),
-    );
+      );
+      _send(from, sealed);
+    } catch (_) {
+      // Ignore if even minimal reply cannot be sealed
+    }
   }
 
   /// Takes a verified reply to one of our lookups; false if [message] is
@@ -136,8 +161,9 @@ class ProfileExchange {
     final waiter = _waiting[message.sender.id];
     final name = message.body['n'];
     final organisation = message.body['o'];
-    final avatar = message.body['av'] is String
-        ? message.body['av'] as String
+    final rawAvatar = message.body['av'];
+    final avatar = (rawAvatar is String && rawAvatar.length <= 48 * 1024)
+        ? rawAvatar
         : null;
     if (waiter == null ||
         waiter.isCompleted ||

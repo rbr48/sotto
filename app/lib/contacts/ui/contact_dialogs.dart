@@ -1,12 +1,10 @@
-import 'dart:convert';
-
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/app_controller.dart';
 import '../../call/call_controller.dart';
 import '../../call/ui/common.dart';
-import '../../chat/image_metadata.dart';
+import '../../core/avatar_helper.dart';
 import '../../core/ui_kit.dart';
 import '../../crypto/identity.dart';
 import '../../lock/ui/lock_ui.dart';
@@ -283,15 +281,15 @@ class _ContactDetailsDialogState extends State<ContactDetailsDialog> {
       );
       if (file == null) return;
       final bytes = await file.readAsBytes();
-      if (bytes.length > 500 * 1024) {
+      if (bytes.length > 10 * 1024 * 1024) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Avatar image must be under 500 KB')),
+          const SnackBar(content: Text('Avatar image must be under 10 MB')),
         );
         return;
       }
-      final clean = ImageMetadata.clean(bytes, file.mimeType ?? 'image/jpeg');
-      final b64 = 'data:image/jpeg;base64,${base64Encode(clean)}';
+      final thumbnail = await resizeAvatarImage(bytes);
+      final b64 = avatarBytesToDataUrl(thumbnail);
       await _book.setAvatar(_contact.identity, b64);
     } catch (_) {}
   }

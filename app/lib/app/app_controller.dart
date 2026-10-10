@@ -512,11 +512,12 @@ class AppController extends ChangeNotifier {
     required String name,
     String practice = '',
     String? avatar,
+    bool clearAvatar = false,
   }) async {
     final profile = _profile = Profile(
       name: name.trim(),
       practice: practice.trim(),
-      avatar: avatar ?? _profile?.avatar,
+      avatar: clearAvatar ? null : (avatar ?? _profile?.avatar),
     );
     await _vault!.write(profileKey, profile.encode());
     _calls?.publishGuestLinks();
@@ -529,6 +530,7 @@ class AppController extends ChangeNotifier {
       name: _profile!.name,
       practice: _profile!.practice,
       avatar: avatar,
+      clearAvatar: avatar == null || avatar.isEmpty,
     );
   }
 
@@ -557,7 +559,9 @@ class AppController extends ChangeNotifier {
           final p? => (
             name: p.name,
             organisation: p.practice,
-            avatar: p.avatar,
+            avatar: (p.avatar != null && p.avatar!.length <= 24 * 1024)
+                ? p.avatar
+                : null,
           ),
           null => null,
         },
