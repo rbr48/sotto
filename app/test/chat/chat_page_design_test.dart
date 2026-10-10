@@ -1033,6 +1033,38 @@ void main() {
         mime: 'audio/wav',
         voiceNote: true,
       ),
+      _message(
+        'Edited after sending',
+        outgoing: true,
+        state: ChatState.delivered,
+        ts: _ms(2026, 10, 9, 9, 5),
+      ).copyWith(editedAt: _ms(2026, 10, 9, 9, 6)),
+      _message(
+        'Forwarded from a friend',
+        outgoing: false,
+        state: ChatState.received,
+        ts: _ms(2026, 10, 9, 9, 7),
+      ).copyWith(forwarded: true),
+      _message(
+        'Replying to the question',
+        outgoing: true,
+        state: ChatState.delivered,
+        ts: _ms(2026, 10, 9, 9, 8),
+      ).copyWith(
+        replyTo: (id: ChatFrames.newId(), text: 'Salaam, how are you?'),
+      ),
+      _message(
+        'Reacted to',
+        outgoing: false,
+        state: ChatState.received,
+        ts: _ms(2026, 10, 9, 9, 9),
+      ).copyWith(reactions: {'me': '👍', 'peer': '❤️'}),
+      _message(
+        '',
+        outgoing: true,
+        state: ChatState.delivered,
+        ts: _ms(2026, 10, 9, 9, 10),
+      ).copyWith(deletedForAll: true),
     ];
 
     for (final dark in [false, true]) {
