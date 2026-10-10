@@ -78,6 +78,8 @@
   "privacySendTypingDesc": "السماح لجهات الاتصال بمعرفة متى تكتب رسالة في الوقت الفعلي.",
   "privacySendReadReceiptsTitle": "إرسال إشعارات القراءة",
   "privacySendReadReceiptsDesc": "السماح لجهات الاتصال بمعرفة متى قرأت رسائلهم.",
+  "privacyAutoDownloadFilesTitle": "تنزيل الملفات تلقائياً",
+  "privacyAutoDownloadFilesDesc": "تُنزَّل الملفات الواردة من جهات الاتصال حتى {megabytes} ميغابايت دون سؤال. أما الملفات الأكبر، أو أكثر من بضعة ملفات في وقت واحد، فسيُطلب منك قبولها. تُنزَّل الرسائل الصوتية دائماً.",
   "chatDisappearingTitle": "الرسائل ذاتية الاختفاء",
   "chatDisappearingDesc": "حذف الرسائل تلقائياً في هذه المحادثة بعد انتهاء المدة المحددة.",
   "chatDisappearingOff": "متوقف",

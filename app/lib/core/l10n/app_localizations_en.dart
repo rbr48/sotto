@@ -301,6 +301,14 @@ class AppLocalizationsEn extends AppLocalizations {
       'Let contacts see when you have read their messages.';
 
   @override
+  String get privacyAutoDownloadFilesTitle => 'Download files automatically';
+
+  @override
+  String privacyAutoDownloadFilesDesc(int megabytes) {
+    return 'Files from contacts up to $megabytes MB download without asking. Larger files, and more than a few at a time, still ask. Voice messages always download.';
+  }
+
+  @override
   String get chatDisappearingTitle => 'Disappearing messages';
 
   @override

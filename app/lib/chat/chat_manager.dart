@@ -1,15 +1,12 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:crypto/crypto.dart';
-
 import '../diagnostics/event_log.dart';
 import 'chat_frames.dart';
 import 'chat_rtc.dart';
 import 'chat_session.dart';
 import 'chat_signalling.dart';
 import 'chat_store.dart';
-import 'image_metadata.dart';
 
 /// Something that happened in chats, for the screens to show.
 sealed class ChatManagerEvent {
@@ -50,6 +47,9 @@ class ChatManager {
     String Function()? newId,
     this.connectTimeout = const Duration(seconds: 30),
     this.readReceiptsEnabled = _readReceiptsAlwaysOn,
+    this.autoDownloadFiles = _autoDownloadOff,
+    this.maxFileBytes = platformMaxFileBytes,
+    this.offerReadyWait = const Duration(seconds: 5),
     void Function(String event)? log,
   }) : _newId = newId ?? ChatFrames.newId,
        _log = log ?? EventLog.instance.add,
@@ -114,6 +114,22 @@ class ChatManager {
 
   static bool _readReceiptsAlwaysOn() => true;
 
+  /// Whether files from contacts download without asking ("Download files
+  /// automatically" in Settings, off unless switched on). Read for each
+  /// offer, so a change applies to the next one. Voice notes from contacts
+  /// download either way. See [ChatSession.autoAcceptFiles] for the limits.
+  final bool Function() autoDownloadFiles;
+
+  static bool _autoDownloadOff() => false;
+
+  /// The largest file this device sends or accepts (the browser's is
+  /// smaller, see [platformMaxFileBytes]).
+  final int maxFileBytes;
+
+  /// How long [offerFile] waits for a chat being opened to become ready
+  /// before it queues the file instead.
+  final Duration offerReadyWait;
+
   final String Function() _newId;
   final ChatSignalling _signalling;
   final _events = StreamController<ChatManagerEvent>.broadcast();
@@ -164,8 +180,10 @@ class ChatManager {
       }
       for (final message in await store.messages(contact)) {
         final fileStatus = message.fileStatus;
+        // A queued file was never offered: it stays queued.
         final pendingFile =
-            fileStatus == 'offered' || fileStatus == 'transferring';
+            (fileStatus == 'offered' || fileStatus == 'transferring') &&
+            !(message.outgoing && message.state == ChatState.queued);
         if (pendingFile) {
           final next = !message.outgoing && fileStatus == 'offered'
               ? 'expired'
@@ -248,6 +266,12 @@ class ChatManager {
         !message.outgoing ||
         (message.state != ChatState.notSent &&
             message.state != ChatState.queued)) {
+      return;
+    }
+    // A file is never sent as a text. A queued one is offered when the chat
+    // is ready (see [flushOutbox]).
+    if (message.isAttachment) {
+      if (message.state == ChatState.queued) await flushOutbox(contact);
       return;
     }
     _ensureTicker();
@@ -342,10 +366,12 @@ class ChatManager {
     final session = live?.session;
     if (session != null && !session.isEnded && session.isReady) {
       for (final msg in queued) {
-        await store.setState(contact, msg.id, ChatState.sending);
+        if (session.isEnded) return;
         if (msg.isAttachment) {
-          unawaited(session.offerStoredFile(msg));
+          // Offered once; the session moves it from queued to sending.
+          await session.offerStoredFile(msg);
         } else {
+          await store.setState(contact, msg.id, ChatState.sending);
           session.resend(msg.withState(ChatState.sending));
         }
       }
@@ -457,6 +483,13 @@ class ChatManager {
   }
 
   /// Offers a file or photo to [contact]. A [voice] note is offered as one.
+  ///
+  /// The file is checked as [prepareOutgoingFile] does, whether it goes at
+  /// once or is queued: an image has its metadata removed, and a file that
+  /// cannot be cleaned or is refused throws [ArgumentError], the same either
+  /// way. When the chat is not ready within [offerReadyWait], the file is
+  /// kept on this device and queued; it is offered once the contact is
+  /// online (never through the relay).
   Future<ChatMessage> offerFile({
     required String contact,
     required String name,
@@ -467,79 +500,58 @@ class ChatManager {
     if (!isContact(contact)) {
       throw ArgumentError.value(contact, 'contact', 'is not a contact');
     }
+    final file = prepareOutgoingFile(
+      name: name,
+      bytes: bytes,
+      mime: mime,
+      voice: voice,
+      maxFileBytes: maxFileBytes,
+    );
     _ensureTicker();
-    var live = _activeFor(contact);
-    if (live == null && !_signalling.isOpening(contact)) {
+    if (_activeFor(contact) == null && !_signalling.isOpening(contact)) {
       _perform(_signalling.open(contact, clock()));
     }
-    if (live?.session != null &&
-        !live!.session!.isEnded &&
-        live.session!.isReady) {
-      return live.session!.offerFile(
-        name: name,
-        bytes: bytes,
-        mime: mime,
-        voice: voice,
-      );
+    ChatSession? ready() {
+      final session = _activeFor(contact)?.session;
+      return session != null && !session.isEnded && session.isReady
+          ? session
+          : null;
     }
-    // Wait up to 5 seconds for session to become ready
-    final deadline = clock().add(const Duration(seconds: 5));
-    while (clock().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 200));
-      live = _activeFor(contact);
-      if (live?.session != null &&
-          !live!.session!.isEnded &&
-          live.session!.isReady) {
-        return live.session!.offerFile(
-          name: name,
-          bytes: bytes,
-          mime: mime,
-          voice: voice,
-        );
-      }
+
+    // Waits a little for a chat being opened to become ready.
+    const step = Duration(milliseconds: 200);
+    var waited = Duration.zero;
+    while (ready() == null && waited < offerReadyWait && !_disposed) {
+      await Future<void>.delayed(step);
+      waited += step;
     }
-    // Peer is offline or session not yet connected: save file locally and queue it
-    final cleanedName = ChatFrames.cleanFileName(name);
-    if (ChatFrames.isBlockedFileType(name) ||
-        ChatFrames.isBlockedFileType(cleanedName)) {
-      throw ArgumentError('Blocked file type: $name');
-    }
-    Uint8List clean;
-    try {
-      clean = ImageMetadata.clean(bytes, mime);
-    } catch (_) {
-      clean = bytes;
-    }
-    if (clean.isEmpty) throw ArgumentError('File is empty');
-    if (clean.length > maxFileSizeNative) {
-      throw ArgumentError('File exceeds max size limit');
-    }
-    final hash = sha256.convert(clean).toString();
+    final session = ready();
+    if (session != null) return session.offerPrepared(file);
+
+    // The contact is offline: the file is kept here and queued.
     final id = _newId();
-    final files = store.files;
-    final kept = files == null ? null : await files.save(clean);
-    final queuedMsg = ChatMessage(
-      id: id,
-      contactId: contact,
-      outgoing: true,
-      ts: clock().millisecondsSinceEpoch,
-      text: cleanedName,
-      state: ChatState.queued,
-      fileId: id,
-      fileName: cleanedName,
-      fileSize: clean.length,
-      fileMime: mime,
-      fileSha256: hash,
-      fileStatus: 'offered',
-      filePath: kept?.name,
-      fileKey: kept?.key,
-      voiceNote: voice,
+    final queued = await store.keepOutgoingFile(
+      ChatMessage(
+        id: id,
+        contactId: contact,
+        outgoing: true,
+        ts: clock().millisecondsSinceEpoch,
+        text: file.name,
+        state: ChatState.queued,
+        fileId: id,
+        fileName: file.name,
+        fileSize: file.bytes.length,
+        fileMime: file.mime,
+        fileSha256: file.sha256,
+        fileStatus: 'offered',
+        voiceNote: file.voice,
+      ),
+      file.bytes,
     );
-    await store.add(queuedMsg);
-    if (voice && kept == null) {
-      await store.keepVoice(queuedMsg, clean);
-    }
-    return queuedMsg;
+    await store.add(queued);
+    // A chat that became ready meanwhile offers it now.
+    unawaited(flushOutbox(contact));
+    return queued;
   }
 
   /// Accepts an offered file.
@@ -776,7 +788,8 @@ class ChatManager {
         clock: clock,
         newId: _newId,
         isContact: () => isContact(live.contact),
-        autoAcceptFiles: true,
+        maxFileBytes: maxFileBytes,
+        autoAcceptFiles: autoDownloadFiles,
       );
       live.session = session;
       live.sessionSub = session.events.listen(
@@ -828,8 +841,11 @@ class ChatManager {
   Future<void> _startSessionWithQueue(_Live live, ChatSession session) async {
     final waiting = List<ChatMessage>.of(live.resend);
     live.resend.clear();
-    final queued = (await store.messages(live.contact))
-        .where((m) => m.outgoing && m.state == ChatState.queued);
+    // Queued texts go with the start. Queued files are not texts: the
+    // session offers them itself once the other side is ready.
+    final queued = (await store.messages(live.contact)).where(
+      (m) => m.outgoing && m.state == ChatState.queued && !m.isAttachment,
+    );
     // Nothing is awaited between this check and the start, so the chat cannot
     // end in between with these messages still unaccounted for.
     if (live.ended) {

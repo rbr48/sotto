@@ -269,6 +269,20 @@ class _DataChannelTransport implements ChatTransport {
   @override
   int get bufferedAmount => _channel?.bufferedAmount ?? 0;
 
+  /// Asks the channel itself: on native platforms [bufferedAmount] is only
+  /// the last value the platform reported, which lags behind the sends.
+  @override
+  Future<int> bufferedAmountNow() async {
+    final channel = _channel;
+    if (channel == null) return 0;
+    try {
+      return await channel.getBufferedAmount();
+    } catch (_) {
+      // Not available on this platform or channel: the reported value.
+      return channel.bufferedAmount ?? 0;
+    }
+  }
+
   @override
   Future<void> close() async {
     await _channel?.close();

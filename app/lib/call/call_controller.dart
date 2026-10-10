@@ -79,6 +79,9 @@ class CallController extends ChangeNotifier {
   static const sendTypingSetting = 'sotto.settings.send_typing';
   static const sendReadReceiptsSetting = 'sotto.settings.send_read_receipts';
 
+  /// "Download files automatically": '1' when on. Off unless switched on.
+  static const autoDownloadFilesSetting = 'sotto.settings.auto_download_files';
+
   /// Marks a name the caller gave themselves (not a contact, not verified).
   static const notInContacts = ' (not in your contacts)';
   static const soundsSetting = 'sotto.settings.sounds';
@@ -235,6 +238,16 @@ class CallController extends ChangeNotifier {
   /// Whether to send read receipts when viewing chat messages.
   bool get sendReadReceipts => _sendReadReceipts;
 
+  bool _autoDownloadFiles = false;
+
+  /// Whether files from contacts download without asking (within the limits
+  /// of [ChatSession.autoAcceptFiles]). Voice notes download either way.
+  bool get autoDownloadFiles => _autoDownloadFiles;
+
+  /// The largest file that downloads without asking, in megabytes.
+  int get autoDownloadMaxMegabytes =>
+      ChatSession.autoAcceptMaxBytes ~/ (1024 * 1024);
+
   /// Whether the relay offered a TURN server (needed for [hideIp]).
   bool get turnAvailable =>
       _relay?.iceServers.any(
@@ -323,6 +336,7 @@ class CallController extends ChangeNotifier {
       _soundsOn = await _readSetting(soundsSetting) != '0';
       _sendTyping = await _readSetting(sendTypingSetting) != '0';
       _sendReadReceipts = await _readSetting(sendReadReceiptsSetting) != '0';
+      _autoDownloadFiles = await _readSetting(autoDownloadFilesSetting) == '1';
       _codec = EnvelopeCodec(sodium, identity);
       await localRenderer.initialize();
       await remoteRenderer.initialize();
@@ -411,6 +425,7 @@ class CallController extends ChangeNotifier {
           createRtc: WebRtcChatRtc.create,
           clock: DateTime.now,
           readReceiptsEnabled: () => _sendReadReceipts,
+          autoDownloadFiles: () => _autoDownloadFiles,
         );
         _subscriptions.add(chat.events.listen(_onChatEvent));
         unawaited(chat.start());
@@ -512,6 +527,16 @@ class CallController extends ChangeNotifier {
     notifyListeners();
     try {
       await _settings.write(sendTypingSetting, value ? '1' : '0');
+    } catch (_) {
+      // Not persisted; still applies until the app restarts.
+    }
+  }
+
+  Future<void> setAutoDownloadFiles(bool value) async {
+    _autoDownloadFiles = value;
+    notifyListeners();
+    try {
+      await _settings.write(autoDownloadFilesSetting, value ? '1' : '0');
     } catch (_) {
       // Not persisted; still applies until the app restarts.
     }
