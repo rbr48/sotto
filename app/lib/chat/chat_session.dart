@@ -919,6 +919,14 @@ class ChatSession {
       return;
     }
     switch (frame) {
+      // Group frames are decoded but not routed yet. A peer sends them only when
+      // groups are on, so until routing lands this session ignores them.
+      case GroupMsgFrame() ||
+          GroupStateFrame() ||
+          ReactFrame(group: != null) ||
+          EditFrame(group: != null) ||
+          DeleteFrame(group: != null):
+        break;
       case HelloFrame(:final features):
         _peerHello = true;
         _peerFeatures = features;
