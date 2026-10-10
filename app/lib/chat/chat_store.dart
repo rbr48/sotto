@@ -1464,20 +1464,61 @@ class ChatStore {
   Future<int> unreadCount(String contactId) async =>
       (await _tryLoadSummary(contactId))?.unreadCount ?? 0;
 
-  /// Returns conversation threads that have messages, newest first. Reads the
-  /// summary records, not the messages.
+  /// The chats for the main list: the chats with messages that are not
+  /// archived, pinned ones first (see [_mainOrder]), then newest first. Reads
+  /// the summary records, not the messages.
   Future<List<ChatThreadSummary>> recentChats() async {
-    final ids = await _loadIndex();
+    final chats = await _summaries();
+    return _mainOrder([
+      for (final chat in chats)
+        if (!chat.meta.archived) chat,
+    ]);
+  }
+
+  /// The archived chats, newest first. Each keeps its unread count, which the
+  /// Archived row shows. Reads the summary records, not the messages.
+  Future<List<ChatThreadSummary>> archivedChats() async {
+    final chats = await _summaries();
+    return _newestFirst([
+      for (final chat in chats)
+        if (chat.meta.archived) chat,
+    ]);
+  }
+
+  /// The summaries of the chats with messages that can be read. A chat that
+  /// cannot be read is left out, as [_tryLoadSummary] does.
+  Future<List<ChatThreadSummary>> _summaries() async {
     final summaries = <ChatThreadSummary>[];
-    for (final id in ids) {
+    for (final id in await _loadIndex()) {
       if (await _tryLoadSummary(id) case final summary?) {
         summaries.add(summary);
       }
     }
-    summaries.sort(
-      (a, b) => b.lastMessage.clockMs.compareTo(a.lastMessage.clockMs),
-    );
     return summaries;
+  }
+
+  /// [chats] newest first, by the time of their last message.
+  static List<ChatThreadSummary> _newestFirst(List<ChatThreadSummary> chats) =>
+      [
+        ...chats,
+      ]..sort((a, b) => b.lastMessage.clockMs.compareTo(a.lastMessage.clockMs));
+
+  /// The order of the main list. Pinned chats come first, in the order they
+  /// were pinned, at most [maxPinnedChats] of them. The rest keep their
+  /// newest-first order, and so does any pinned chat past the limit.
+  static List<ChatThreadSummary> _mainOrder(List<ChatThreadSummary> chats) {
+    final newest = _newestFirst(chats);
+    final pinned = [
+      for (final chat in newest)
+        if (chat.meta.pinnedAt != null) chat,
+    ]..sort((a, b) => a.meta.pinnedAt!.compareTo(b.meta.pinnedAt!));
+    final first = pinned.take(maxPinnedChats).toList();
+    final firstIds = {for (final chat in first) chat.contactId};
+    return [
+      ...first,
+      for (final chat in newest)
+        if (!firstIds.contains(chat.contactId)) chat,
+    ];
   }
 
   /// Searches all stored messages across all contacts matching [query].

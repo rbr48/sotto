@@ -2074,4 +2074,103 @@ void main() {
       },
     );
   });
+
+  group('the chat list with archived and pinned chats', () {
+    /// An incoming message that is not read yet.
+    ChatMessage unread(int n, String contact) => ChatMessage(
+      id: _id(n),
+      contactId: contact,
+      outgoing: false,
+      ts: 1700000000000 + n,
+      text: 'hi $n',
+      state: ChatState.received,
+      read: false,
+    );
+
+    test('pinned chats come first in the order they were pinned, at most three', () async {
+      await store.add(unread(1, 'bob'));
+      await store.add(unread(2, 'carol'));
+      await store.add(unread(3, 'erin'));
+      await store.add(_message(4, contact: 'dave'));
+
+      // Bob was pinned first, though carol and erin are newer.
+      await store.setPinned('bob', true, at: 10);
+      await store.setPinned('carol', true, at: 20);
+      await store.setPinned('erin', true, at: 30);
+      expect((await store.recentChats()).map((c) => c.contactId), [
+        'bob',
+        'carol',
+        'erin',
+        'dave',
+      ]);
+      expect((await store.recentChats()).first.meta.pinnedAt, 10);
+
+      // A fourth pin, written past the limit, is not shown as pinned: only the
+      // first three by pin time sort first, so erin (the latest) falls back.
+      final last = (await store.messages('dave')).single.toJson();
+      await secrets.write(
+        ChatStore.metaKey('dave'),
+        '{"archived":false,"muted":false,"pinnedAt":5}',
+      );
+      await secrets.write(
+        ChatStore.summaryKey('dave'),
+        jsonEncode({
+          'last': last,
+          'unread': 0,
+          'meta': {'archived': false, 'muted': false, 'pinnedAt': 5},
+        }),
+      );
+      final listed = (await ChatStore(
+        secrets,
+      ).recentChats()).map((c) => c.contactId);
+      expect(listed, ['dave', 'bob', 'carol', 'erin']);
+    });
+
+    test('archived chats leave the main list and are listed on their own, with their unread counts', () async {
+      await store.add(unread(1, 'bob'));
+      await store.add(unread(2, 'bob'));
+      await store.add(unread(3, 'carol'));
+      await store.add(_message(4, contact: 'dave'));
+      await store.setArchived('bob', true);
+      await store.setArchived('carol', true);
+
+      expect((await store.recentChats()).map((c) => c.contactId), ['dave']);
+      final archived = await ChatStore(secrets).archivedChats();
+      expect(archived.map((c) => c.contactId), ['carol', 'bob']);
+      expect(archived.map((c) => c.unreadCount), [1, 2]);
+      expect(archived.every((c) => c.meta.archived), isTrue);
+    });
+
+    test('an incoming message does not unarchive a chat', () async {
+      await store.add(unread(1, 'bob'));
+      await store.setArchived('bob', true);
+
+      await store.add(unread(2, 'bob'));
+      expect(await store.recentChats(), isEmpty);
+      final archived = (await store.archivedChats()).single;
+      expect(archived.contactId, 'bob');
+      expect(archived.unreadCount, 2);
+      expect(archived.meta.archived, isTrue);
+    });
+
+    test(
+      'a pinned chat that is archived keeps its pin, and returns to its place',
+      () async {
+        await store.add(_message(1, contact: 'bob'));
+        await store.add(_message(2, contact: 'carol'));
+        await store.setPinned('bob', true, at: 1);
+        await store.setArchived('bob', true);
+
+        expect((await store.recentChats()).map((c) => c.contactId), ['carol']);
+        expect((await store.archivedChats()).single.meta.pinnedAt, 1);
+
+        await store.setArchived('bob', false);
+        expect((await store.recentChats()).map((c) => c.contactId), [
+          'bob',
+          'carol',
+        ]);
+        expect(await store.archivedChats(), isEmpty);
+      },
+    );
+  });
 }
