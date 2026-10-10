@@ -776,6 +776,7 @@ class ChatManager {
         clock: clock,
         newId: _newId,
         isContact: () => isContact(live.contact),
+        autoAcceptFiles: true,
       );
       live.session = session;
       live.sessionSub = session.events.listen(

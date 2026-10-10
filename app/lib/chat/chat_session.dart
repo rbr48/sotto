@@ -141,7 +141,11 @@ class ChatSession {
     this.idleTimeout = const Duration(minutes: 5),
     this.isContact,
     this.maxFileBytes = maxFileSizeNative,
+    this.autoAcceptFiles = false,
   }) : _newId = newId ?? ChatFrames.newId;
+
+  /// Whether to automatically accept and download valid files offered by a contact.
+  final bool autoAcceptFiles;
 
   /// The largest file this device accepts (the browser's is smaller).
   final int maxFileBytes;
@@ -689,9 +693,7 @@ class ChatSession {
             _write(FileDeclineFrame(id: id));
           } else {
             _events.add(FileOfferReceived(message));
-            // All valid files and media from a contact are downloaded directly
-            // upon receipt without requiring manual acceptance.
-            if (!_ended) await acceptFile(id);
+            if (autoAcceptFiles && !_ended) await acceptFile(id);
           }
         }
       case FileAcceptFrame(:final id):
