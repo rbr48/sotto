@@ -1079,10 +1079,17 @@ void main() {
     }
   });
 
-  test(
-    'chat_page.dart carries no green, cyan or amber, and no unbacked claim',
-    () {
-      final source = File('lib/chat/ui/chat_page.dart').readAsStringSync();
+  // The chat screen and the parts it is built from, each held to the same
+  // banned list.
+  for (final file in [
+    'lib/chat/ui/chat_page.dart',
+    'lib/chat/ui/message_menu.dart',
+    'lib/chat/ui/reaction_bar.dart',
+    'lib/chat/ui/emoji_picker_panel.dart',
+    'lib/chat/ui/forward_picker.dart',
+  ]) {
+    test('$file carries no green, cyan or amber, and no unbacked claim', () {
+      final source = File(file).readAsStringSync();
       for (final banned in [
         '10B981',
         '38BDF8',
@@ -1124,9 +1131,9 @@ void main() {
         expect(
           source.contains(banned),
           isFalse,
-          reason: '"$banned" must not appear in chat_page.dart',
+          reason: '"$banned" must not appear in $file',
         );
       }
-    },
-  );
+    });
+  }
 }
