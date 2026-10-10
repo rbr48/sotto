@@ -166,7 +166,7 @@ the server to store data or goes against a rule in `ROADMAP.md` §2.
 | D1 | Offline delivery | Keep the sender-side outbox, which is already built: a message the contact did not get waits on the sender's device and goes out when the chat reopens. The server keeps storing nothing. The gap that remains is when the sender closes the app before the contact returns. The alternative is an encrypted relay queue for a fixed time. That breaks "zero server storage" (`ROADMAP.md` §2, rule 1), so the privacy text would change, and it needs your approval. |
 | D2 | Group size | Four people in total, including you, as in the group calls plan (`GROUP_CALLS_PLAN.md`). Each device keeps a direct chat with each other member. |
 | D3 | Who can be in a group | Only people who are contacts of every member. Chats only open between contacts (recorded decision 1 above), so this is needed anyway. |
-| D4 | Delete for everyone | Allowed for one hour after sending. Best effort: another device may keep its copy, and the app says so. |
+| D4 | Delete for everyone | Your own text messages only, allowed for one hour after sending. Files cannot be deleted for everyone. Best effort: another device may keep its copy, and the app says so. |
 | D5 | Editing | Allowed for 15 minutes after sending. The new text replaces the old one and is marked "Edited". No edit history is kept. |
 | D6 | Forwarding | Text only at first. A forwarded message keeps no link to the original, so nothing about the original is sent. Files can be forwarded later. |
 | D7 | Reactions | One emoji per person per message. Sending an empty emoji removes your reaction. |
@@ -183,10 +183,10 @@ sender of every frame against the owner of the message it changes.
   original is gone. No lookup is needed.
 - `react`: `{"id", "emoji"}`, where `id` is the message reacted to. Each person
   has at most one reaction on a message.
-- `edit`: `{"id", "ts", "text"}`. Accepted only for the sender's own message,
-  within 15 minutes of its `ts`.
-- `delete`: `{"id"}`. Accepted only for the sender's own message, within one
-  hour of its `ts`.
+- `edit`: `{"id", "ts", "text"}`. Accepted only for the sender's own text
+  message, within 15 minutes of its `ts`.
+- `delete`: `{"id"}`. Accepted only for the sender's own text message, within
+  one hour of its `ts`.
 - Forwarding uses an ordinary `msg`, so nothing new is needed.
 - Groups use envelope types through the relay, as `chat.text` does:
   `group.invite` `{"group", "name", "members"}`, answered by `group.accept` or
@@ -208,7 +208,7 @@ Added to the encrypted vault as optional fields, so older records still load:
 ### Screens
 
 - Message menu: Reply, Forward, Copy, Star, Edit and Delete for everyone (only
-  on your own message, inside its window), Delete for me, and Info (delivered
+  on your own text, inside its window), Delete for me, and Info (delivered
   and read times).
 - A reaction bar under a message.
 - Chat list: archived chats in their own section, pinned chats on top, and a
