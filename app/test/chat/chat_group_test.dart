@@ -567,6 +567,30 @@ void main() {
       );
     });
 
+    test('a resent copy of the invite a member declined, or an older one, does '
+        'not undo the decline (D23)', () {
+      final declined = ChatGroups.decline(threeWay(), _member(2));
+      expect(
+        stateOf(ChatGroups.reinvite(declined, _member(2), _now), _member(2)),
+        MemberState.declined,
+      );
+      expect(
+        stateOf(
+          ChatGroups.reinvite(declined, _member(2), _now - _minute),
+          _member(2),
+        ),
+        MemberState.declined,
+      );
+    });
+
+    test('a resent copy of the invite does not reopen an expired member', () {
+      final expired = ChatGroups.expire(threeWay(), _member(2));
+      expect(
+        stateOf(ChatGroups.reinvite(expired, _member(2), _now), _member(2)),
+        MemberState.expired,
+      );
+    });
+
     test('a decline or a new invite does not change an accepted member', () {
       final accepted = ChatGroups.accept(threeWay(), _member(2), _now);
       expect(

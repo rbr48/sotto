@@ -308,14 +308,20 @@ abstract final class ChatGroups {
   );
 
   /// A new invite to [memberId], dated [ts], after a decline or an expiry
-  /// (D23). Any other state does not change.
-  static ChatGroup reinvite(ChatGroup group, String memberId, int ts) => _set(
-    group,
-    memberId,
-    {MemberState.declined, MemberState.expired},
-    MemberState.invited,
-    invitedAt: ts,
-  );
+  /// (D23). It counts only when [ts] is later than the invite it answers, so a
+  /// resent copy of that invite, or an older one, leaves the member as it is.
+  /// Any other state does not change.
+  static ChatGroup reinvite(ChatGroup group, String memberId, int ts) {
+    final member = group.memberOf(memberId);
+    if (member == null || ts <= member.invitedAt) return group;
+    return _set(
+      group,
+      memberId,
+      {MemberState.declined, MemberState.expired},
+      MemberState.invited,
+      invitedAt: ts,
+    );
+  }
 
   /// A member who has accepted leaves. Any other state does not change.
   static ChatGroup leave(ChatGroup group, String memberId) =>
