@@ -55,6 +55,9 @@ Everything below has to be done by the account owner, on the store's website.
        - The relay processes IP addresses and public keys only briefly, in memory, to connect calls
          (ephemeral processing), and never stores them.
        - Contacts, history and notes never leave the device.
+       - The user's name, practice and profile photo (if they set one) go, end-to-end encrypted, to
+         anyone who opens their short call or contact link while their app is online. The user
+         chooses to share that link, and the data is end-to-end encrypted.
      - *Is data encrypted in transit?* Yes.
      - *Can users request deletion?* Nothing is stored on the server. Data on the device is deleted
        with *Settings → Erase Sotto from this device*, or by uninstalling.
@@ -71,6 +74,9 @@ Everything below has to be done by the account owner, on the store's website.
        connection (no FCM). Without the exemption, Android's battery saver stops the connection and
        calls are missed." This matches Play's accepted use case for apps whose core function needs a
        persistent connection that can't use FCM.
+     - Storage: Sotto asks for no permission to read photos, media or storage; files are picked with
+       the system's picker. `WRITE_EXTERNAL_STORAGE` is declared only on Android 9 and older, to
+       save files to Downloads. Play needs no declaration for it.
 
 ### Every release
 
