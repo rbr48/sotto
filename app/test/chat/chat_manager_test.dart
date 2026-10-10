@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -23,6 +24,9 @@ class _FakeRtc implements ChatRtc {
   bool relayOnly = false;
   bool closed = false;
   final addedCandidates = <Map<String, dynamic>>[];
+
+  /// Every text frame this connection has sent, in order.
+  final sentFrames = <String>[];
 
   final _frames = StreamController<String>();
   final _binaryFrames = StreamController<Uint8List>();
@@ -114,6 +118,7 @@ class _FakeTransport implements ChatTransport {
   bool send(String frame) {
     final peer = owner.peer;
     if (!owner._open || peer == null || owner.closed) return false;
+    owner.sentFrames.add(frame);
     scheduleMicrotask(() {
       if (!peer.closed && !peer._frames.isClosed) peer._frames.add(frame);
     });
@@ -158,6 +163,9 @@ class _Network {
   final rtcs = <String, List<_FakeRtc>>{};
   final sent = <({String from, String to, String type})>[];
 
+  /// The body of every envelope sent through the network, in order.
+  final bodies = <Map<String, Object?>>[];
+
   /// Whether texts sent through the relay arrive. Tests of a failing direct
   /// chat turn this off, so the message really cannot get through.
   bool relayText = true;
@@ -170,6 +178,7 @@ class _Network {
     String? callId,
   ) {
     sent.add((from: from, to: to, type: type));
+    bodies.add(Map<String, Object?>.from(body));
     if (!relayText && type == ChatManager.relayText) return;
     for (final device in managers[to] ?? const <ChatManager>[]) {
       scheduleMicrotask(
@@ -1834,7 +1843,146 @@ void main() {
       expect(archived.meta.archived, isTrue);
     });
   });
+
+  group('the contact and the relay never see local settings', () {
+    test('every frame type encodes without one', () {
+      final frames = <ChatFrame>[
+        const HelloFrame(features: {'reply', 'react'}),
+        MessageFrame(
+          id: _id(1),
+          ts: 1,
+          text: 'hi',
+          reply: (id: _id(2), text: 'yo'),
+          forwarded: true,
+        ),
+        AckFrame(id: _id(1)),
+        const TypingFrame(typing: true),
+        ReadFrame(ids: [_id(1)]),
+        FileOfferFrame(
+          id: _id(3),
+          name: 'a.pdf',
+          size: 1,
+          mime: 'application/pdf',
+          sha256: List.filled(64, 'a').join(),
+          chunks: 1,
+        ),
+        ReactFrame(id: _id(1), emoji: '\u{1F44D}', ts: 1),
+        EditFrame(id: _id(1), ts: 1, text: 'hi'),
+        DeleteFrame(id: _id(1), ts: 1),
+        FileAcceptFrame(id: _id(3)),
+        FileDeclineFrame(id: _id(3)),
+        FileDoneFrame(id: _id(3)),
+        FileAckFrame(id: _id(3)),
+        FileCancelFrame(id: _id(3), reason: 'cancelled'),
+        const ByeFrame(),
+      ];
+      expect(frames.map(_frameTypeName).toSet(), hasLength(15));
+      for (final frame in frames) {
+        _expectNoLocalSetting(ChatFrames.encode(frame), _frameTypeName(frame));
+      }
+    });
+
+    test(
+      'a whole conversation, over the direct chat and the relay, carries none',
+      () async {
+        final aliceStore = ChatStore(MemorySecretStore());
+        final bobStore = ChatStore(MemorySecretStore());
+        final alice = device(
+          'alice',
+          contacts: {'bob', 'dave'},
+          store: aliceStore,
+        );
+        final bob = device('bob', contacts: {'alice'}, store: bobStore);
+        // Dave's direct chat never opens, so his texts go through the relay.
+        device('dave', contacts: {'alice'}, neverOpens: true);
+
+        final hello = await alice.sendText('bob', 'hello');
+        await _settle();
+        final bobCopy = (await bobStore.messages('alice')).single;
+        bob.sendReadReceipts('alice', [bobCopy.id]);
+        final relayed = await alice.sendText('dave', 'are you there?');
+        await _settle();
+
+        // Local settings, and their changes on each device.
+        await alice.setStarred('bob', hello.id, true);
+        await alice.setArchived('dave', true);
+        await alice.setMuted('bob', true);
+        expect(await alice.setPinned('bob', true), ChatPinResult.pinned);
+        await bob.setStarred('alice', bobCopy.id, true);
+        await bob.setArchived('alice', true);
+        expect(await bob.setPinned('alice', true), ChatPinResult.pinned);
+        await _settle();
+
+        // Traffic that does go out: a reaction, an edit and a delete.
+        expect(await alice.react('bob', hello.id, '\u{1F44D}'), isTrue);
+        expect(await alice.edit('bob', hello.id, 'hello again'), isTrue);
+        expect(await alice.deleteForEveryone('dave', relayed.id), isTrue);
+        await _settle();
+
+        // The times and the star were recorded, so the traffic above carried
+        // real state; the frames below must still say nothing of them.
+        final helloNow = (await aliceStore.find('bob', hello.id))!;
+        expect(helloNow.deliveredAt, isNotNull);
+        expect(helloNow.readAt, isNotNull);
+        expect(helloNow.starred, isTrue);
+
+        final bodies = net.bodies;
+        final frames = [
+          for (final rtcs in net.rtcs.values)
+            for (final rtc in rtcs) ...rtc.sentFrames,
+        ];
+        expect(bodies, isNotEmpty);
+        expect(frames.any((f) => f.contains('"t":"msg"')), isTrue);
+        expect(frames.any((f) => f.contains('"t":"read"')), isTrue);
+        for (final body in bodies) {
+          _expectNoLocalSetting(jsonEncode(body), 'a relay envelope');
+        }
+        for (final frame in frames) {
+          _expectNoLocalSetting(frame, 'a direct frame');
+        }
+      },
+    );
+  });
 }
+
+/// The words of settings and times kept on one device only. None may reach
+/// the contact or the relay.
+const _localOnly = [
+  'archived',
+  'muted',
+  'pinned',
+  'starred',
+  'deliveredAt',
+  'readAt',
+];
+
+/// Fails when [wire], an encoded frame or envelope body, names a local
+/// setting. [what] says which one, for the failure message.
+void _expectNoLocalSetting(String wire, String what) {
+  for (final word in _localOnly) {
+    expect(wire, isNot(contains(word)), reason: '$word in $what: $wire');
+  }
+}
+
+/// The type of [frame], by its wire name. The switch has no default: a new
+/// frame type does not compile until it is named here.
+String _frameTypeName(ChatFrame frame) => switch (frame) {
+  HelloFrame() => 'hello',
+  MessageFrame() => 'msg',
+  AckFrame() => 'ack',
+  TypingFrame() => 'typing',
+  ReadFrame() => 'read',
+  FileOfferFrame() => 'file.offer',
+  ReactFrame() => 'react',
+  EditFrame() => 'edit',
+  DeleteFrame() => 'delete',
+  FileAcceptFrame() => 'file.accept',
+  FileDeclineFrame() => 'file.decline',
+  FileDoneFrame() => 'file.done',
+  FileAckFrame() => 'file.ack',
+  FileCancelFrame() => 'file.cancel',
+  ByeFrame() => 'bye',
+};
 
 /// A JPEG segment: its marker, its length, then its payload.
 List<int> _segment(int marker, List<int> payload) {
