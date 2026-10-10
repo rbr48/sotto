@@ -351,5 +351,28 @@
   "chatKeyboardTooltip": "Keyboard",
   "chatEmojiTooltip": "Emoji",
   "chatFileNoApp": "No app on this device can open this file.",
-  "chatFileStoragePermission": "Allow storage access, then tap Save again."
+  "chatFileStoragePermission": "Allow storage access, then tap Save again.",
+  "chatReply": "Reply",
+  "chatForward": "Forward",
+  "chatEdit": "Edit",
+  "chatReact": "React",
+  "chatDeleteForEveryone": "Delete for everyone",
+  "chatDeleteForEveryoneTitle": "Delete for everyone?",
+  "chatDeleteForEveryoneBody": "The message is removed from this device and from the other person's app. Their app may keep a copy.",
+  "chatEdited": "Edited",
+  "chatForwarded": "Forwarded",
+  "chatMessageDeleted": "Message deleted",
+  "chatCancelReply": "Cancel reply",
+  "chatEditing": "Editing message",
+  "chatCancelEdit": "Cancel edit",
+  "chatEditTooLate": "This message can no longer be edited.",
+  "chatForwardTitle": "Forward to",
+  "chatYou": "You",
+  "chatReactionSemantics": "{emoji}, {who}",
+  "@chatReactionSemantics": {
+    "placeholders": {
+      "emoji": { "type": "String" },
+      "who": { "type": "String" }
+    }
+  }
 }

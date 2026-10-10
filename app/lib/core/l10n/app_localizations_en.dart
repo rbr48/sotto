@@ -579,4 +579,58 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get chatFileStoragePermission =>
       'Allow storage access, then tap Save again.';
+
+  @override
+  String get chatReply => 'Reply';
+
+  @override
+  String get chatForward => 'Forward';
+
+  @override
+  String get chatEdit => 'Edit';
+
+  @override
+  String get chatReact => 'React';
+
+  @override
+  String get chatDeleteForEveryone => 'Delete for everyone';
+
+  @override
+  String get chatDeleteForEveryoneTitle => 'Delete for everyone?';
+
+  @override
+  String get chatDeleteForEveryoneBody =>
+      'The message is removed from this device and from the other person\'s app. Their app may keep a copy.';
+
+  @override
+  String get chatEdited => 'Edited';
+
+  @override
+  String get chatForwarded => 'Forwarded';
+
+  @override
+  String get chatMessageDeleted => 'Message deleted';
+
+  @override
+  String get chatCancelReply => 'Cancel reply';
+
+  @override
+  String get chatEditing => 'Editing message';
+
+  @override
+  String get chatCancelEdit => 'Cancel edit';
+
+  @override
+  String get chatEditTooLate => 'This message can no longer be edited.';
+
+  @override
+  String get chatForwardTitle => 'Forward to';
+
+  @override
+  String get chatYou => 'You';
+
+  @override
+  String chatReactionSemantics(String emoji, String who) {
+    return '$emoji, $who';
+  }
 }

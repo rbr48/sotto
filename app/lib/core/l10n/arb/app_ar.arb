@@ -159,5 +159,22 @@
   "chatKeyboardTooltip": "لوحة المفاتيح",
   "chatEmojiTooltip": "الرموز التعبيرية",
   "chatFileNoApp": "لا يوجد تطبيق على هذا الجهاز يمكنه فتح هذا الملف.",
-  "chatFileStoragePermission": "اسمح بالوصول إلى التخزين، ثم اضغط على حفظ مرة أخرى."
+  "chatFileStoragePermission": "اسمح بالوصول إلى التخزين، ثم اضغط على حفظ مرة أخرى.",
+  "chatReply": "رد",
+  "chatForward": "إعادة توجيه",
+  "chatEdit": "تعديل",
+  "chatReact": "تفاعل",
+  "chatDeleteForEveryone": "حذف للجميع",
+  "chatDeleteForEveryoneTitle": "حذف للجميع؟",
+  "chatDeleteForEveryoneBody": "تتم إزالة الرسالة من هذا الجهاز ومن تطبيق الطرف الآخر. قد يحتفظ تطبيقه بنسخة.",
+  "chatEdited": "تم التعديل",
+  "chatForwarded": "تمت إعادة التوجيه",
+  "chatMessageDeleted": "تم حذف الرسالة",
+  "chatCancelReply": "إلغاء الرد",
+  "chatEditing": "تعديل الرسالة",
+  "chatCancelEdit": "إلغاء التعديل",
+  "chatEditTooLate": "لم يعد من الممكن تعديل هذه الرسالة.",
+  "chatForwardTitle": "إعادة التوجيه إلى",
+  "chatYou": "أنت",
+  "chatReactionSemantics": "{emoji}، {who}"
 }
