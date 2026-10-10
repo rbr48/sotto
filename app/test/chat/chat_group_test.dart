@@ -431,4 +431,271 @@ void main() {
       expect(held.memberOf(_member(1))!.state, MemberState.accepted);
     });
   });
+
+  group('state transitions (D11, D13, D22, D23)', () {
+    /// The creator's table: member 1 is this device, members 2 and 3 are
+    /// invited at [_now].
+    ChatGroup threeWay() => ChatGroups.create(
+      selfId: _member(1),
+      name: 'Trip',
+      invitees: [_member(2), _member(3)],
+      contacts: {_member(2), _member(3)},
+      ts: _now,
+      random: Random(1),
+    );
+
+    MemberState stateOf(ChatGroup group, String memberId) =>
+        group.memberOf(memberId)!.state;
+
+    test('an accept in the window is honoured, from the invite to the window '
+        'end plus the clock skew', () {
+      final group = threeWay();
+      final end = _now + 15 * _minute + 5 * _minute;
+      expect(
+        stateOf(ChatGroups.accept(group, _member(2), _now), _member(2)),
+        MemberState.accepted,
+      );
+      expect(
+        stateOf(ChatGroups.accept(group, _member(2), end), _member(2)),
+        MemberState.accepted,
+      );
+    });
+
+    test('an accept just after the window end plus the clock skew expires the '
+        'member', () {
+      final group = threeWay();
+      final late = _now + 20 * _minute + 1;
+      expect(
+        stateOf(ChatGroups.accept(group, _member(2), late), _member(2)),
+        MemberState.expired,
+      );
+    });
+
+    test('an accept a little before the invite is honoured for clock skew, and '
+        'one further before expires the member', () {
+      final group = threeWay();
+      expect(
+        stateOf(
+          ChatGroups.accept(group, _member(2), _now - 5 * _minute),
+          _member(2),
+        ),
+        MemberState.accepted,
+      );
+      expect(
+        stateOf(
+          ChatGroups.accept(group, _member(2), _now - 5 * _minute - 1),
+          _member(2),
+        ),
+        MemberState.expired,
+      );
+    });
+
+    test('an expired member joins on an accept in the window, so a local '
+        'expiry decides nothing', () {
+      final group = threeWay();
+      final expired = ChatGroups.expire(group, _member(2));
+      expect(stateOf(expired, _member(2)), MemberState.expired);
+      expect(
+        stateOf(
+          ChatGroups.accept(expired, _member(2), _now + 3 * _minute),
+          _member(2),
+        ),
+        MemberState.accepted,
+      );
+    });
+
+    test('an expired member stays expired on a late accept', () {
+      final late = ChatGroups.accept(
+        threeWay(),
+        _member(2),
+        _now + 21 * _minute,
+      );
+      expect(stateOf(late, _member(2)), MemberState.expired);
+      expect(
+        stateOf(
+          ChatGroups.accept(late, _member(2), _now + 30 * _minute),
+          _member(2),
+        ),
+        MemberState.expired,
+      );
+    });
+
+    test('expire marks only an invited member', () {
+      final group = threeWay();
+      expect(
+        stateOf(ChatGroups.expire(group, _member(2)), _member(2)),
+        MemberState.expired,
+      );
+      final accepted = ChatGroups.accept(group, _member(2), _now);
+      expect(
+        stateOf(ChatGroups.expire(accepted, _member(2)), _member(2)),
+        MemberState.accepted,
+      );
+    });
+
+    test('a decline is final: a later accept does not join, even in the '
+        'window', () {
+      final declined = ChatGroups.decline(threeWay(), _member(2));
+      expect(stateOf(declined, _member(2)), MemberState.declined);
+      final tried = ChatGroups.accept(declined, _member(2), _now + _minute);
+      expect(stateOf(tried, _member(2)), MemberState.declined);
+    });
+
+    test('a declined member joins only through a new invite (D23)', () {
+      final declined = ChatGroups.decline(threeWay(), _member(2));
+      final invitedAgain = ChatGroups.reinvite(
+        declined,
+        _member(2),
+        _now + 60 * _minute,
+      );
+      expect(stateOf(invitedAgain, _member(2)), MemberState.invited);
+      expect(invitedAgain.memberOf(_member(2))!.invitedAt, _now + 60 * _minute);
+      // The answer is judged against the new invite, not the old one.
+      expect(
+        stateOf(
+          ChatGroups.accept(invitedAgain, _member(2), _now + _minute),
+          _member(2),
+        ),
+        MemberState.expired,
+      );
+      expect(
+        stateOf(
+          ChatGroups.accept(invitedAgain, _member(2), _now + 61 * _minute),
+          _member(2),
+        ),
+        MemberState.accepted,
+      );
+    });
+
+    test('a decline or a new invite does not change an accepted member', () {
+      final accepted = ChatGroups.accept(threeWay(), _member(2), _now);
+      expect(
+        stateOf(ChatGroups.decline(accepted, _member(2)), _member(2)),
+        MemberState.accepted,
+      );
+      expect(
+        stateOf(
+          ChatGroups.reinvite(accepted, _member(2), _now + _minute),
+          _member(2),
+        ),
+        MemberState.accepted,
+      );
+    });
+
+    test('an answer from someone who is not a member changes nothing', () {
+      final group = threeWay();
+      expect(
+        ChatGroups.accept(group, _member(9), _now).memberIds,
+        group.memberIds,
+      );
+      expect(ChatGroups.decline(group, _member(9)).memberIds, group.memberIds);
+    });
+
+    test('a member who has accepted leaves, and an invited one cannot', () {
+      final group = threeWay();
+      expect(
+        stateOf(ChatGroups.leave(group, _member(2)), _member(2)),
+        MemberState.invited,
+      );
+      final accepted = ChatGroups.accept(group, _member(2), _now);
+      final left = ChatGroups.leave(accepted, _member(2));
+      expect(stateOf(left, _member(2)), MemberState.left);
+      expect(left.memberIds, group.memberIds);
+    });
+
+    test('this device leaves its own group, and is then no longer active', () {
+      final group = threeWay();
+      expect(ChatGroups.isActive(group), isTrue);
+      final left = ChatGroups.leave(group, _member(1));
+      expect(left.left, isTrue);
+      expect(ChatGroups.isActive(left), isFalse);
+      expect(ChatGroups.sendTargets(left, {_member(2), _member(3)}), isEmpty);
+    });
+
+    test('a group of two stays active after a member leaves (D13)', () {
+      var group = threeWay();
+      group = ChatGroups.accept(group, _member(2), _now);
+      group = ChatGroups.accept(group, _member(3), _now);
+      group = ChatGroups.leave(group, _member(3));
+      expect(ChatGroups.isActive(group), isTrue);
+      expect(group.left, isFalse);
+      expect(ChatGroups.sendTargets(group, {_member(2), _member(3)}), [
+        _member(2),
+      ]);
+    });
+
+    test('a message goes only to accepted members who are contacts', () {
+      final group = threeWay();
+      expect(
+        ChatGroups.sendTargets(group, {_member(2), _member(3)}),
+        isEmpty,
+        reason: 'nobody has accepted',
+      );
+      final accepted = ChatGroups.accept(group, _member(2), _now);
+      expect(ChatGroups.sendTargets(accepted, {_member(2), _member(3)}), [
+        _member(2),
+      ]);
+    });
+
+    test('a device that has declined its own invite sends nothing', () {
+      final invite = GroupInvite(
+        group: _group(40),
+        name: 'Trip',
+        members: [_member(2), _member(1), _member(3)],
+        ts: _now,
+        inviter: _member(2),
+      );
+      final held = ChatGroups.fromInvite(invite, selfId: _member(1));
+      final declined = ChatGroups.decline(held, _member(1));
+      expect(ChatGroups.isActive(declined), isFalse);
+      expect(
+        ChatGroups.sendTargets(declined, {_member(2), _member(3)}),
+        isEmpty,
+      );
+    });
+
+    test('a contact removed mid-group keeps its place, and gets nothing '
+        'further (D22)', () {
+      var group = threeWay();
+      group = ChatGroups.accept(group, _member(2), _now);
+      group = ChatGroups.accept(group, _member(3), _now);
+      final contacts = {_member(2)};
+      expect(ChatGroups.sendTargets(group, contacts), [_member(2)]);
+      expect(ChatGroups.missingContacts(group, contacts), [_member(3)]);
+      // Membership and states are as they were.
+      expect(group.memberIds, [_member(1), _member(2), _member(3)]);
+      expect(stateOf(group, _member(3)), MemberState.accepted);
+      expect(ChatGroups.isActive(group), isTrue);
+    });
+
+    test('a joiner needs every other member as a contact (D3)', () {
+      final invite = GroupInvite(
+        group: _group(40),
+        name: 'Trip',
+        members: [_member(2), _member(1), _member(3)],
+        ts: _now,
+        inviter: _member(2),
+      );
+      final held = ChatGroups.fromInvite(invite, selfId: _member(1));
+      expect(ChatGroups.missingContacts(held, {_member(2)}), [_member(3)]);
+      expect(
+        ChatGroups.missingContacts(held, {_member(2), _member(3)}),
+        isEmpty,
+      );
+    });
+
+    test(
+      'a reply in a group may quote only the replier\'s own message (D25)',
+      () {
+        expect(
+          ChatGroups.mayQuote(authorId: _member(1), replierId: _member(1)),
+          isTrue,
+        );
+        expect(
+          ChatGroups.mayQuote(authorId: _member(2), replierId: _member(1)),
+          isFalse,
+        );
+      },
+    );
+  });
 }

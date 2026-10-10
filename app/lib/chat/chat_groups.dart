@@ -250,4 +250,118 @@ abstract final class ChatGroups {
       ],
     );
   }
+
+  /// Whether an answer made at [answeredAt] falls in the window of an invite
+  /// dated [invitedAt] (D11). The window runs [inviteWindow] from the invite's
+  /// ts. The answering device's clock may run behind or ahead of the inviter's
+  /// by up to [clockSkew], so each end of the window is widened by that. Only
+  /// the two ts values count, never the time of arrival, so every device gives
+  /// the same answer.
+  static bool inWindow(int invitedAt, int answeredAt) {
+    final skew = clockSkew.inMilliseconds;
+    return answeredAt >= invitedAt - skew &&
+        answeredAt <= invitedAt + inviteWindow.inMilliseconds + skew;
+  }
+
+  /// Sets the state of [memberId] to [to] when the member is in [from], and
+  /// leaves the group as it is otherwise.
+  static ChatGroup _set(
+    ChatGroup group,
+    String memberId,
+    Set<MemberState> from,
+    MemberState to, {
+    int? invitedAt,
+  }) {
+    final member = group.memberOf(memberId);
+    if (member == null || !from.contains(member.state)) return group;
+    return group.withMember(
+      GroupMember(
+        id: memberId,
+        state: to,
+        invitedAt: invitedAt ?? member.invitedAt,
+      ),
+    );
+  }
+
+  /// An accept from [memberId], made at [ts]. An invited or expired member is
+  /// accepted when the accept falls in the window (D11), and expired when it
+  /// does not. A member who has declined, accepted or left does not change.
+  static ChatGroup accept(ChatGroup group, String memberId, int ts) {
+    final member = group.memberOf(memberId);
+    if (member == null) return group;
+    final answered = inWindow(member.invitedAt, ts)
+        ? MemberState.accepted
+        : MemberState.expired;
+    return _set(group, memberId, {
+      MemberState.invited,
+      MemberState.expired,
+    }, answered);
+  }
+
+  /// A decline from [memberId]. It is final: the member stays declined until a
+  /// new invite (D23). A member who has accepted or left does not change.
+  static ChatGroup decline(ChatGroup group, String memberId) => _set(
+    group,
+    memberId,
+    {MemberState.invited, MemberState.expired},
+    MemberState.declined,
+  );
+
+  /// A new invite to [memberId], dated [ts], after a decline or an expiry
+  /// (D23). Any other state does not change.
+  static ChatGroup reinvite(ChatGroup group, String memberId, int ts) => _set(
+    group,
+    memberId,
+    {MemberState.declined, MemberState.expired},
+    MemberState.invited,
+    invitedAt: ts,
+  );
+
+  /// A member who has accepted leaves. Any other state does not change.
+  static ChatGroup leave(ChatGroup group, String memberId) =>
+      _set(group, memberId, {MemberState.accepted}, MemberState.left);
+
+  /// Marks an invite with no answer by the end of its window as expired. A
+  /// device calls this from its own clock, so the result only shows on screen:
+  /// an accept that is in the window still joins the member (see [accept]).
+  /// Because a join is judged by ts alone, devices agree whatever their clocks
+  /// read.
+  static ChatGroup expire(ChatGroup group, String memberId) =>
+      _set(group, memberId, {MemberState.invited}, MemberState.expired);
+
+  /// Whether this device is in [group]: it accepted and has not left. A group
+  /// of two stays active after the other one leaves (D13).
+  static bool isActive(ChatGroup group) =>
+      group.memberOf(group.selfId)?.state == MemberState.accepted;
+
+  /// The members a message to [group] goes to: the accepted members other than
+  /// this device that are still contacts of this device. A member who is no
+  /// longer a contact keeps its place in the group but gets nothing further
+  /// (D22). Nothing is sent while this device is not active.
+  static List<String> sendTargets(ChatGroup group, Set<String> contacts) {
+    if (!isActive(group)) return const [];
+    return [
+      for (final member in group.members)
+        if (member.id != group.selfId &&
+            member.state == MemberState.accepted &&
+            contacts.contains(member.id))
+          member.id,
+    ];
+  }
+
+  /// The other members that are not contacts of this device. A device that is
+  /// missing one cannot join, and says so on its own screen only (D3).
+  static List<String> missingContacts(
+    ChatGroup group,
+    Set<String> contacts,
+  ) => [
+    for (final member in group.members)
+      if (member.id != group.selfId && !contacts.contains(member.id)) member.id,
+  ];
+
+  /// Whether a reply in a group may quote a message by [authorId]: only the
+  /// replier's own message (D25). A receiver cannot check another member's
+  /// text, so a quote of it could carry words the receiver never saw.
+  static bool mayQuote({required String authorId, required String replierId}) =>
+      authorId == replierId;
 }
