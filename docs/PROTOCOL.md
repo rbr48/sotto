@@ -453,6 +453,88 @@ plaintext = JSON {"master": "<32-byte master secret>", "values": {<vault entries
 - `values` holds the vault (§9) except device-only entries (`sotto.lock.v1`, `sotto.devices.v1`, `sotto.settings.desktop`); call history and notes are optional.
 - Restoring writes the master secret to the OS keystore and replaces the vault's contents, keeping the device's own app lock and device choices.
 
+## 8A. Chat exports
+
+A chat export is a file of one chat's messages, for the person who owns the chat to read or keep. It is not a backup (section 8) and restores nothing. The app does not import exports.
+
+It holds the chat and nothing else. It never contains the master secret, keystore or vault values, the identity, other chats, pending controls (queued reactions, edits and deletes), chat settings (archived, muted, pinned), contact or message ids, or the bytes, keys or paths of files.
+
+### Encrypted file (the default)
+
+The file is one line of JSON:
+
+```
+{"sotto":"chat-export","v":1,
+ "kdf":{"alg":"argon2id13","ops":<int>,"mem":<bytes>,"salt":"<16 bytes>"},
+ "nonce":"<24 bytes>","data":["<segment>", …]}
+```
+
+```
+key       = crypto_pwhash(32, passphrase, salt, ops, mem, ALG_ARGON2ID13)   // once per file; defaults as section 8
+segment_i = crypto_aead_xchacha20poly1305_ietf_encrypt(plain_i, ad_i, nonce_i, key)
+nonce_i   = nonce[0..16] || uint64_be(i)
+ad_i      = "sotto-chat-export-v1\0" || JSON[1, "argon2id13", ops, mem, salt, nonce, i, last]
+plain     = the payload, cut into segments of 65,536 bytes; the last holds 1 to 65,536 bytes
+```
+
+- `salt`, `nonce` and each `<segment>` are unpadded base64url (section 1). A segment is the ciphertext followed by its 16-byte tag. `i` counts segments from 0. `last` is `true` for the final segment and `false` for every other, so a file cut short or with segments reordered does not open.
+- The passphrase is trimmed and must be at least 12 characters, as for backups.
+- Opening accepts only `1 ≤ ops ≤ 10`, `8 MiB ≤ mem ≤ 1 GiB`, a 16-byte salt, a 24-byte nonce and at least one segment. A file that fails any of these is not a chat export. A file with another `sotto` tag is not a chat export. One with another version or key algorithm is refused as unsupported. A segment that fails to open is reported as a wrong passphrase, or as changed or damaged, as for backups.
+- The app writes the header first, then each segment as it is sealed, then `]}`. A long chat is therefore never held whole in memory, and writing in pieces gives the same bytes as writing in one piece. The salt and nonce are drawn before the first byte is written.
+
+### Payload
+
+The plaintext is UTF-8 JSON, the segments concatenated:
+
+```
+{"with": "<the contact's name, as the chat shows it>",
+ "exported": "<ISO 8601, UTC>",
+ "messages": [ <message>, … ]}
+```
+
+The messages are the chat's stored messages, oldest first. Each has:
+
+| Field | Meaning |
+|---|---|
+| `out` | `true` when this device's owner sent it. `false` when the contact did; the sender is then the name in `with` |
+| `sent` | Milliseconds since the epoch, on the sender's clock (`ts`) |
+| `delivered` | When the other device first acknowledged it (`deliveredAt`), when known |
+| `read` | When the contact first read it (`readAt`), when known |
+| `edited` | When the text was last edited (`editedAt`), when edited |
+| `forwarded` | `true` when forwarded from another chat |
+| `starred` | `true` when the owner starred it |
+| `text` | The text, for an ordinary message |
+| `file` | For a file or voice note: `{"name": "<file name>", "size": <bytes>}`, the size when known. No other field |
+| `quote` | For a reply: the quoted text as stored with the reply |
+| `reactions` | Array of `{"out": bool, "emoji": "<emoji>"}`: the owner's reaction first, then the contact's |
+| `deleted` | `true` when deleted for everyone. Such a message has no `text`, `file`, `quote` or `reactions`; its times and marks stay |
+
+A message has either `text` or `file` (or `deleted`), never both. Field names are as listed; a reader ignores fields it does not know.
+
+### Plain text (opt-in)
+
+The plain export is not encrypted. The app writes it only after the owner confirms a warning that anyone with the file can read it. It holds the same messages, marks, times and file names and sizes as the payload, and the same exclusions. It is UTF-8 text with LF line endings:
+
+```
+<contact's name>
+Exported <UTC time, to the second>
+
+[<sent, UTC>] <sender>: <text>
+    Reply to: "<quote>"
+    Reactions: <emoji> (<who>), …
+    Edited <time>
+    Forwarded
+    Starred
+    Delivered <time>
+    Read <time>
+```
+
+The sender is the owner's label ("You" in English) or the contact's name. A file is `File: <name> (<size> bytes)` and a deleted message `Message deleted`. Words other than the names are passed in by the app, in the person's language, and default to English. Messages are separated by a blank line.
+
+### Where the export goes
+
+The export is made and saved on the device. Nothing is uploaded, and no relay, server or third party receives it. The app does not keep a copy.
+
 ## 9. Local storage: the vault (Phase 6)
 
 All local data except the identity (profile, contacts, call history and notes, guest links, settings) is one key-value map of strings, stored as a single file in the app's private support directory (`sotto.vault`):
