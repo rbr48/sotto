@@ -157,17 +157,18 @@ object Files {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
 
-        // Grant explicit read URI permission to all applications capable of opening this file.
+        // Grant explicit read URI permission to the applications that can open this file.
         // Required on Android (especially Xiaomi MIUI/HyperOS, Samsung, etc.) where external
         // document viewers and PDF engines render files using a separate background process or service.
+        // MATCH_DEFAULT_ONLY keeps the list to the apps startActivity can actually deliver the intent to.
         val matches = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             app.packageManager.queryIntentActivities(
                 intent,
-                PackageManager.ResolveInfoFlags.of(0L)
+                PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong())
             )
         } else {
             @Suppress("DEPRECATION")
-            app.packageManager.queryIntentActivities(intent, 0)
+            app.packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
         }
         for (info in matches) {
             app.grantUriPermission(
@@ -185,8 +186,20 @@ object Files {
         return true
     }
 
-    /** Removes open copies left from earlier opens (older than an hour). */
-    private fun deleteOldOpenCopies(app: Context, openRoot: File, keep: File) {
+    /**
+     * Called when the app starts. An open copy and its read grants go once the
+     * copy is an hour old; without this, they would last until the next file
+     * is opened, which may never happen. Never throws: it runs before any call.
+     */
+    fun removeStaleOpenCopies(app: Context) {
+        try {
+            deleteOldOpenCopies(app, File(app.cacheDir, OPEN_FOLDER), keep = null)
+        } catch (_: Exception) {
+        }
+    }
+
+    /** Removes open copies left from earlier opens (older than an hour), with their grants. */
+    private fun deleteOldOpenCopies(app: Context, openRoot: File, keep: File?) {
         val cutoff = System.currentTimeMillis() - OPEN_COPY_MAX_AGE_MS
         openRoot.listFiles()?.forEach { dir ->
             if (dir.isDirectory && dir != keep && OPEN_COPY_FOLDER.matches(dir.name) &&
