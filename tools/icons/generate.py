@@ -305,6 +305,23 @@ def main():
         save(render(layer, scale=ADAPTIVE_SCALE, background=False), f'{res}/mipmap-{name}/ic_launcher_foreground.png')
         save(render(layer, scale=ADAPTIVE_SCALE, monochrome=True), f'{res}/mipmap-{name}/ic_launcher_monochrome.png')
 
+    # iOS.
+    ios_icons = 'app/ios/Runner/Assets.xcassets/AppIcon.appiconset'
+    if (ROOT / ios_icons).exists():
+        save(render(1024, shape='square').convert('RGB'), f'{ios_icons}/Icon-App-1024x1024@1x.png')
+        for pt, scale in [
+            (20, 1), (20, 2), (20, 3),
+            (29, 1), (29, 2), (29, 3),
+            (40, 1), (40, 2), (40, 3),
+            (60, 2), (60, 3),
+            (76, 1), (76, 2),
+            (83.5, 2)
+        ]:
+            px = round(pt * scale)
+            suffix = f'@{scale}x' if scale > 1 else '@1x'
+            pt_str = f'{int(pt)}x{int(pt)}' if pt == int(pt) else f'{pt}x{pt}'
+            save(render(px, shape='square').convert('RGB'), f'{ios_icons}/Icon-App-{pt_str}{suffix}.png')
+
 
 if __name__ == '__main__':
     main()

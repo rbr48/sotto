@@ -353,9 +353,36 @@ jobs:
             dist/sotto-windows-x64.zip
             dist/sotto-windows-x64-setup.exe
 
+  build-ios:
+    name: iOS Release (.ipa for sideloading)
+    needs: [version, gate]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Build iOS App (.app)
+        working-directory: app
+        run: |
+          flutter build ios --release --no-codesign
+      - name: Package .ipa for Sideloading
+        run: |
+          mkdir -p dist
+          cd app/build/ios/iphoneos
+          mkdir -p Payload
+          cp -r Runner.app Payload/
+          zip -r -9 ../../../../dist/sotto-ios.ipa Payload
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-ios
+          path: dist/sotto-ios.ipa
+
   publish:
     name: Publish GitHub Release
-    needs: [version, gate, build-android, build-linux, build-windows]
+    needs: [version, gate, build-android, build-linux, build-windows, build-ios]
     runs-on: ubuntu-latest
     steps:
       - name: Download all build artifacts
@@ -367,7 +394,7 @@ jobs:
         working-directory: dist
         run: |
           sha256sum sotto-android.apk sotto-android-play.aab sotto-windows-x64-setup.exe sotto-windows-x64.zip \
-            sotto-linux-x86_64.AppImage sotto-linux-amd64.deb sotto-linux-x64.tar.gz > SHA256SUMS.txt
+            sotto-linux-x86_64.AppImage sotto-linux-amd64.deb sotto-linux-x64.tar.gz sotto-ios.ipa > SHA256SUMS.txt
           cat SHA256SUMS.txt
       - name: Release notes header
         env:
@@ -378,6 +405,7 @@ jobs:
             echo
             echo "- Android signing certificate (SHA-256): \`$(cat dist/android-cert-sha256.txt)\`"
             echo "- File checksums: \`SHA256SUMS.txt\`"
+            echo "- iOS sideloading IPA: \`sotto-ios.ipa\` (install via AltStore, SideStore, Sideloadly or TrollStore)"
             if [ "$WINDOWS_SIGNED" = "true" ]; then
               echo "- The Windows installer and sotto.exe are code-signed. Linux builds are checked with SHA256SUMS.txt."
             else
@@ -402,4 +430,5 @@ jobs:
             dist/sotto-linux-x86_64.AppImage
             dist/sotto-linux-amd64.deb
             dist/sotto-linux-x64.tar.gz
+            dist/sotto-ios.ipa
             dist/SHA256SUMS.txt

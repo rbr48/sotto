@@ -23,6 +23,7 @@ Thumbs.db
 /downloads/
 /dist/
 node_modules/
+*.tar.gz
 
 # IDE & Editor files
 .idea/
