@@ -1119,6 +1119,8 @@ void main() {
     'lib/chat/ui/reaction_bar.dart',
     'lib/chat/ui/emoji_picker_panel.dart',
     'lib/chat/ui/forward_picker.dart',
+    'lib/chat/ui/message_info_sheet.dart',
+    'lib/chat/ui/starred_page.dart',
   ]) {
     test('$file carries no green, cyan or amber, and no unbacked claim', () {
       final source = File(file).readAsStringSync();

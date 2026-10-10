@@ -1755,4 +1755,556 @@ void main() {
       },
     );
   });
+
+  group('starred messages and delivery times', () {
+    test('starred and the times are kept across a reload', () async {
+      await store.add(_message(1));
+      await store.changeMessage(
+        'bob',
+        _id(1),
+        (m) => m.copyWith(starred: true, deliveredAt: 1000, readAt: 2000),
+      );
+
+      final reloaded = await ChatStore(secrets).find('bob', _id(1));
+      expect(reloaded!.starred, isTrue);
+      expect(reloaded.deliveredAt, 1000);
+      expect(reloaded.readAt, 2000);
+    });
+
+    test('a message stored before these fields existed loads with the defaults', () async {
+      await secrets.write(
+        ChatStore.contactKey('bob'),
+        '[{"id":"${_id(1)}","out":true,"ts":1,"text":"old","state":"delivered"}]',
+      );
+
+      final message = (await store.messages('bob')).single;
+      expect(message.starred, isFalse);
+      expect(message.deliveredAt, isNull);
+      expect(message.readAt, isNull);
+    });
+
+    test('a flag or time of the wrong type is reported, not guessed at', () async {
+      for (final field in [
+        '"starred":"yes"',
+        '"deliveredAt":"now"',
+        '"readAt":1.5',
+      ]) {
+        final raw =
+            '[{"id":"${_id(1)}","out":true,"ts":1,"text":"x","state":"delivered",$field}]';
+        await secrets.write(ChatStore.contactKey('bob'), raw);
+
+        await expectLater(
+          ChatStore(secrets).messages('bob'),
+          throwsA(isA<ChatStoreException>()),
+          reason: field,
+        );
+        expect(await secrets.read(ChatStore.contactKey('bob')), raw);
+      }
+    });
+
+    test(
+      'setStateAt sets the state and the time, and keeps the first time',
+      () async {
+        await store.add(_message(1, state: ChatState.sending));
+
+        await store.setStateAt('bob', _id(1), ChatState.delivered, at: 1000);
+        await _expectSummaryInStep(secrets, 'bob');
+        var message = (await store.find('bob', _id(1)))!;
+        expect(message.state, ChatState.delivered);
+        expect(message.deliveredAt, 1000);
+        expect(message.readAt, isNull);
+
+        await store.setStateAt('bob', _id(1), ChatState.delivered, at: 2000);
+        await store.setStateAt('bob', _id(1), ChatState.read, at: 3000);
+        await store.setStateAt('bob', _id(1), ChatState.read, at: 4000);
+        message = (await ChatStore(secrets).find('bob', _id(1)))!;
+        expect(message.state, ChatState.read);
+        expect(message.deliveredAt, 1000);
+        expect(message.readAt, 3000);
+        await _expectSummaryInStep(secrets, 'bob');
+      },
+    );
+
+    test(
+      'setStateAt for a message that is not stored writes nothing',
+      () async {
+        await store.add(_message(1));
+        final before = await secrets.read(ChatStore.contactKey('bob'));
+
+        await store.setStateAt('bob', _id(9), ChatState.read, at: 5);
+        expect(await secrets.read(ChatStore.contactKey('bob')), before);
+      },
+    );
+
+    test(
+      'updateMessage keeps a star and a time set after its copy was taken',
+      () async {
+        await store.add(_message(1));
+        final copy = (await store.find('bob', _id(1)))!;
+        await store.changeMessage(
+          'bob',
+          _id(1),
+          (m) => m.copyWith(starred: true),
+        );
+        await store.setStateAt('bob', _id(1), ChatState.delivered, at: 1000);
+
+        await store.updateMessage(copy.copyWith(fileStatus: 'transferring'));
+        final stored = (await ChatStore(secrets).find('bob', _id(1)))!;
+        expect(stored.starred, isTrue);
+        expect(stored.deliveredAt, 1000);
+        expect(stored.readAt, isNull);
+        expect(stored.fileStatus, 'transferring');
+      },
+    );
+  });
+
+  group('chat settings: archived, muted and pinned', () {
+    test(
+      'settings are kept across a reload, and cleared ones leave no record',
+      () async {
+        await store.add(_message(1));
+        await store.setArchived('bob', true);
+        await store.setMuted('bob', true);
+        expect(
+          await store.setPinned('bob', true, at: 500),
+          ChatPinResult.pinned,
+        );
+
+        expect(
+          await ChatStore(secrets).chatMeta('bob'),
+          const ChatMeta(archived: true, muted: true, pinnedAt: 500),
+        );
+
+        await store.setArchived('bob', false);
+        await store.setMuted('bob', false);
+        expect(
+          await store.setPinned('bob', false, at: 600),
+          ChatPinResult.unpinned,
+        );
+        expect(await ChatStore(secrets).chatMeta('bob'), ChatMeta.defaults);
+        expect(await secrets.read(ChatStore.metaKey('bob')), isNull);
+      },
+    );
+
+    test('a chat with no settings record has the defaults', () async {
+      expect(await store.chatMeta('bob'), ChatMeta.defaults);
+      await store.add(_message(1));
+      expect(await store.chatMeta('bob'), ChatMeta.defaults);
+      expect(await secrets.read(ChatStore.metaKey('bob')), isNull);
+    });
+
+    test(
+      'the summary carries the settings, from the first message on',
+      () async {
+        await store.setMuted('bob', true);
+        expect(await secrets.read(ChatStore.summaryKey('bob')), isNull);
+
+        await store.add(
+          _message(1, outgoing: false, state: ChatState.received),
+        );
+        var json = jsonDecode(
+          (await secrets.read(ChatStore.summaryKey('bob')))!,
+        ) as Map<String, dynamic>;
+        expect(json['meta'], const ChatMeta(muted: true).toJson());
+
+        await store.setArchived('bob', true);
+        json = jsonDecode(
+          (await secrets.read(ChatStore.summaryKey('bob')))!,
+        ) as Map<String, dynamic>;
+        expect(
+          json['meta'],
+          const ChatMeta(archived: true, muted: true).toJson(),
+        );
+        await _expectSummaryInStep(secrets, 'bob');
+      },
+    );
+
+    test(
+      'a summary from before the settings existed loads with the defaults',
+      () async {
+        await store.add(
+          _message(1, outgoing: false, state: ChatState.received),
+        );
+        final last = (await store.messages('bob')).single.toJson();
+        await secrets.write(
+          ChatStore.summaryKey('bob'),
+          jsonEncode({'last': last, 'unread': 1}),
+        );
+
+        final listed = await ChatStore(secrets).recentChats();
+        expect(listed.single.contactId, 'bob');
+        expect(listed.single.meta, ChatMeta.defaults);
+        expect(listed.single.unreadCount, 1);
+      },
+    );
+
+    test('a settings record of the wrong type is reported once, and the defaults are used', () async {
+      const bad = [
+        '{not json',
+        '["archived"]',
+        '{"archived":"yes","muted":false,"pinnedAt":null}',
+        '{"archived":false,"muted":false,"pinnedAt":"now"}',
+      ];
+      for (final raw in bad) {
+        final lines = <String>[];
+        final reporting = ChatStore(secrets, log: lines.add);
+        await secrets.write(ChatStore.metaKey('bob'), raw);
+        await reporting.add(
+          _message(1, outgoing: false, state: ChatState.received),
+        );
+
+        expect(await reporting.chatMeta('bob'), ChatMeta.defaults, reason: raw);
+        expect((await reporting.messages('bob')).single.id, _id(1));
+        expect((await reporting.recentChats()).single.contactId, 'bob');
+        expect(lines, ['chat settings cannot be read'], reason: raw);
+
+        // The next change replaces the bad record.
+        await reporting.setMuted('bob', true);
+        expect(
+          await ChatStore(secrets).chatMeta('bob'),
+          const ChatMeta(muted: true),
+          reason: raw,
+        );
+      }
+    });
+
+    test(
+      'a pin is refused past three chats, and a pin keeps its place',
+      () async {
+        for (final (i, id) in ['bob', 'carol', 'dave', 'erin'].indexed) {
+          await store.add(
+            _message(
+              i + 1,
+              contact: id,
+              outgoing: false,
+              state: ChatState.received,
+            ),
+          );
+        }
+        expect(await store.setPinned('bob', true, at: 1), ChatPinResult.pinned);
+        expect(
+          await store.setPinned('carol', true, at: 2),
+          ChatPinResult.pinned,
+        );
+        expect(
+          await store.setPinned('dave', true, at: 3),
+          ChatPinResult.pinned,
+        );
+        expect(
+          await store.setPinned('erin', true, at: 4),
+          ChatPinResult.limitReached,
+        );
+        expect(await ChatStore(secrets).chatMeta('erin'), ChatMeta.defaults);
+
+        expect(await store.setPinned('bob', true, at: 5), ChatPinResult.pinned);
+        expect((await store.chatMeta('bob')).pinnedAt, 1);
+
+        expect(
+          await store.setPinned('dave', false, at: 6),
+          ChatPinResult.unpinned,
+        );
+        expect(
+          await store.setPinned('erin', true, at: 7),
+          ChatPinResult.pinned,
+        );
+        expect((await ChatStore(secrets).chatMeta('erin')).pinnedAt, 7);
+      },
+    );
+
+    test(
+      'an archived chat that is pinned still counts toward the limit',
+      () async {
+        for (final (i, id) in ['bob', 'carol', 'dave', 'erin'].indexed) {
+          await store.add(
+            _message(
+              i + 1,
+              contact: id,
+              outgoing: false,
+              state: ChatState.received,
+            ),
+          );
+        }
+        await store.setPinned('bob', true, at: 1);
+        await store.setPinned('carol', true, at: 2);
+        await store.setPinned('dave', true, at: 3);
+        await store.setArchived('carol', true);
+
+        expect(
+          await store.setPinned('erin', true, at: 4),
+          ChatPinResult.limitReached,
+        );
+      },
+    );
+
+    test(
+      'a chat emptied while pinned comes back unpinned, so the limit holds',
+      () async {
+        for (final (i, id) in ['bob', 'carol', 'dave', 'erin'].indexed) {
+          await store.add(
+            _message(
+              i + 1,
+              contact: id,
+              outgoing: false,
+              state: ChatState.received,
+            ),
+          );
+        }
+        await store.setPinned('bob', true, at: 1);
+        await store.setPinned('carol', true, at: 2);
+        await store.setPinned('dave', true, at: 3);
+        await store.deleteMessage('bob', _id(1));
+
+        expect(
+          await store.setPinned('erin', true, at: 4),
+          ChatPinResult.pinned,
+        );
+        await store.add(
+          _message(
+            5,
+            contact: 'bob',
+            outgoing: false,
+            state: ChatState.received,
+          ),
+        );
+
+        final fresh = ChatStore(secrets);
+        final pinned = [
+          for (final id in ['bob', 'carol', 'dave', 'erin'])
+            if ((await fresh.chatMeta(id)).pinnedAt != null) id,
+        ];
+        expect(pinned, ['carol', 'dave', 'erin']);
+        expect((await fresh.chatMeta('bob')).pinnedAt, isNull);
+      },
+    );
+
+    test('a summary whose settings cannot be read keeps the chat listed, with the settings of its record', () async {
+      await store.add(
+        _message(
+          1,
+          outgoing: false,
+          state: ChatState.received,
+        ).copyWith(read: false),
+      );
+      await store.setPinned('bob', true, at: 7);
+      final summary = jsonDecode(
+        (await secrets.read(ChatStore.summaryKey('bob')))!,
+      ) as Map<String, dynamic>;
+      await secrets.write(
+        ChatStore.summaryKey('bob'),
+        jsonEncode({...summary, 'meta': 'pinned'}),
+      );
+
+      final lines = <String>[];
+      final listed = await ChatStore(secrets, log: lines.add).recentChats();
+      expect(listed.single.contactId, 'bob');
+      expect(listed.single.meta.pinnedAt, 7);
+      expect(listed.single.unreadCount, 1);
+      expect(lines, ['chat summary settings cannot be read']);
+
+      // The record is rebuilt from the settings, so it reads cleanly now.
+      final rebuilt = jsonDecode(
+        (await secrets.read(ChatStore.summaryKey('bob')))!,
+      ) as Map<String, dynamic>;
+      expect(rebuilt['meta'], const ChatMeta(pinnedAt: 7).toJson());
+    });
+
+    test('a settings record of the wrong type gives the list and the settings the same defaults', () async {
+      const damaged = '{"archived":"yes","muted":false,"pinnedAt":null}';
+      // An archived chat whose settings record is then damaged.
+      Future<MemorySecretStore> damagedArchive() async {
+        final vault = MemorySecretStore();
+        final writer = ChatStore(vault);
+        await writer.add(
+          _message(1, outgoing: false, state: ChatState.received),
+        );
+        await writer.setArchived('bob', true);
+        await vault.write(ChatStore.metaKey('bob'), damaged);
+        return vault;
+      }
+
+      // The list first: it shows the defaults, as the settings do.
+      final listFirst = ChatStore(await damagedArchive());
+      expect((await listFirst.recentChats()).single.contactId, 'bob');
+      expect(await listFirst.archivedChats(), isEmpty);
+      expect(await listFirst.chatMeta('bob'), ChatMeta.defaults);
+
+      // The settings first: the list agrees.
+      final settingsFirst = ChatStore(await damagedArchive());
+      expect(await settingsFirst.chatMeta('bob'), ChatMeta.defaults);
+      expect((await settingsFirst.recentChats()).single.contactId, 'bob');
+      expect(await settingsFirst.archivedChats(), isEmpty);
+
+      // A mute keeps the chat in the main list, and does not unarchive it.
+      final vault = await damagedArchive();
+      final muted = ChatStore(vault);
+      await muted.setMuted('bob', true);
+      expect(
+        (await muted.recentChats()).single.meta,
+        const ChatMeta(muted: true),
+      );
+      expect(await muted.archivedChats(), isEmpty);
+      expect(
+        await ChatStore(vault).chatMeta('bob'),
+        const ChatMeta(muted: true),
+      );
+    });
+
+    test('deleting a chat removes its settings, retention, pending controls and summary', () async {
+      await store.add(_message(1, outgoing: false, state: ChatState.received));
+      await store.setArchived('bob', true);
+      await store.setPinned('bob', true, at: 1);
+      await store.setRetention('bob', const Duration(hours: 1));
+      await store.queueControl(
+        'bob',
+        ReactFrame(id: _id(1), emoji: '\u{1F44D}', ts: 1),
+      );
+
+      await store.deleteChat('bob');
+      for (final key in [
+        ChatStore.metaKey('bob'),
+        '${ChatStore.retentionPrefix}bob',
+        ChatStore.pendingKey('bob'),
+        ChatStore.summaryKey('bob'),
+        ChatStore.contactKey('bob'),
+      ]) {
+        expect(await secrets.read(key), isNull, reason: key);
+      }
+      expect(await ChatStore(secrets).chatMeta('bob'), ChatMeta.defaults);
+      expect(await ChatStore(secrets).retention('bob'), Duration.zero);
+      expect(await ChatStore(secrets).pendingControls('bob'), isEmpty);
+    });
+
+    test('a failed delete keeps the chat and its settings', () async {
+      await store.add(_message(1));
+      await store.setArchived('bob', true);
+      final failing = _FailingSecrets(secrets)
+        ..failOn = (key) => key == ChatStore.metaKey('bob');
+
+      await expectLater(ChatStore(failing).deleteChat('bob'), throwsStateError);
+      final fresh = ChatStore(secrets);
+      expect((await fresh.messages('bob')).single.id, _id(1));
+      expect((await fresh.chatMeta('bob')).archived, isTrue);
+    });
+
+    test(
+      'a change of settings tells the chat list, and an unchanged one does not',
+      () async {
+        await store.add(
+          _message(1, outgoing: false, state: ChatState.received),
+        );
+        await Future<void>.delayed(Duration.zero);
+        var notified = 0;
+        final sub = store.changes.listen((_) => notified++);
+
+        await store.setMuted('bob', false);
+        await Future<void>.delayed(Duration.zero);
+        expect(notified, 0);
+
+        await store.setMuted('bob', true);
+        await Future<void>.delayed(Duration.zero);
+        expect(notified, 1);
+
+        await sub.cancel();
+      },
+    );
+  });
+
+  group('the chat list with archived and pinned chats', () {
+    /// An incoming message that is not read yet.
+    ChatMessage unread(int n, String contact) => ChatMessage(
+      id: _id(n),
+      contactId: contact,
+      outgoing: false,
+      ts: 1700000000000 + n,
+      text: 'hi $n',
+      state: ChatState.received,
+      read: false,
+    );
+
+    test('pinned chats come first in the order they were pinned, at most three', () async {
+      await store.add(unread(1, 'bob'));
+      await store.add(unread(2, 'carol'));
+      await store.add(unread(3, 'erin'));
+      await store.add(_message(4, contact: 'dave'));
+
+      // Bob was pinned first, though carol and erin are newer.
+      await store.setPinned('bob', true, at: 10);
+      await store.setPinned('carol', true, at: 20);
+      await store.setPinned('erin', true, at: 30);
+      expect((await store.recentChats()).map((c) => c.contactId), [
+        'bob',
+        'carol',
+        'erin',
+        'dave',
+      ]);
+      expect((await store.recentChats()).first.meta.pinnedAt, 10);
+
+      // A fourth pin, written past the limit, is not shown as pinned: only the
+      // first three by pin time sort first, so erin (the latest) falls back.
+      final last = (await store.messages('dave')).single.toJson();
+      await secrets.write(
+        ChatStore.metaKey('dave'),
+        '{"archived":false,"muted":false,"pinnedAt":5}',
+      );
+      await secrets.write(
+        ChatStore.summaryKey('dave'),
+        jsonEncode({
+          'last': last,
+          'unread': 0,
+          'meta': {'archived': false, 'muted': false, 'pinnedAt': 5},
+        }),
+      );
+      final listed = (await ChatStore(
+        secrets,
+      ).recentChats()).map((c) => c.contactId);
+      expect(listed, ['dave', 'bob', 'carol', 'erin']);
+    });
+
+    test('archived chats leave the main list and are listed on their own, with their unread counts', () async {
+      await store.add(unread(1, 'bob'));
+      await store.add(unread(2, 'bob'));
+      await store.add(unread(3, 'carol'));
+      await store.add(_message(4, contact: 'dave'));
+      await store.setArchived('bob', true);
+      await store.setArchived('carol', true);
+
+      expect((await store.recentChats()).map((c) => c.contactId), ['dave']);
+      final archived = await ChatStore(secrets).archivedChats();
+      expect(archived.map((c) => c.contactId), ['carol', 'bob']);
+      expect(archived.map((c) => c.unreadCount), [1, 2]);
+      expect(archived.every((c) => c.meta.archived), isTrue);
+    });
+
+    test('an incoming message does not unarchive a chat', () async {
+      await store.add(unread(1, 'bob'));
+      await store.setArchived('bob', true);
+
+      await store.add(unread(2, 'bob'));
+      expect(await store.recentChats(), isEmpty);
+      final archived = (await store.archivedChats()).single;
+      expect(archived.contactId, 'bob');
+      expect(archived.unreadCount, 2);
+      expect(archived.meta.archived, isTrue);
+    });
+
+    test(
+      'a pinned chat that is archived keeps its pin, and returns to its place',
+      () async {
+        await store.add(_message(1, contact: 'bob'));
+        await store.add(_message(2, contact: 'carol'));
+        await store.setPinned('bob', true, at: 1);
+        await store.setArchived('bob', true);
+
+        expect((await store.recentChats()).map((c) => c.contactId), ['carol']);
+        expect((await store.archivedChats()).single.meta.pinnedAt, 1);
+
+        await store.setArchived('bob', false);
+        expect((await store.recentChats()).map((c) => c.contactId), [
+          'bob',
+          'carol',
+        ]);
+        expect(await store.archivedChats(), isEmpty);
+      },
+    );
+  });
 }

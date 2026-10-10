@@ -140,11 +140,17 @@ final class MessagesRead extends ChatSessionEvent {
   final List<String> ids;
 }
 
-/// The other person reacted to, edited or deleted the message [id]. An open
-/// chat shows the change by reloading.
+/// The other person reacted to, edited or deleted the message [id], or this
+/// device starred it. An open chat shows the change by reloading.
 final class MessageChanged extends ChatSessionEvent {
   const MessageChanged(this.id);
   final String id;
+}
+
+/// The chat's archived, muted or pinned setting changed on this device. Only
+/// this device learns of it: nothing is sent.
+final class ChatSettingsChanged extends ChatSessionEvent {
+  const ChatSettingsChanged();
 }
 
 /// A file offer was received from the peer.
@@ -967,7 +973,12 @@ class ChatSession {
         if (!_peerHello) return;
         if (_outbox.remove(id) != null) {
           _unsent.remove(id);
-          await store.setState(contactId, id, ChatState.delivered);
+          await store.setStateAt(
+            contactId,
+            id,
+            ChatState.delivered,
+            at: clock().millisecondsSinceEpoch,
+          );
           _events.add(MessageDelivered(id));
           // A reaction or edit that waited for this message can go now.
           await flushControls();
@@ -977,8 +988,9 @@ class ChatSession {
         _events.add(PeerTyping(typing));
       case ReadFrame(:final ids):
         if (!_peerHello) return;
+        final at = clock().millisecondsSinceEpoch;
         for (final id in ids) {
-          await store.setState(contactId, id, ChatState.read);
+          await store.setStateAt(contactId, id, ChatState.read, at: at);
         }
         _events.add(MessagesRead(ids));
       case FileOfferFrame(

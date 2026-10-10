@@ -480,6 +480,54 @@ void main() {
   });
 
   test(
+    'the ack and the read record when they arrived, the first time only',
+    () async {
+      final (a, b) = _pair();
+      final alice = _Side('alice', 'bob', a, clock: clock)..start();
+      await _settle();
+
+      // Bob is not running yet, so the message waits for its ack.
+      final sent = await alice.session.sendText('early');
+      await _settle();
+      now = DateTime.utc(2026, 10, 9, 12, 5);
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      var stored = (await alice.store.find('bob', sent.id))!;
+      expect(stored.state, ChatState.delivered);
+      expect(
+        stored.deliveredAt,
+        DateTime.utc(2026, 10, 9, 12, 5).millisecondsSinceEpoch,
+      );
+      expect(stored.readAt, isNull);
+
+      now = DateTime.utc(2026, 10, 9, 12, 10);
+      bob.session.sendReadReceipts([sent.id]);
+      await _settle();
+      stored = (await alice.store.find('bob', sent.id))!;
+      expect(stored.state, ChatState.read);
+      expect(
+        stored.readAt,
+        DateTime.utc(2026, 10, 9, 12, 10).millisecondsSinceEpoch,
+      );
+
+      // A later read or ack does not move either time.
+      now = DateTime.utc(2026, 10, 9, 12, 20);
+      b.send(ChatFrames.encode(ReadFrame(ids: [sent.id])));
+      b.send(ChatFrames.encode(AckFrame(id: sent.id)));
+      await _settle();
+      stored = (await alice.store.find('bob', sent.id))!;
+      expect(
+        stored.deliveredAt,
+        DateTime.utc(2026, 10, 9, 12, 5).millisecondsSinceEpoch,
+      );
+      expect(
+        stored.readAt,
+        DateTime.utc(2026, 10, 9, 12, 10).millisecondsSinceEpoch,
+      );
+    },
+  );
+
+  test(
     'a received file is kept encrypted, with its key on the message',
     () async {
       final sodium = await SottoCrypto.init();

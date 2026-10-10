@@ -1173,6 +1173,102 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{emoji}, {who}'**
   String chatReactionSemantics(String emoji, String who);
+
+  /// No description provided for @chatsPinned.
+  ///
+  /// In en, this message translates to:
+  /// **'Pinned'**
+  String get chatsPinned;
+
+  /// No description provided for @chatsArchivedRow.
+  ///
+  /// In en, this message translates to:
+  /// **'Archived ({count})'**
+  String chatsArchivedRow(int count);
+
+  /// No description provided for @chatsPinLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'You can pin up to three chats. Unpin one to pin another.'**
+  String get chatsPinLimit;
+
+  /// No description provided for @chatMuted.
+  ///
+  /// In en, this message translates to:
+  /// **'Muted'**
+  String get chatMuted;
+
+  /// No description provided for @chatPin.
+  ///
+  /// In en, this message translates to:
+  /// **'Pin to top'**
+  String get chatPin;
+
+  /// No description provided for @chatUnpin.
+  ///
+  /// In en, this message translates to:
+  /// **'Unpin'**
+  String get chatUnpin;
+
+  /// No description provided for @chatMute.
+  ///
+  /// In en, this message translates to:
+  /// **'Mute'**
+  String get chatMute;
+
+  /// No description provided for @chatUnmute.
+  ///
+  /// In en, this message translates to:
+  /// **'Unmute'**
+  String get chatUnmute;
+
+  /// No description provided for @chatArchive.
+  ///
+  /// In en, this message translates to:
+  /// **'Archive'**
+  String get chatArchive;
+
+  /// No description provided for @chatUnarchive.
+  ///
+  /// In en, this message translates to:
+  /// **'Unarchive'**
+  String get chatUnarchive;
+
+  /// No description provided for @chatStar.
+  ///
+  /// In en, this message translates to:
+  /// **'Star'**
+  String get chatStar;
+
+  /// No description provided for @chatUnstar.
+  ///
+  /// In en, this message translates to:
+  /// **'Unstar'**
+  String get chatUnstar;
+
+  /// No description provided for @chatMessageInfo.
+  ///
+  /// In en, this message translates to:
+  /// **'Message info'**
+  String get chatMessageInfo;
+
+  /// No description provided for @chatInfoSent.
+  ///
+  /// In en, this message translates to:
+  /// **'Sent'**
+  String get chatInfoSent;
+
+  /// No description provided for @chatStarredMessages.
+  ///
+  /// In en, this message translates to:
+  /// **'Starred messages'**
+  String get chatStarredMessages;
+
+  /// No description provided for @chatStarredEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No starred messages. Star a message to find it here.'**
+  String get chatStarredEmpty;
 }
 
 class _AppLocalizationsDelegate

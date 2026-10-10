@@ -1,7 +1,10 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sotto/chat/chat_frames.dart';
 import 'package:sotto/chat/chat_store.dart';
 import 'package:sotto/chat/ui/message_menu.dart';
+import 'package:sotto/core/l10n/app_localizations.dart';
+import 'package:sotto/core/l10n/language.dart';
 
 final _sent = DateTime(2026, 10, 9, 12);
 
@@ -162,6 +165,8 @@ void main() {
         MessageAction.reply,
         MessageAction.forward,
         MessageAction.copy,
+        MessageAction.star,
+        MessageAction.info,
         MessageAction.edit,
         MessageAction.deleteForEveryone,
         MessageAction.deleteForMe,
@@ -196,8 +201,19 @@ void main() {
         MessageAction.reply,
         MessageAction.forward,
         MessageAction.copy,
+        MessageAction.star,
+        MessageAction.info,
         MessageAction.deleteForMe,
       ]);
+    });
+
+    test('a file can be starred, and its info opened', () {
+      final actions = messageActions(
+        _file(),
+        _after(const Duration(minutes: 1)),
+      );
+      expect(actions, contains(MessageAction.star));
+      expect(actions, contains(MessageAction.info));
     });
 
     test('a file cannot be forwarded or edited', () {
@@ -219,6 +235,48 @@ void main() {
         ),
         [MessageAction.deleteForMe],
       );
+    });
+  });
+
+  group('the sheet', () {
+    Future<void> openSheet(WidgetTester tester, ChatMessage message) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLanguage.supported,
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => showMessageSheet(
+                  context,
+                  message: message,
+                  now: _after(const Duration(minutes: 1)),
+                  onSelected: (_) {},
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'offers Star on a message not starred, and Unstar on one that is',
+      (tester) async {
+        await openSheet(tester, _text());
+        expect(find.text('Star'), findsOneWidget);
+        expect(find.text('Unstar'), findsNothing);
+        expect(find.text('Message info'), findsOneWidget);
+      },
+    );
+
+    testWidgets('offers Unstar on a starred message', (tester) async {
+      await openSheet(tester, _text().copyWith(starred: true));
+      expect(find.text('Unstar'), findsOneWidget);
+      expect(find.text('Star'), findsNothing);
     });
   });
 }

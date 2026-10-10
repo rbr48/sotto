@@ -499,6 +499,49 @@ class ChatManager {
     live?.session?.forget(id);
   }
 
+  /// Archives or unarchives the chat with [contact]. Local only: nothing is
+  /// sent, and no session is touched.
+  Future<void> setArchived(String contact, bool archived) async {
+    await store.setArchived(contact, archived);
+    _emit(ChatUpdate(contact, const ChatSettingsChanged()));
+  }
+
+  /// Mutes or unmutes the chat with [contact]. Local only, as [setArchived].
+  Future<void> setMuted(String contact, bool muted) async {
+    await store.setMuted(contact, muted);
+    _emit(ChatUpdate(contact, const ChatSettingsChanged()));
+  }
+
+  /// Pins or unpins the chat with [contact]. Local only, as [setArchived]. A
+  /// pin past [ChatStore.maxPinnedChats] is refused with
+  /// [ChatPinResult.limitReached], and nothing changes.
+  Future<ChatPinResult> setPinned(String contact, bool pinned) async {
+    final result = await store.setPinned(
+      contact,
+      pinned,
+      at: clock().millisecondsSinceEpoch,
+    );
+    if (result != ChatPinResult.limitReached) {
+      _emit(ChatUpdate(contact, const ChatSettingsChanged()));
+    }
+    return result;
+  }
+
+  /// Stars or unstars message [id] in the chat with [contact], on this device
+  /// only. Returns false when the message is gone, deleted for everyone, or
+  /// already in that state.
+  Future<bool> setStarred(String contact, String id, bool starred) async {
+    final changed = await store.changeMessage(
+      contact,
+      id,
+      (m) => m.deletedForAll || m.starred == starred
+          ? null
+          : m.copyWith(starred: starred),
+    );
+    if (changed) _emit(ChatUpdate(contact, MessageChanged(id)));
+    return changed;
+  }
+
   /// Deletes the whole chat with [contact] from this device, and stops
   /// anything still waiting to go to it.
   Future<void> deleteChat(String contact) async {
@@ -642,7 +685,12 @@ class ChatManager {
         message.state == ChatState.read) {
       return;
     }
-    await store.setState(from, messageId, ChatState.delivered);
+    await store.setStateAt(
+      from,
+      messageId,
+      ChatState.delivered,
+      at: clock().millisecondsSinceEpoch,
+    );
     _emit(ChatUpdate(from, MessageDelivered(messageId)));
     // A reaction or edit that waited for this message can go now.
     await _flushControls(from);

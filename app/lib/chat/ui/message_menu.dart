@@ -12,6 +12,8 @@ enum MessageAction {
   reply,
   forward,
   copy,
+  star,
+  info,
   edit,
   deleteForEveryone,
   deleteForMe,
@@ -40,7 +42,8 @@ bool canDeleteForEveryone(ChatMessage message, DateTime now) =>
     );
 
 /// The items of the menu for [message] at [now], in order. Delete for me is
-/// always offered, as it has been since the chat began.
+/// always offered, as it has been since the chat began. Star and info stay on
+/// this device, and are not offered for a message deleted for everyone.
 List<MessageAction> messageActions(ChatMessage message, DateTime now) {
   final live = !message.deletedForAll;
   return [
@@ -48,16 +51,19 @@ List<MessageAction> messageActions(ChatMessage message, DateTime now) {
     if (live) MessageAction.reply,
     if (live && !message.isAttachment) MessageAction.forward,
     if (live) MessageAction.copy,
+    if (live) MessageAction.star,
+    if (live) MessageAction.info,
     if (canEdit(message, now)) MessageAction.edit,
     if (canDeleteForEveryone(message, now)) MessageAction.deleteForEveryone,
     MessageAction.deleteForMe,
   ];
 }
 
-/// The icon, label and colour of [action].
+/// The icon, label and colour of [action] for [message].
 ({IconData icon, String label, bool destructive}) _presentation(
   MessageAction action,
   AppLocalizations l10n,
+  ChatMessage message,
 ) => switch (action) {
   MessageAction.react => (
     icon: Icons.add_reaction_outlined,
@@ -77,6 +83,16 @@ List<MessageAction> messageActions(ChatMessage message, DateTime now) {
   MessageAction.copy => (
     icon: Icons.copy,
     label: l10n.chatCopy,
+    destructive: false,
+  ),
+  MessageAction.star => (
+    icon: message.starred ? Icons.star : Icons.star_border,
+    label: message.starred ? l10n.chatUnstar : l10n.chatStar,
+    destructive: false,
+  ),
+  MessageAction.info => (
+    icon: Icons.info_outline,
+    label: l10n.chatMessageInfo,
     destructive: false,
   ),
   MessageAction.edit => (
@@ -119,7 +135,7 @@ Future<void> showMessageContextMenu(
       for (final action in messageActions(message, now))
         PopupMenuItem(
           value: action,
-          child: _menuRow(theme, _presentation(action, l10n)),
+          child: _menuRow(theme, _presentation(action, l10n, message)),
         ),
     ],
   );
@@ -137,14 +153,16 @@ void showMessageSheet(
   final l10n = AppLocalizations.of(context);
   showModalBottomSheet<void>(
     context: context,
+    // The menu now has up to nine items. A sheet that takes only part of the
+    // height would show about six, so the sheet may take the whole height and
+    // the items still scroll on a small screen.
+    isScrollControlled: true,
     builder: (sheetContext) => SafeArea(
-      // A sheet that is not full height is short on a small screen, so the
-      // items scroll rather than overflow.
       child: ListView(
         shrinkWrap: true,
         children: [
           for (final action in messageActions(message, now))
-            _sheetItem(sheetContext, action, l10n, onSelected),
+            _sheetItem(sheetContext, action, l10n, message, onSelected),
         ],
       ),
     ),
@@ -169,9 +187,10 @@ Widget _sheetItem(
   BuildContext sheetContext,
   MessageAction action,
   AppLocalizations l10n,
+  ChatMessage message,
   ValueChanged<MessageAction> onSelected,
 ) {
-  final item = _presentation(action, l10n);
+  final item = _presentation(action, l10n, message);
   final color = item.destructive
       ? Theme.of(sheetContext).colorScheme.error
       : null;

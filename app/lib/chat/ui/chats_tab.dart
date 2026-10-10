@@ -26,6 +26,10 @@ class ChatsTab extends StatefulWidget {
 
 class _ChatsTabState extends State<ChatsTab> {
   List<ChatThreadSummary> _summaries = const [];
+
+  /// The archived chats, listed only under the Archived row.
+  List<ChatThreadSummary> _archived = const [];
+  bool _archivedOpen = false;
   StreamSubscription<void>? _sub;
   final _searchController = TextEditingController();
   String _searchQuery = '';
@@ -70,7 +74,103 @@ class _ChatsTabState extends State<ChatsTab> {
     final chat = widget.calls.chat;
     if (chat == null) return;
     final list = await chat.store.recentChats();
-    if (mounted) setState(() => _summaries = list);
+    final archived = await chat.store.archivedChats();
+    if (mounted) {
+      setState(() {
+        _summaries = list;
+        _archived = archived;
+        // The row goes when its last chat leaves, so it opens closed next time.
+        if (archived.isEmpty) _archivedOpen = false;
+      });
+    }
+  }
+
+  bool _matchesSearch(ChatThreadSummary summary) {
+    final contact = widget.app.contacts.contacts
+        .where((c) => c.identity.id == summary.contactId)
+        .firstOrNull;
+    final name = contact?.name ?? summary.contactId;
+    return name.toLowerCase().contains(_searchQuery) ||
+        summary.lastMessage.text.toLowerCase().contains(_searchQuery);
+  }
+
+  /// Pins or unpins [summary]. A pin past the limit is refused, and says so.
+  Future<void> _setPinned(ChatThreadSummary summary, bool pinned) async {
+    final chat = widget.calls.chat;
+    if (chat == null) return;
+    final result = await chat.setPinned(summary.contactId, pinned);
+    if (!mounted) return;
+    if (result == ChatPinResult.limitReached) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context).chatsPinLimit)),
+      );
+    }
+    await _refresh();
+  }
+
+  Future<void> _setMuted(ChatThreadSummary summary, bool muted) async {
+    final chat = widget.calls.chat;
+    if (chat == null) return;
+    await chat.setMuted(summary.contactId, muted);
+    await _refresh();
+  }
+
+  Future<void> _setArchived(ChatThreadSummary summary, bool archived) async {
+    final chat = widget.calls.chat;
+    if (chat == null) return;
+    await chat.setArchived(summary.contactId, archived);
+    await _refresh();
+  }
+
+  /// The actions for one chat, from a long press: pin, mute and archive.
+  Future<void> _showChatMenu(ChatThreadSummary summary) async {
+    final l10n = AppLocalizations.of(context);
+    final meta = summary.meta;
+    final pinned = meta.pinnedAt != null;
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(pinned ? Icons.push_pin : Icons.push_pin_outlined),
+              title: Text(pinned ? l10n.chatUnpin : l10n.chatPin),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                unawaited(_setPinned(summary, !pinned));
+              },
+            ),
+            ListTile(
+              leading: Icon(
+                meta.muted
+                    ? Icons.notifications_outlined
+                    : Icons.notifications_off_outlined,
+              ),
+              title: Text(meta.muted ? l10n.chatUnmute : l10n.chatMute),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                unawaited(_setMuted(summary, !meta.muted));
+              },
+            ),
+            ListTile(
+              leading: Icon(
+                meta.archived
+                    ? Icons.unarchive_outlined
+                    : Icons.archive_outlined,
+              ),
+              title: Text(
+                meta.archived ? l10n.chatUnarchive : l10n.chatArchive,
+              ),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                unawaited(_setArchived(summary, !meta.archived));
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   /// The time of the last message: the time today, "Yesterday", the
@@ -171,15 +271,20 @@ class _ChatsTabState extends State<ChatsTab> {
       list = list.where((s) => s.unreadCount > 0).toList();
     }
     if (_searchQuery.isNotEmpty) {
-      list = list.where((s) {
-        final contact = widget.app.contacts.contacts
-            .where((c) => c.identity.id == s.contactId)
-            .firstOrNull;
-        final name = contact?.name ?? s.contactId;
-        return name.toLowerCase().contains(_searchQuery) ||
-            s.lastMessage.text.toLowerCase().contains(_searchQuery);
-      }).toList();
+      list = list.where(_matchesSearch).toList();
     }
+    // Pinned chats come first in the main list, at most the limit of them.
+    final pinned = [
+      for (final s in list)
+        if (s.meta.pinnedAt != null) s,
+    ].take(ChatStore.maxPinnedChats).toList();
+    final rest = [
+      for (final s in list)
+        if (!pinned.contains(s)) s,
+    ];
+    final archived = _searchQuery.isEmpty
+        ? _archived
+        : _archived.where(_matchesSearch).toList();
 
     return Scaffold(
       floatingActionButton: FloatingActionButton.extended(
@@ -267,7 +372,7 @@ class _ChatsTabState extends State<ChatsTab> {
           const SizedBox(height: 14),
 
           // Conversation List or Empty State
-          if (_summaries.isEmpty)
+          if (_summaries.isEmpty && _archived.isEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 40),
               child: EmptyState(
@@ -276,28 +381,125 @@ class _ChatsTabState extends State<ChatsTab> {
                 message: l10n.chatDirectNote,
               ),
             )
-          else if (list.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 48),
-              child: Center(
+          else ...[
+            if (pinned.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.only(left: 4, bottom: 8),
                 child: Text(
-                  l10n.chatsNoMatches,
-                  style: TextStyle(color: scheme.onSurfaceVariant),
+                  l10n.chatsPinned,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
               ),
-            )
-          else
-            Card(
-              child: Column(
-                children: [
-                  for (final (index, summary) in list.indexed) ...[
-                    if (index > 0) const Divider(indent: 72),
-                    _buildConversationTile(context, theme, summary),
-                  ],
-                ],
-              ),
-            ),
+              _conversationCard(context, theme, pinned),
+              const SizedBox(height: 14),
+            ],
+            if (_summaries.isNotEmpty && list.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 48),
+                child: Center(
+                  child: Text(
+                    l10n.chatsNoMatches,
+                    style: TextStyle(color: scheme.onSurfaceVariant),
+                  ),
+                ),
+              )
+            else if (rest.isNotEmpty)
+              _conversationCard(context, theme, rest),
+            if (_archived.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              _archivedRow(context, theme),
+              if (_archivedOpen && archived.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _conversationCard(context, theme, archived),
+              ],
+            ],
+          ],
         ],
+      ),
+    );
+  }
+
+  Widget _conversationCard(
+    BuildContext context,
+    ThemeData theme,
+    List<ChatThreadSummary> items,
+  ) => Card(
+    child: Column(
+      children: [
+        for (final (index, summary) in items.indexed) ...[
+          if (index > 0) const Divider(indent: 72),
+          _buildConversationTile(context, theme, summary),
+        ],
+      ],
+    ),
+  );
+
+  /// The collapsed Archived row: the number of archived chats, and their total
+  /// unread count. A tap opens or closes the list below it.
+  Widget _archivedRow(BuildContext context, ThemeData theme) {
+    final scheme = theme.colorScheme;
+    final l10n = AppLocalizations.of(context);
+    final unread = _archived.fold<int>(0, (sum, s) => sum + s.unreadCount);
+    return Card(
+      child: Semantics(
+        button: true,
+        expanded: _archivedOpen,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => setState(() => _archivedOpen = !_archivedOpen),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.archive_outlined,
+                  size: 20,
+                  color: scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    l10n.chatsArchivedRow(_archived.length),
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                if (unread > 0) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: scheme.primary,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '$unread',
+                      style: TextStyle(
+                        color: scheme.onPrimary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                Icon(
+                  _archivedOpen ? Icons.expand_less : Icons.expand_more,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -354,6 +556,24 @@ class _ChatsTabState extends State<ChatsTab> {
               ),
             ),
           ),
+          if (summary.meta.pinnedAt != null) ...[
+            const SizedBox(width: 6),
+            Icon(
+              Icons.push_pin,
+              size: 14,
+              color: scheme.onSurfaceVariant,
+              semanticLabel: l10n.chatsPinned,
+            ),
+          ],
+          if (summary.meta.muted) ...[
+            const SizedBox(width: 6),
+            Icon(
+              Icons.notifications_off_outlined,
+              size: 14,
+              color: scheme.onSurfaceVariant,
+              semanticLabel: l10n.chatMuted,
+            ),
+          ],
           const SizedBox(width: 8),
           Text(
             _formatTime(context, last.ts),
@@ -412,16 +632,21 @@ class _ChatsTabState extends State<ChatsTab> {
             ),
             if (summary.unreadCount > 0) ...[
               const SizedBox(width: 8),
+              // A muted chat's badge is grey, so it does not draw the eye.
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: scheme.primary,
+                  color: summary.meta.muted
+                      ? scheme.surfaceContainerHighest
+                      : scheme.primary,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
                   '${summary.unreadCount}',
                   style: TextStyle(
-                    color: scheme.onPrimary,
+                    color: summary.meta.muted
+                        ? scheme.onSurfaceVariant
+                        : scheme.onPrimary,
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
                   ),
@@ -437,6 +662,7 @@ class _ChatsTabState extends State<ChatsTab> {
         verified: contact?.verified ?? false,
         avatar: contact?.avatar,
       ),
+      onLongPress: () => unawaited(_showChatMenu(summary)),
     );
   }
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -23,6 +24,12 @@ class _FakeRtc implements ChatRtc {
   bool relayOnly = false;
   bool closed = false;
   final addedCandidates = <Map<String, dynamic>>[];
+
+  /// Every text frame this connection has sent, in order.
+  final sentFrames = <String>[];
+
+  /// Every binary frame (a file chunk) this connection has sent, in order.
+  final sentBinary = <Uint8List>[];
 
   final _frames = StreamController<String>();
   final _binaryFrames = StreamController<Uint8List>();
@@ -114,6 +121,7 @@ class _FakeTransport implements ChatTransport {
   bool send(String frame) {
     final peer = owner.peer;
     if (!owner._open || peer == null || owner.closed) return false;
+    owner.sentFrames.add(frame);
     scheduleMicrotask(() {
       if (!peer.closed && !peer._frames.isClosed) peer._frames.add(frame);
     });
@@ -124,6 +132,7 @@ class _FakeTransport implements ChatTransport {
   bool sendBinary(Uint8List data) {
     final peer = owner.peer;
     if (!owner._open || peer == null || owner.closed) return false;
+    owner.sentBinary.add(data);
     scheduleMicrotask(() {
       if (!peer.closed && !peer._binaryFrames.isClosed) {
         peer._binaryFrames.add(data);
@@ -158,6 +167,9 @@ class _Network {
   final rtcs = <String, List<_FakeRtc>>{};
   final sent = <({String from, String to, String type})>[];
 
+  /// The body of every envelope sent through the network, in order.
+  final bodies = <Map<String, Object?>>[];
+
   /// Whether texts sent through the relay arrive. Tests of a failing direct
   /// chat turn this off, so the message really cannot get through.
   bool relayText = true;
@@ -170,6 +182,7 @@ class _Network {
     String? callId,
   ) {
     sent.add((from: from, to: to, type: type));
+    bodies.add(Map<String, Object?>.from(body));
     if (!relayText && type == ChatManager.relayText) return;
     for (final device in managers[to] ?? const <ChatManager>[]) {
       scheduleMicrotask(
@@ -822,6 +835,39 @@ void main() {
         );
       },
     );
+
+    test('a relay ack records when it arrived, the first time only', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      // Nobody is set up for Bob here, so nothing acknowledges the text yet.
+      final message = await alice.sendText('bob', 'hello');
+      await _settle();
+
+      now = now.add(const Duration(minutes: 5));
+      final ackedAt = now.millisecondsSinceEpoch;
+      alice.handle(
+        from: 'bob',
+        type: ChatManager.relayTextAck,
+        body: {'id': message.id},
+        callId: null,
+      );
+      await _settle();
+      var stored = (await aliceStore.find('bob', message.id))!;
+      expect(stored.state, ChatState.delivered);
+      expect(stored.deliveredAt, ackedAt);
+      expect(stored.readAt, isNull);
+
+      now = now.add(const Duration(minutes: 5));
+      alice.handle(
+        from: 'bob',
+        type: ChatManager.relayTextAck,
+        body: {'id': message.id},
+        callId: null,
+      );
+      await _settle();
+      stored = (await aliceStore.find('bob', message.id))!;
+      expect(stored.deliveredAt, ackedAt);
+    });
 
     test(
       'a text that arrives twice is stored once and acknowledged each time',
@@ -1675,7 +1721,301 @@ void main() {
       },
     );
   });
+
+  group('archive, mute, pin and star', () {
+    test(
+      'settings are set on this device and announced to its listeners',
+      () async {
+        final aliceStore = ChatStore(MemorySecretStore());
+        final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+        final events = <ChatManagerEvent>[];
+        final sub = alice.events.listen(events.add);
+
+        await alice.setArchived('bob', true);
+        await alice.setMuted('bob', true);
+        expect(await alice.setPinned('bob', true), ChatPinResult.pinned);
+        await _settle();
+
+        expect(
+          await aliceStore.chatMeta('bob'),
+          ChatMeta(
+            archived: true,
+            muted: true,
+            pinnedAt: now.millisecondsSinceEpoch,
+          ),
+        );
+        final updates = events.whereType<ChatUpdate>();
+        expect(updates, hasLength(3));
+        expect(
+          updates.map((u) => u.event),
+          everyElement(isA<ChatSettingsChanged>()),
+        );
+        await sub.cancel();
+      },
+    );
+
+    test('a pin past the limit is refused, and announces nothing', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final alice = device(
+        'alice',
+        contacts: {'bob', 'carol', 'dave', 'erin'},
+        store: aliceStore,
+      );
+      for (final (i, contact) in ['bob', 'carol', 'dave', 'erin'].indexed) {
+        await aliceStore.add(
+          ChatMessage(
+            id: _id(i + 1),
+            contactId: contact,
+            outgoing: false,
+            ts: now.millisecondsSinceEpoch + i,
+            text: 'hi',
+            state: ChatState.received,
+            read: false,
+          ),
+        );
+      }
+      for (final contact in ['bob', 'carol', 'dave']) {
+        now = now.add(const Duration(seconds: 1));
+        expect(await alice.setPinned(contact, true), ChatPinResult.pinned);
+      }
+
+      final events = <ChatManagerEvent>[];
+      final sub = alice.events.listen(events.add);
+      expect(await alice.setPinned('erin', true), ChatPinResult.limitReached);
+      await _settle();
+
+      expect(events, isEmpty);
+      expect((await aliceStore.chatMeta('erin')).pinnedAt, isNull);
+      expect((await aliceStore.recentChats()).map((c) => c.contactId), [
+        'bob',
+        'carol',
+        'dave',
+        'erin',
+      ]);
+      await sub.cancel();
+    });
+
+    test(
+      'a star is kept on this device, announced once, and sends nothing',
+      () async {
+        final aliceStore = ChatStore(MemorySecretStore());
+        final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+        device('bob', contacts: {'alice'});
+        final message = await alice.sendText('bob', 'keep this');
+        await _settle();
+        final sentBefore = net.sent.length;
+
+        final events = <ChatManagerEvent>[];
+        final sub = alice.events.listen(events.add);
+        expect(await alice.setStarred('bob', message.id, true), isTrue);
+        expect(await alice.setStarred('bob', message.id, true), isFalse);
+        expect(await alice.setStarred('bob', _id(99), true), isFalse);
+        await _settle();
+
+        expect((await aliceStore.find('bob', message.id))!.starred, isTrue);
+        expect(events.whereType<ChatUpdate>(), hasLength(1));
+        expect(
+          events.whereType<ChatUpdate>().single.event,
+          isA<MessageChanged>(),
+        );
+        expect(net.sent.length, sentBefore);
+
+        expect(await alice.setStarred('bob', message.id, false), isTrue);
+        expect((await aliceStore.find('bob', message.id))!.starred, isFalse);
+        expect(net.sent.length, sentBefore);
+        await sub.cancel();
+      },
+    );
+
+    test('a message that arrives for an archived chat keeps it archived, with its unread count', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      await alice.setArchived('bob', true);
+
+      net.deliver('bob', 'alice', ChatManager.relayText, {
+        'id': _id(1),
+        'ts': now.millisecondsSinceEpoch,
+        'text': 'still on?',
+      }, null);
+      await _settle();
+
+      expect((await aliceStore.messages('bob')).single.text, 'still on?');
+      expect(await aliceStore.recentChats(), isEmpty);
+      final archived = (await aliceStore.archivedChats()).single;
+      expect(archived.contactId, 'bob');
+      expect(archived.unreadCount, 1);
+      expect(archived.meta.archived, isTrue);
+    });
+  });
+
+  group('the contact and the relay never see local settings', () {
+    test('every frame type encodes without one', () {
+      final frames = <ChatFrame>[
+        const HelloFrame(features: {'reply', 'react'}),
+        MessageFrame(
+          id: _id(1),
+          ts: 1,
+          text: 'hi',
+          reply: (id: _id(2), text: 'yo'),
+          forwarded: true,
+        ),
+        AckFrame(id: _id(1)),
+        const TypingFrame(typing: true),
+        ReadFrame(ids: [_id(1)]),
+        FileOfferFrame(
+          id: _id(3),
+          name: 'a.pdf',
+          size: 1,
+          mime: 'application/pdf',
+          sha256: List.filled(64, 'a').join(),
+          chunks: 1,
+        ),
+        ReactFrame(id: _id(1), emoji: '\u{1F44D}', ts: 1),
+        EditFrame(id: _id(1), ts: 1, text: 'hi'),
+        DeleteFrame(id: _id(1), ts: 1),
+        FileAcceptFrame(id: _id(3)),
+        FileDeclineFrame(id: _id(3)),
+        FileDoneFrame(id: _id(3)),
+        FileAckFrame(id: _id(3)),
+        FileCancelFrame(id: _id(3), reason: 'cancelled'),
+        const ByeFrame(),
+      ];
+      expect(frames.map(_frameTypeName).toSet(), hasLength(15));
+      for (final frame in frames) {
+        _expectNoLocalSetting(ChatFrames.encode(frame), _frameTypeName(frame));
+      }
+      // A file chunk is binary, so its bytes are checked as latin1 text.
+      final chunk = ChatFrames.encodeChunk(
+        fileId: _id(3),
+        chunkIndex: 0,
+        payload: utf8.encode('a short note'),
+      );
+      _expectNoLocalSetting(latin1.decode(chunk), 'a file chunk');
+    });
+
+    test(
+      'a whole conversation, over the direct chat and the relay, carries none',
+      () async {
+        final aliceStore = ChatStore(MemorySecretStore());
+        final bobStore = ChatStore(MemorySecretStore());
+        final alice = device(
+          'alice',
+          contacts: {'bob', 'dave'},
+          store: aliceStore,
+        );
+        final bob = device('bob', contacts: {'alice'}, store: bobStore);
+        // Dave's direct chat never opens, so his texts go through the relay.
+        device('dave', contacts: {'alice'}, neverOpens: true);
+
+        final hello = await alice.sendText('bob', 'hello');
+        await _settle();
+        final bobCopy = (await bobStore.messages('alice')).single;
+        bob.sendReadReceipts('alice', [bobCopy.id]);
+        final relayed = await alice.sendText('dave', 'are you there?');
+        await _settle();
+        // A file, accepted: its chunks are binary frames on the direct chat.
+        final file = await alice.offerFile(
+          contact: 'bob',
+          name: 'note.txt',
+          bytes: Uint8List.fromList(utf8.encode('a short note')),
+          mime: 'text/plain',
+        );
+        await _settle();
+        await bob.acceptFile('alice', file.id);
+        await _settle();
+
+        // Local settings, and their changes on each device.
+        await alice.setStarred('bob', hello.id, true);
+        await alice.setArchived('dave', true);
+        await alice.setMuted('bob', true);
+        expect(await alice.setPinned('bob', true), ChatPinResult.pinned);
+        await bob.setStarred('alice', bobCopy.id, true);
+        await bob.setArchived('alice', true);
+        expect(await bob.setPinned('alice', true), ChatPinResult.pinned);
+        await _settle();
+
+        // Traffic that does go out: a reaction, an edit and a delete.
+        expect(await alice.react('bob', hello.id, '\u{1F44D}'), isTrue);
+        expect(await alice.edit('bob', hello.id, 'hello again'), isTrue);
+        expect(await alice.deleteForEveryone('dave', relayed.id), isTrue);
+        await _settle();
+
+        // The times and the star were recorded, so the traffic above carried
+        // real state; the frames below must still say nothing of them.
+        final helloNow = (await aliceStore.find('bob', hello.id))!;
+        expect(helloNow.deliveredAt, isNotNull);
+        expect(helloNow.readAt, isNotNull);
+        expect(helloNow.starred, isTrue);
+
+        final bodies = net.bodies;
+        final frames = [
+          for (final rtcs in net.rtcs.values)
+            for (final rtc in rtcs) ...rtc.sentFrames,
+        ];
+        final chunks = [
+          for (final rtcs in net.rtcs.values)
+            for (final rtc in rtcs) ...rtc.sentBinary,
+        ];
+        expect(bodies, isNotEmpty);
+        expect(frames.any((f) => f.contains('"t":"msg"')), isTrue);
+        expect(frames.any((f) => f.contains('"t":"read"')), isTrue);
+        expect(chunks, isNotEmpty);
+        expect(
+          (await bobStore.find('alice', file.id))!.fileStatus,
+          'completed',
+        );
+        for (final body in bodies) {
+          _expectNoLocalSetting(jsonEncode(body), 'a relay envelope');
+        }
+        for (final frame in frames) {
+          _expectNoLocalSetting(frame, 'a direct frame');
+        }
+        for (final chunk in chunks) {
+          _expectNoLocalSetting(latin1.decode(chunk), 'a file chunk');
+        }
+      },
+    );
+  });
 }
+
+/// The words of settings and times kept on one device only. None may reach
+/// the contact or the relay.
+const _localOnly = [
+  'archived',
+  'muted',
+  'pinned',
+  'starred',
+  'deliveredAt',
+  'readAt',
+];
+
+/// Fails when [wire], an encoded frame or envelope body, names a local
+/// setting. [what] says which one, for the failure message.
+void _expectNoLocalSetting(String wire, String what) {
+  for (final word in _localOnly) {
+    expect(wire, isNot(contains(word)), reason: '$word in $what: $wire');
+  }
+}
+
+/// The type of [frame], by its wire name. The switch has no default: a new
+/// frame type does not compile until it is named here.
+String _frameTypeName(ChatFrame frame) => switch (frame) {
+  HelloFrame() => 'hello',
+  MessageFrame() => 'msg',
+  AckFrame() => 'ack',
+  TypingFrame() => 'typing',
+  ReadFrame() => 'read',
+  FileOfferFrame() => 'file.offer',
+  ReactFrame() => 'react',
+  EditFrame() => 'edit',
+  DeleteFrame() => 'delete',
+  FileAcceptFrame() => 'file.accept',
+  FileDeclineFrame() => 'file.decline',
+  FileDoneFrame() => 'file.done',
+  FileAckFrame() => 'file.ack',
+  FileCancelFrame() => 'file.cancel',
+  ByeFrame() => 'bye',
+};
 
 /// A JPEG segment: its marker, its length, then its payload.
 List<int> _segment(int marker, List<int> payload) {
