@@ -253,4 +253,9 @@ class _BrokenKeystore implements SecretStore {
       throw Exception('no secret service');
   @override
   Future<void> delete(String key) => throw Exception('no secret service');
+  @override
+  Future<void> writeAll(
+    Map<String, String> values, {
+    Iterable<String> deleted = const [],
+  }) => throw Exception('no secret service');
 }

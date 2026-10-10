@@ -9,6 +9,15 @@ abstract interface class SecretStore {
   Future<String?> read(String key);
   Future<void> write(String key, String value);
   Future<void> delete(String key);
+
+  /// Writes [values] and deletes [deleted] as one change. A store that saves
+  /// as a whole (the vault) saves all of it in one write, so the change is
+  /// stored entirely or not at all. A store that saves key by key applies the
+  /// deletes first, then the writes.
+  Future<void> writeAll(
+    Map<String, String> values, {
+    Iterable<String> deleted = const [],
+  });
 }
 
 /// [SecretStore] backed by the operating system's keystore: Android Keystore,
@@ -28,6 +37,19 @@ class OsSecretStore implements SecretStore {
 
   @override
   Future<void> delete(String key) => _storage.delete(key: key);
+
+  @override
+  Future<void> writeAll(
+    Map<String, String> values, {
+    Iterable<String> deleted = const [],
+  }) async {
+    for (final key in deleted) {
+      await delete(key);
+    }
+    for (final entry in values.entries) {
+      await write(entry.key, entry.value);
+    }
+  }
 }
 
 /// In-memory [SecretStore] for tests and for guests, whose identity must not
@@ -43,6 +65,17 @@ class MemorySecretStore implements SecretStore {
 
   @override
   Future<void> delete(String key) async => _values.remove(key);
+
+  @override
+  Future<void> writeAll(
+    Map<String, String> values, {
+    Iterable<String> deleted = const [],
+  }) async {
+    for (final key in deleted) {
+      _values.remove(key);
+    }
+    _values.addAll(values);
+  }
 }
 
 /// Loads the professional's identity, creating it on first launch.

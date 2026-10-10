@@ -543,47 +543,39 @@ class ChatStore {
     return _cachedChats[contactId] = messages;
   }
 
-  /// Saves [list] as the chat with [contactId]. The cache takes the new list
-  /// only once it is stored, so a failed write leaves what is on screen equal
-  /// to what is saved. Callers pass a copy of the cached list.
+  /// Saves [list] as the chat with [contactId], with its summary and the
+  /// contact index, in one write, so they are stored together or not at all.
+  /// The cache takes the new list only once it is stored, so a failed write
+  /// leaves what is on screen equal to what is saved. Callers pass a copy of
+  /// the cached list.
   Future<void> _saveContact(String contactId, List<ChatMessage> list) async {
-    await _store.write(
-      contactKey(contactId),
-      jsonEncode([for (final m in list) m.toJson()]),
-    );
-    await _writeSummary(contactId, list);
-    _cachedChats[contactId] = list;
     final index = await _loadIndex();
-    var indexChanged = false;
-    if (list.isNotEmpty && index.add(contactId)) {
-      indexChanged = true;
-    } else if (list.isEmpty && index.remove(contactId)) {
-      indexChanged = true;
+    final next = {...index};
+    if (list.isNotEmpty) {
+      next.add(contactId);
+    } else {
+      next.remove(contactId);
     }
-    if (indexChanged) {
-      await _store.write(contactsIndexKey, jsonEncode(index.toList()));
-    }
+    final indexChanged = next.length != index.length;
+    await _store.writeAll(
+      {
+        contactKey(contactId): jsonEncode([for (final m in list) m.toJson()]),
+        if (list.isNotEmpty) summaryKey(contactId): _summaryJson(list),
+        if (indexChanged) contactsIndexKey: jsonEncode(next.toList()),
+      },
+      deleted: [if (list.isEmpty) summaryKey(contactId)],
+    );
+    _cachedChats[contactId] = list;
+    if (indexChanged) _contactIndex = next;
     if (!_changes.isClosed) {
       _changes.add(null);
     }
   }
 
-  /// Writes the summary of the chat with [contactId] as [list] stands, or
-  /// removes it when the chat has no messages. A summary that has not changed
-  /// is not written again: each write re-encrypts the whole vault.
-  Future<void> _writeSummary(String contactId, List<ChatMessage> list) async {
-    final key = summaryKey(contactId);
-    if (list.isEmpty) {
-      await _store.delete(key);
-      return;
-    }
-    final encoded = jsonEncode({
-      'last': list.last.toJson(),
-      'unread': _unreadIn(list),
-    });
-    if (await _store.read(key) == encoded) return;
-    await _store.write(key, encoded);
-  }
+  /// The summary record of [list]: its last message as stored and its unread
+  /// count.
+  static String _summaryJson(List<ChatMessage> list) =>
+      jsonEncode({'last': list.last.toJson(), 'unread': _unreadIn(list)});
 
   /// The number of incoming messages in [list] not yet read.
   static int _unreadIn(Iterable<ChatMessage> list) =>
@@ -804,14 +796,19 @@ class ChatStore {
     final removed = await _inOrder(() async {
       await _checkMigration();
       final messages = [...await _loadContact(contactId)];
-      _cachedChats.remove(contactId);
-      await _store.delete(contactKey(contactId));
-      await _store.delete(pendingKey(contactId));
-      await _store.delete(summaryKey(contactId));
       final index = await _loadIndex();
-      if (index.remove(contactId)) {
-        await _store.write(contactsIndexKey, jsonEncode(index.toList()));
-      }
+      final next = {...index}..remove(contactId);
+      final indexChanged = next.length != index.length;
+      await _store.writeAll(
+        {if (indexChanged) contactsIndexKey: jsonEncode(next.toList())},
+        deleted: [
+          summaryKey(contactId),
+          pendingKey(contactId),
+          contactKey(contactId),
+        ],
+      );
+      _cachedChats.remove(contactId);
+      if (indexChanged) _contactIndex = next;
       if (!_changes.isClosed) {
         _changes.add(null);
       }
@@ -967,13 +964,15 @@ class ChatStore {
 
   /// Drops a chat that has no messages left.
   Future<void> _forgetEmptyChat(String contactId) async {
-    await _store.delete(contactKey(contactId));
-    await _store.delete(summaryKey(contactId));
     final index = await _loadIndex();
-    if (index.remove(contactId)) {
-      await _store.write(contactsIndexKey, jsonEncode(index.toList()));
-    }
+    final next = {...index}..remove(contactId);
+    final indexChanged = next.length != index.length;
+    await _store.writeAll(
+      {if (indexChanged) contactsIndexKey: jsonEncode(next.toList())},
+      deleted: [summaryKey(contactId), contactKey(contactId)],
+    );
     _cachedChats[contactId] = [];
+    if (indexChanged) _contactIndex = next;
     if (!_changes.isClosed) {
       _changes.add(null);
     }
@@ -1119,7 +1118,7 @@ class ChatStore {
       if (again != null) return _summaryFrom(contactId, again);
       final list = await _loadContact(contactId);
       if (list.isEmpty) return null;
-      await _writeSummary(contactId, list);
+      await _store.write(summaryKey(contactId), _summaryJson(list));
       return ChatThreadSummary(
         contactId: contactId,
         lastMessage: list.last,

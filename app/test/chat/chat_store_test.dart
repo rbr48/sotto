@@ -67,9 +67,55 @@ class _CountingSecrets implements SecretStore {
   @override
   Future<void> delete(String key) => _inner.delete(key);
 
+  @override
+  Future<void> writeAll(
+    Map<String, String> values, {
+    Iterable<String> deleted = const [],
+  }) => _inner.writeAll(values, deleted: deleted);
+
   /// The keys of message records read so far.
   Iterable<String> get messageReads =>
       reads.where((key) => key.startsWith(ChatStore.contactKey('')));
+}
+
+/// A [SecretStore] whose writes to the keys [failOn] names fail, as a vault
+/// file that cannot be written would.
+class _FailingSecrets implements SecretStore {
+  _FailingSecrets(this._inner);
+
+  final SecretStore _inner;
+
+  /// The keys whose writes fail; null for none.
+  bool Function(String key)? failOn;
+
+  void _check(String key) {
+    final fails = failOn;
+    if (fails != null && fails(key)) throw StateError('the write failed');
+  }
+
+  @override
+  Future<String?> read(String key) => _inner.read(key);
+
+  @override
+  Future<void> write(String key, String value) async {
+    _check(key);
+    await _inner.write(key, value);
+  }
+
+  @override
+  Future<void> delete(String key) async {
+    _check(key);
+    await _inner.delete(key);
+  }
+
+  @override
+  Future<void> writeAll(
+    Map<String, String> values, {
+    Iterable<String> deleted = const [],
+  }) async {
+    values.keys.followedBy(deleted).forEach(_check);
+    await _inner.writeAll(values, deleted: deleted);
+  }
 }
 
 void main() {
@@ -1579,5 +1625,60 @@ void main() {
         expect((await list.messages('bob')).single.text, 'one', reason: raw);
       }
     });
+  });
+
+  group('a failed write leaves the stored chat as it was', () {
+    late _FailingSecrets failing;
+
+    setUp(() {
+      failing = _FailingSecrets(secrets);
+    });
+
+    test(
+      'a failed add stores nothing, and the same store and a fresh one agree',
+      () async {
+        await store.add(_message(1));
+        failing.failOn = (key) => key == ChatStore.summaryKey('bob');
+        final same = ChatStore(failing);
+
+        await expectLater(same.add(_message(2)), throwsStateError);
+        expect((await same.messages('bob')).map((m) => m.id), [_id(1)]);
+        expect((await ChatStore(secrets).messages('bob')).map((m) => m.id), [
+          _id(1),
+        ]);
+        await _expectSummaryInStep(secrets, 'bob');
+      },
+    );
+
+    test('a failed delete of the last message keeps the message', () async {
+      await store.add(_message(1));
+      failing.failOn = (key) => key == ChatStore.summaryKey('bob');
+
+      await expectLater(
+        ChatStore(failing).deleteMessage('bob', _id(1)),
+        throwsStateError,
+      );
+      expect((await ChatStore(secrets).messages('bob')).map((m) => m.id), [
+        _id(1),
+      ]);
+      await _expectSummaryInStep(secrets, 'bob');
+    });
+
+    test(
+      'a failed delete of a chat leaves the chat whole, in the list',
+      () async {
+        await store.add(_message(1));
+        failing.failOn = (key) => key == ChatStore.summaryKey('bob');
+
+        await expectLater(
+          ChatStore(failing).deleteChat('bob'),
+          throwsStateError,
+        );
+        final fresh = ChatStore(secrets);
+        expect((await fresh.messages('bob')).map((m) => m.id), [_id(1)]);
+        expect((await fresh.recentChats()).map((c) => c.contactId), ['bob']);
+        await _expectSummaryInStep(secrets, 'bob');
+      },
+    );
   });
 }
