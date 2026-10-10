@@ -11,6 +11,18 @@ Future<void> showMessageInfo(BuildContext context, ChatMessage message) =>
       builder: (_) => MessageInfoSheet(message: message),
     );
 
+/// The date and time [ms] names, in the app's language and the device's clock
+/// style. Used for the times in the info sheet and in the starred list.
+String messageWhen(BuildContext context, int ms) {
+  final locale = Localizations.localeOf(context).toLanguageTag();
+  final when = DateTime.fromMillisecondsSinceEpoch(ms);
+  final time = MaterialLocalizations.of(context).formatTimeOfDay(
+    TimeOfDay.fromDateTime(when),
+    alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
+  );
+  return '${DateFormat.yMMMd(locale).format(when)}, $time';
+}
+
 /// The times this device knows for [message]. Sent is the message's own time,
 /// which every message has. Delivered and read are shown only when this device
 /// recorded them, so a row is absent rather than blank.
@@ -46,7 +58,7 @@ class MessageInfoSheet extends StatelessWidget {
                     Expanded(child: Text(row.label)),
                     const SizedBox(width: 16),
                     Text(
-                      _formatWhen(context, row.at),
+                      messageWhen(context, row.at),
                       style: TextStyle(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
@@ -58,16 +70,5 @@ class MessageInfoSheet extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  /// The date and time, in the app's language and the device's clock style.
-  static String _formatWhen(BuildContext context, int ms) {
-    final locale = Localizations.localeOf(context).toLanguageTag();
-    final when = DateTime.fromMillisecondsSinceEpoch(ms);
-    final time = MaterialLocalizations.of(context).formatTimeOfDay(
-      TimeOfDay.fromDateTime(when),
-      alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
-    );
-    return '${DateFormat.yMMMd(locale).format(when)}, $time';
   }
 }

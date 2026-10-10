@@ -30,6 +30,7 @@ import 'forward_picker.dart';
 import 'message_info_sheet.dart';
 import 'message_menu.dart';
 import 'reaction_bar.dart';
+import 'starred_page.dart';
 
 /// Whether a day separator goes above a message: it is the first message
 /// shown, or its local calendar day differs from the one before it.
@@ -206,9 +207,14 @@ class ChatPage extends StatefulWidget {
     this.calls,
     this.avatar,
     this.contacts,
+    this.focusMessageId,
   });
 
   final String? avatar;
+
+  /// A message to open the chat at, from the starred list. The chat opens at
+  /// it only if the message is among those loaded; otherwise at the newest.
+  final String? focusMessageId;
 
   final ChatManager chat;
 
@@ -279,6 +285,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   bool _myTypingSent = false;
   Duration? _retention;
 
+  /// Whether this chat's notifications are muted on this device.
+  bool _muted = false;
+
+  /// Whether the chat has been opened at [ChatPage.focusMessageId] already.
+  bool _focused = false;
+
   /// The recorder, made on the first voice message.
   VoiceRecorder? _voice;
 
@@ -321,6 +333,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     unawaited(_markAndSendRead());
     unawaited(_sweepThenLoad());
     unawaited(_loadRetention());
+    unawaited(_loadMuted());
     _armMidnight();
   }
 
@@ -382,6 +395,13 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   Future<void> _loadRetention() async {
     final ret = await widget.chat.store.retention(widget.contactId);
     if (mounted) setState(() => _retention = ret);
+  }
+
+  /// Reads whether the chat is muted. Only this page changes it, so it is read
+  /// once, when the chat opens, and not with each load of the messages.
+  Future<void> _loadMuted() async {
+    final meta = await widget.chat.store.chatMeta(widget.contactId);
+    if (mounted) setState(() => _muted = meta.muted);
   }
 
   void _onScroll() {
@@ -467,6 +487,13 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _messages = messages;
       _hasMore = total > _loadedCount;
     });
+    final focus = widget.focusMessageId;
+    if (!_focused && focus != null) {
+      _focused = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _jumpTo(focus);
+      });
+    }
     await _endReplyIfGone();
   }
 
@@ -1537,6 +1564,27 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     await _load();
   }
 
+  /// Mutes or unmutes this chat on this device. Nothing is sent.
+  Future<void> _toggleMute() async {
+    final next = !_muted;
+    await widget.chat.setMuted(widget.contactId, next);
+    if (mounted) setState(() => _muted = next);
+  }
+
+  void _openStarred() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => StarredPage(
+          chat: widget.chat,
+          contacts: widget.contacts,
+          calls: widget.calls,
+          sendTyping: widget.sendTyping,
+          sendReadReceipts: widget.sendReadReceipts,
+        ),
+      ),
+    );
+  }
+
   Future<void> _deleteChat(AppLocalizations l10n) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -1813,6 +1861,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                 onSelected: (value) {
                   if (value == 'disappearing') {
                     unawaited(_chooseRetention(l10n));
+                  } else if (value == 'starred') {
+                    _openStarred();
+                  } else if (value == 'mute') {
+                    unawaited(_toggleMute());
                   } else if (value == 'delete') {
                     unawaited(_deleteChat(l10n));
                   }
@@ -1824,7 +1876,34 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                       children: [
                         const Icon(Icons.timer_outlined, size: 20),
                         const SizedBox(width: 12),
-                        Text(l10n.chatDisappearingTitle),
+                        Flexible(child: Text(l10n.chatDisappearingTitle)),
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'starred',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.star_outline, size: 20),
+                        const SizedBox(width: 12),
+                        Flexible(child: Text(l10n.chatStarredMessages)),
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'mute',
+                    child: Row(
+                      children: [
+                        Icon(
+                          _muted
+                              ? Icons.notifications_outlined
+                              : Icons.notifications_off_outlined,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 12),
+                        Flexible(
+                          child: Text(_muted ? l10n.chatUnmute : l10n.chatMute),
+                        ),
                       ],
                     ),
                   ),
@@ -1834,7 +1913,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                       children: [
                         const Icon(Icons.delete_outline, size: 20),
                         const SizedBox(width: 12),
-                        Text(l10n.chatDeleteMenu),
+                        Flexible(child: Text(l10n.chatDeleteMenu)),
                       ],
                     ),
                   ),

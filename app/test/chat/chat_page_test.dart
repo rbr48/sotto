@@ -188,6 +188,7 @@ void main() {
     String name = 'Bob',
     CallController? calls,
     ContactBook? contacts,
+    String? focusMessageId,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -201,6 +202,7 @@ void main() {
           name: name,
           calls: calls,
           contacts: contacts,
+          focusMessageId: focusMessageId,
         ),
       ),
     );
@@ -1581,6 +1583,83 @@ void main() {
           find.descendant(of: sheet, matching: find.text('Read')),
           findsNothing,
         );
+        await leave(tester);
+      },
+    );
+
+    testWidgets('the app bar menu mutes the chat on this device, and says so', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      expect(find.text('Starred messages'), findsOneWidget);
+      await tester.tap(find.text('Mute'));
+      await settleStore(tester);
+      expect(
+        (await tester.runAsync(() => store.chatMeta('bob')))?.muted,
+        isTrue,
+      );
+
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      expect(find.text('Unmute'), findsOneWidget);
+      expect(find.text('Mute'), findsNothing);
+      await tester.tap(find.text('Unmute'));
+      await settleStore(tester);
+      expect(
+        (await tester.runAsync(() => store.chatMeta('bob')))?.muted,
+        isFalse,
+      );
+      await leave(tester);
+    });
+
+    testWidgets(
+      'a chat opened at a starred message shows that message, when it is loaded',
+      (tester) async {
+        final base = nowMs() - 100000;
+        final ids = <String>[];
+        await tester.runAsync(() async {
+          for (var i = 0; i < 30; i++) {
+            final m = text('Line $i', outgoing: i.isEven, ts: base + i * 1000);
+            ids.add(m.id);
+            await store.add(m);
+          }
+        });
+        await pumpPage(tester, focusMessageId: ids.first);
+        await settleStore(tester);
+        // Each step of the search, and the reveal, takes a frame.
+        for (var frame = 0; frame < 40; frame++) {
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+
+        final rect = tester.getRect(find.text('Line 0'));
+        expect(rect.top, greaterThanOrEqualTo(0));
+        expect(rect.bottom, lessThanOrEqualTo(600));
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'a starred message that is not loaded opens the chat at its newest messages',
+      (tester) async {
+        final base = nowMs() - 100000;
+        final ids = <String>[];
+        await tester.runAsync(() async {
+          // More than one page, so the oldest message is not loaded.
+          for (var i = 0; i < 60; i++) {
+            final m = text('Line $i', outgoing: i.isEven, ts: base + i * 1000);
+            ids.add(m.id);
+            await store.add(m);
+          }
+        });
+        await pumpPage(tester, focusMessageId: ids.first);
+        await settleStore(tester);
+        await tester.pump(const Duration(milliseconds: 300));
+
+        expect(find.text('Line 0'), findsNothing);
+        expect(find.text('Line 59'), findsOneWidget);
         await leave(tester);
       },
     );
