@@ -198,6 +198,13 @@ void main() {
       expect(ChatFrames.isId(null), isFalse);
       expect(ChatFrames.isId(12), isFalse);
     });
+
+    test('isId refuses a 22-character string whose last character has bits '
+        'the 16 bytes do not use', () {
+      // 'B' sets a low bit of the final character, which no 16-byte value does.
+      expect(ChatFrames.isId('A' * 21 + 'B'), isFalse);
+      expect(ChatFrames.isId('A' * 22), isTrue);
+    });
   });
 
   group('file frames', () {

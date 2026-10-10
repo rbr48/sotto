@@ -1074,8 +1074,17 @@ abstract final class ChatFrames {
   }
 
   /// Whether [value] is an id made by [newId]: 16 bytes, unpadded base64url.
-  static bool isId(Object? value) =>
-      value is String && _idPattern.hasMatch(value);
+  /// The last character must carry no bits beyond the sixteenth byte, so each
+  /// id has one text form (the same rule [b64Decode] applies).
+  static bool isId(Object? value) {
+    if (value is! String || !_idPattern.hasMatch(value)) return false;
+    try {
+      b64Decode(value);
+      return true;
+    } on FormatException {
+      return false;
+    }
+  }
 
   static String _id(Object? value) {
     if (!isId(value)) throw const ChatFrameException('malformed');
