@@ -273,6 +273,15 @@ class AppLocalizationsBn extends AppLocalizations {
       'আপনি কখন তাদের বার্তা পড়েছেন তা পরিচিতিদের দেখতে দিন।';
 
   @override
+  String get privacyAutoDownloadFilesTitle =>
+      'ফাইল স্বয়ংক্রিয়ভাবে ডাউনলোড করুন';
+
+  @override
+  String privacyAutoDownloadFilesDesc(int megabytes) {
+    return 'পরিচিতিদের পাঠানো $megabytes MB পর্যন্ত ফাইল জিজ্ঞাসা ছাড়াই ডাউনলোড হবে। বড় ফাইল, বা একসাথে কয়েকটির বেশি ফাইল হলে, তখনও জিজ্ঞাসা করা হবে। ভয়েস বার্তা সবসময় ডাউনলোড হয়।';
+  }
+
+  @override
   String get chatDisappearingTitle => 'স্বয়ংক্রিয় বার্তা মুছে ফেলা';
 
   @override

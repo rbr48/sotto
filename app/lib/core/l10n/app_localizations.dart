@@ -520,6 +520,18 @@ abstract class AppLocalizations {
   /// **'Let contacts see when you have read their messages.'**
   String get privacySendReadReceiptsDesc;
 
+  /// No description provided for @privacyAutoDownloadFilesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Download files automatically'**
+  String get privacyAutoDownloadFilesTitle;
+
+  /// No description provided for @privacyAutoDownloadFilesDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Files from contacts up to {megabytes} MB download without asking. Larger files, and more than a few at a time, still ask. Voice messages always download.'**
+  String privacyAutoDownloadFilesDesc(int megabytes);
+
   /// No description provided for @chatDisappearingTitle.
   ///
   /// In en, this message translates to:

@@ -213,6 +213,20 @@ class SettingsTab extends StatelessWidget {
                   value: calls.sendReadReceipts,
                   onChanged: calls.setSendReadReceipts,
                 ),
+                SwitchListTile(
+                  key: const Key('auto-download-files'),
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    AppLocalizations.of(context).privacyAutoDownloadFilesTitle,
+                  ),
+                  subtitle: Text(
+                    AppLocalizations.of(context).privacyAutoDownloadFilesDesc(
+                      calls.autoDownloadMaxMegabytes,
+                    ),
+                  ),
+                  value: calls.autoDownloadFiles,
+                  onChanged: calls.setAutoDownloadFiles,
+                ),
               ],
             ),
           ),

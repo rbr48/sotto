@@ -285,6 +285,14 @@ class AppLocalizationsAr extends AppLocalizations {
       'السماح لجهات الاتصال بمعرفة متى قرأت رسائلهم.';
 
   @override
+  String get privacyAutoDownloadFilesTitle => 'تنزيل الملفات تلقائياً';
+
+  @override
+  String privacyAutoDownloadFilesDesc(int megabytes) {
+    return 'تُنزَّل الملفات الواردة من جهات الاتصال حتى $megabytes ميغابايت دون سؤال. أما الملفات الأكبر، أو أكثر من بضعة ملفات في وقت واحد، فسيُطلب منك قبولها. تُنزَّل الرسائل الصوتية دائماً.';
+  }
+
+  @override
   String get chatDisappearingTitle => 'الرسائل ذاتية الاختفاء';
 
   @override
