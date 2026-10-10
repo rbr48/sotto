@@ -13,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../call/call_controller.dart';
 import '../../contacts/contact_book.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/test_hooks.dart';
 import '../../core/ui_kit.dart';
 import '../chat_frames.dart';
 import '../chat_manager.dart';
@@ -453,6 +454,14 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       limit: _loadedCount,
     );
     if (!mounted) return;
+    // The browser tests count the quotes shown: a quote is kept out of the
+    // accessibility tree, so they cannot read it from there.
+    if (testHooks) {
+      publishForTests(
+        'quotes',
+        '${messages.where((m) => m.replyTo != null && !m.deletedForAll).length}',
+      );
+    }
     setState(() {
       _messages = messages;
       _hasMore = total > _loadedCount;
