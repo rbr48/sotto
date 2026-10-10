@@ -713,7 +713,8 @@ class ChatStore {
 
   /// The settings of the chat with [contactId]: the defaults when it has no
   /// record. A record that cannot be read is reported and the defaults are
-  /// used, so it never blocks the chat.
+  /// used, so it never blocks the chat. The summary is then checked against
+  /// these settings (see [threadSummary]), so the chat list shows the same.
   Future<ChatMeta> _metaOf(String contactId) async {
     if (_cachedMeta[contactId] case final cached?) return cached;
     final raw = await _store.read(metaKey(contactId));
@@ -879,12 +880,19 @@ class ChatStore {
     return message.copyWith(replyTo: (id: quote.id, text: text));
   }
 
-  /// Updates an existing message in-place.
+  /// Updates an existing message in-place. The stored star and times win over
+  /// [message]'s: a caller often copies the message before an await, and a
+  /// star or a time set meanwhile must not be written back over.
   Future<void> updateMessage(ChatMessage message) => _inOrder(() async {
     final list = [...await _loadContact(message.contactId)];
     final index = list.indexWhere((m) => m.id == message.id);
     if (index < 0) return;
-    list[index] = message;
+    final stored = list[index];
+    list[index] = message.copyWith(
+      starred: stored.starred,
+      deliveredAt: stored.deliveredAt,
+      readAt: stored.readAt,
+    );
     await _saveContact(message.contactId, list);
   });
 
@@ -1219,16 +1227,27 @@ class ChatStore {
     }
   }
 
-  /// Drops a chat that has no messages left.
+  /// Drops a chat that has no messages left. Its pin goes with it: an empty
+  /// chat is not counted toward the pin limit, so a pin kept here would let
+  /// the chat come back pinned past it. Its archived and muted settings stay.
   Future<void> _forgetEmptyChat(String contactId) async {
     final index = await _loadIndex();
     final next = {...index}..remove(contactId);
     final indexChanged = next.length != index.length;
+    final meta = (await _metaOf(contactId)).copyWith(clearPinnedAt: true);
     await _store.writeAll(
-      {if (indexChanged) contactsIndexKey: jsonEncode(next.toList())},
-      deleted: [summaryKey(contactId), contactKey(contactId)],
+      {
+        if (indexChanged) contactsIndexKey: jsonEncode(next.toList()),
+        if (!meta.isDefault) metaKey(contactId): jsonEncode(meta.toJson()),
+      },
+      deleted: [
+        summaryKey(contactId),
+        contactKey(contactId),
+        if (meta.isDefault) metaKey(contactId),
+      ],
     );
     _cachedChats[contactId] = [];
+    _cachedMeta[contactId] = meta;
     if (indexChanged) _contactIndex = next;
     if (!_changes.isClosed) {
       _changes.add(null);
@@ -1364,15 +1383,29 @@ class ChatStore {
   /// its unread count. Null when the chat has no messages.
   ///
   /// A chat with no summary record (one from an earlier vault) is rebuilt from
-  /// its messages once, and the record is written. A record that cannot be
-  /// read throws [ChatStoreException], and is not overwritten here.
+  /// its messages once, and the record is written. A summary that shows
+  /// settings is kept only while they match the settings record (the record
+  /// is the authority, see [_metaOf]); otherwise it is rebuilt the same way.
+  /// A record that is not a summary throws [ChatStoreException], and is not
+  /// overwritten here.
   Future<ChatThreadSummary?> threadSummary(String contactId) async {
     final raw = await _store.read(summaryKey(contactId));
-    if (raw != null) return _readSummary(contactId, raw);
+    if (raw != null) {
+      final summary = _readSummary(contactId, raw);
+      if (summary != null &&
+          (summary.meta.isDefault || _cachedMeta[contactId] == summary.meta)) {
+        return summary;
+      }
+    }
     return _inOrder<ChatThreadSummary?>(() async {
       // A change that ran first may have written the record meanwhile.
       final again = await _store.read(summaryKey(contactId));
-      if (again != null) return _readSummary(contactId, again);
+      if (again != null) {
+        final summary = _readSummary(contactId, again);
+        if (summary != null && summary.meta == await _metaOf(contactId)) {
+          return summary;
+        }
+      }
       final list = await _loadContact(contactId);
       if (list.isEmpty) return null;
       final meta = await _metaOf(contactId);
@@ -1392,21 +1425,26 @@ class ChatStore {
     });
   }
 
-  /// The summary held in [raw] for [contactId]. Throws [ChatStoreException]
-  /// when [raw] is not a summary, and reports it, since nothing else shows it:
-  /// the chat's messages still read fine.
-  ChatThreadSummary _readSummary(String contactId, String raw) {
+  /// The summary held in [raw] for [contactId]. Null when only its settings
+  /// cannot be read: the caller rebuilds the record (see [threadSummary]).
+  /// Throws [ChatStoreException] when [raw] is not a summary, and reports it,
+  /// since nothing else shows it: the chat's messages still read fine.
+  ChatThreadSummary? _readSummary(String contactId, String raw) {
     try {
-      return _summaryFrom(contactId, raw);
+      final summary = _summaryFrom(contactId, raw);
+      if (summary == null) {
+        _report(contactId, 'chat summary settings cannot be read');
+      }
+      return summary;
     } on ChatStoreException {
       _report(contactId, 'chat summary cannot be read');
       rethrow;
     }
   }
 
-  /// The summary held in [raw] for [contactId]. Throws [ChatStoreException]
-  /// when [raw] is not a summary.
-  static ChatThreadSummary _summaryFrom(String contactId, String raw) {
+  /// The summary held in [raw] for [contactId]. Null when its settings cannot
+  /// be read. Throws [ChatStoreException] when [raw] is not a summary.
+  static ChatThreadSummary? _summaryFrom(String contactId, String raw) {
     final Object? json;
     try {
       json = jsonDecode(raw);
@@ -1418,23 +1456,24 @@ class ChatStore {
     }
     final last = json['last'];
     final unread = json['unread'];
-    // A summary from before the settings were kept has none: the defaults.
-    final metaRaw = json['meta'];
-    final meta = metaRaw == null
-        ? ChatMeta.defaults
-        : ChatMeta.fromJson(metaRaw);
-    if (last is! Map<String, dynamic> ||
-        unread is! int ||
-        unread < 0 ||
-        meta == null) {
+    if (last is! Map<String, dynamic> || unread is! int || unread < 0) {
       throw const ChatStoreException('unreadable');
     }
+    final meta = _settingsIn(json);
+    if (meta == null) return null;
     return ChatThreadSummary(
       contactId: contactId,
       lastMessage: ChatMessage.fromJson(contactId, last),
       unreadCount: unread,
       meta: meta,
     );
+  }
+
+  /// The settings a summary record holds. A record from before the settings
+  /// were kept has none: the defaults. Null when they have the wrong type.
+  static ChatMeta? _settingsIn(Map<String, dynamic> json) {
+    final metaRaw = json['meta'];
+    return metaRaw == null ? ChatMeta.defaults : ChatMeta.fromJson(metaRaw);
   }
 
   /// [threadSummary], or null when the chat's record cannot be read. Lists over
