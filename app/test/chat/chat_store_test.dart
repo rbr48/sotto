@@ -1708,6 +1708,19 @@ void main() {
           _id(1),
         ]);
         await _expectSummaryInStep(secrets, 'bob');
+        expect(
+          (await ChatStore(secrets).recentChats()).single.lastMessage.id,
+          _id(1),
+        );
+
+        // A later change on the same store keeps the chat as it stands.
+        failing.failOn = null;
+        await same.add(_message(3));
+        expect((await ChatStore(secrets).messages('bob')).map((m) => m.id), [
+          _id(1),
+          _id(3),
+        ]);
+        await _expectSummaryInStep(secrets, 'bob');
       },
     );
 
