@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:audioplayers/audioplayers.dart' show PlayerState;
 import 'package:flutter/foundation.dart';
@@ -106,6 +106,62 @@ String fileErrorMessage(AppLocalizations l10n, Object error, String fallback) {
     _ => fallback,
   };
 }
+
+/// The widest or tallest image a chat will decode, in pixels.
+const maxImageSide = 8192;
+
+/// The most pixels a chat will decode in one image (40 megapixels).
+const maxImagePixels = 40000000;
+
+/// The long side the full-screen viewer decodes an image to, at most.
+const maxViewerSide = 4096;
+
+/// Whether an image of [width] by [height] pixels may be decoded. A received
+/// image is chosen by the peer, and a small file can declare a size that
+/// takes gigabytes to decode, so anything larger is refused.
+///
+/// Pure, so the limits can be tested on their own.
+bool imageSizeAllowed(int width, int height) =>
+    width > 0 &&
+    height > 0 &&
+    width <= maxImageSide &&
+    height <= maxImageSide &&
+    width * height <= maxImagePixels;
+
+/// The size an encoded image declares in its header, read without decoding
+/// its pixels. Null when the bytes are not an image the engine can read.
+Future<({int width, int height})?> imageHeaderSize(Uint8List bytes) async {
+  ui.ImmutableBuffer? buffer;
+  ui.ImageDescriptor? descriptor;
+  try {
+    buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    descriptor = await ui.ImageDescriptor.encoded(buffer);
+    return (width: descriptor.width, height: descriptor.height);
+  } catch (_) {
+    return null;
+  } finally {
+    descriptor?.dispose();
+    buffer?.dispose();
+  }
+}
+
+/// The size of [bytes] when it is an image safe to decode, else null.
+Future<({int width, int height})?> safeImageSize(Uint8List bytes) async {
+  final size = await imageHeaderSize(bytes);
+  if (size == null || !imageSizeAllowed(size.width, size.height)) return null;
+  return size;
+}
+
+/// The text shown when Android refuses to open a received file, by the
+/// error code its native side returns.
+///
+/// Pure, so the mapping can be tested in any language.
+String openFileErrorMessage(AppLocalizations l10n, String code) =>
+    switch (code) {
+      'blocked_type' => l10n.chatFileTypeCannotOpen,
+      'no_app' => l10n.chatFileNoApp,
+      _ => l10n.chatFileOpenFailed,
+    };
 
 /// How a day separator names its day, judged from the current day.
 enum ChatDayLabel { today, yesterday, other }
@@ -608,6 +664,33 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     await voice?.cancel();
   }
 
+  /// Asks before a back press drops the voice message in progress. On
+  /// Discard the recording is cancelled and the page closes.
+  Future<void> _confirmLeaveRecording() async {
+    final l10n = AppLocalizations.of(context);
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(l10n.chatVoiceDiscardTitle),
+        content: Text(l10n.chatVoiceDiscardBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(l10n.chatCancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(l10n.chatVoiceDiscard),
+          ),
+        ],
+      ),
+    );
+    if (discard != true || !mounted) return;
+    // The page closes at once; the recorder finishes cancelling after.
+    unawaited(_discardVoice());
+    Navigator.of(context).pop();
+  }
+
   void _resetVoiceState() {
     _recording = false;
     _heldNote = null;
@@ -735,10 +818,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       if (kind == _AttachmentKind.gallery) {
         try {
           picked = await openFiles(
-            acceptedTypeGroups: const [
+            acceptedTypeGroups: [
               XTypeGroup(
-                label: 'Images and Videos',
-                mimeTypes: [
+                label: l10n.chatPickMedia,
+                mimeTypes: const [
                   'image/jpeg',
                   'image/png',
                   'image/webp',
@@ -747,7 +830,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                   'video/quicktime',
                   'video/x-matroska',
                 ],
-                extensions: [
+                extensions: const [
                   'jpg',
                   'jpeg',
                   'png',
@@ -767,10 +850,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       } else if (kind == _AttachmentKind.audio) {
         try {
           picked = await openFiles(
-            acceptedTypeGroups: const [
+            acceptedTypeGroups: [
               XTypeGroup(
-                label: 'Audio',
-                mimeTypes: [
+                label: l10n.chatPickAudio,
+                mimeTypes: const [
                   'audio/mpeg',
                   'audio/mp4',
                   'audio/wav',
@@ -778,7 +861,15 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                   'audio/aac',
                   'audio/opus',
                 ],
-                extensions: ['mp3', 'm4a', 'wav', 'ogg', 'aac', 'opus', 'flac'],
+                extensions: const [
+                  'mp3',
+                  'm4a',
+                  'wav',
+                  'ogg',
+                  'aac',
+                  'opus',
+                  'flac',
+                ],
               ),
             ],
           );
@@ -788,10 +879,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       } else if (kind == _AttachmentKind.document) {
         try {
           picked = await openFiles(
-            acceptedTypeGroups: const [
+            acceptedTypeGroups: [
               XTypeGroup(
-                label: 'Documents',
-                mimeTypes: [
+                label: l10n.chatPickDocuments,
+                mimeTypes: const [
                   'application/pdf',
                   'text/plain',
                   'application/msword',
@@ -800,7 +891,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                   'application/zip',
                 ],
-                extensions: [
+                extensions: const [
                   'pdf',
                   'txt',
                   'doc',
@@ -881,7 +972,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
               _AttachmentOption(
                 icon: Icons.photo_library,
                 color: const Color(0xFFAC44CF),
-                label: 'Gallery',
+                label: l10n.chatAttachGallery,
                 onTap: () {
                   Navigator.pop(context);
                   _attachFile(kind: _AttachmentKind.gallery);
@@ -890,7 +981,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
               _AttachmentOption(
                 icon: Icons.insert_drive_file,
                 color: const Color(0xFF5F66CD),
-                label: 'Document',
+                label: l10n.chatAttachDocument,
                 onTap: () {
                   Navigator.pop(context);
                   _attachFile(kind: _AttachmentKind.document);
@@ -899,7 +990,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
               _AttachmentOption(
                 icon: Icons.headphones,
                 color: const Color(0xFFF33D73),
-                label: 'Audio',
+                label: l10n.chatAttachAudio,
                 onTap: () {
                   Navigator.pop(context);
                   _attachFile(kind: _AttachmentKind.audio);
@@ -927,7 +1018,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   /// Opens a received file in another app. The file is kept encrypted, so
   /// the app opens a decrypted copy.
   Future<void> _openFile(ChatMessage message) async {
-    final failed = AppLocalizations.of(context).chatFileOpenFailed;
+    final l10n = AppLocalizations.of(context);
+    final failed = l10n.chatFileOpenFailed;
     try {
       if (kIsWeb) {
         final bytes = await widget.chat.store.readFile(message);
@@ -936,17 +1028,19 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       }
       final copy = await widget.chat.store.openCopy(message);
       if (defaultTargetPlatform == TargetPlatform.android) {
+        // The native side picks the type from the file name, never from what
+        // the peer said, and refuses types that are unsafe to open. There is
+        // no fallback on Android: it would open what was refused.
         try {
-          final mime =
-              message.fileMime ??
-              ChatFrames.detectMimeType(message.fileName ?? copy.path);
           const channel = MethodChannel('sotto/android');
-          final ok = await channel.invokeMethod<bool>('openFile', {
-            'path': copy.path,
-            'mime': mime,
-          });
-          if (ok == true) return;
-        } catch (_) {}
+          await channel.invokeMethod<bool>('openFile', {'path': copy.path});
+        } on PlatformException catch (e) {
+          if (e.code == 'blocked_type' || e.code == 'no_app') {
+            unawaited(widget.chat.store.files?.removeOpenCopy(copy));
+          }
+          _showSnack(openFileErrorMessage(l10n, e.code));
+        }
+        return;
       }
       await launchUrl(Uri.file(copy.path));
     } catch (e) {
@@ -954,69 +1048,58 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     }
   }
 
+  void _showSnack(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
   Future<void> _saveFileAs(ChatMessage message) async {
-    final failed = AppLocalizations.of(context).chatFileSaveFailed;
+    final l10n = AppLocalizations.of(context);
+    final failed = l10n.chatFileSaveFailed;
     try {
       final bytes = await widget.chat.store.readFile(message);
       final fileName = message.fileName ?? 'file';
 
       if (kIsWeb) {
         downloadWebFile(bytes, fileName, message.fileMime);
-        if (!mounted) return;
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Downloading $fileName...')));
+        _showSnack(l10n.chatFileDownloadingWeb(fileName));
         return;
       }
 
       if (defaultTargetPlatform == TargetPlatform.android) {
-        String? savedPath;
-        final mime = message.fileMime ?? ChatFrames.detectMimeType(fileName);
+        // Only the native save is used. Nothing is written anywhere else: a
+        // plain copy outside the app would leave the file unencrypted.
+        String? saved;
         try {
           const channel = MethodChannel('sotto/android');
-          savedPath = await channel.invokeMethod<String>('saveToDownloads', {
+          saved = await channel.invokeMethod<String>('saveToDownloads', {
             'bytes': bytes,
             'name': fileName,
-            'mime': mime,
           });
-        } catch (_) {}
-
-        if (savedPath == null) {
-          try {
-            final copy = await widget.chat.store.openCopy(message);
-            const channel = MethodChannel('sotto/android');
-            savedPath = await channel.invokeMethod<String>('saveToDownloads', {
-              'path': copy.path,
-              'name': fileName,
-              'mime': mime,
-            });
-          } catch (_) {}
-        }
-
-        if (savedPath == null) {
-          try {
-            final downloadDir = Directory('/storage/emulated/0/Download');
-            if (await downloadDir.exists()) {
-              final target = File('${downloadDir.path}/$fileName');
-              await target.writeAsBytes(bytes);
-              savedPath = target.path;
-            }
-          } catch (_) {}
-        }
-
-        if (savedPath != null) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Saved to Downloads: $fileName'),
-              action: SnackBarAction(
-                label: AppLocalizations.of(context).chatFileOpen,
-                onPressed: () => _openFile(message),
-              ),
-            ),
+        } on PlatformException catch (e) {
+          _showSnack(
+            e.code == 'permission_required'
+                ? l10n.chatFileStoragePermission
+                : failed,
           );
           return;
         }
-        throw Exception('Could not save to Downloads folder');
+        if (saved == null) {
+          _showSnack(failed);
+          return;
+        }
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            // The name actually used, which may differ, as "name (1).pdf".
+            content: Text(l10n.chatFileSavedToDownloads(saved)),
+            action: SnackBarAction(
+              label: l10n.chatFileOpen,
+              onPressed: () => _openFile(message),
+            ),
+          ),
+        );
+        return;
       }
 
       final location = await getSaveLocation(suggestedName: fileName);
@@ -1249,9 +1332,15 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
               .toList();
 
     return PopScope(
-      canPop: !_showEmoji && !_isSearching,
+      // A voice message being recorded, or held at its limit, is not dropped
+      // by a back press without asking.
+      canPop: !_showEmoji && !_isSearching && !_voiceActive,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
+        if (_voiceActive) {
+          unawaited(_confirmLeaveRecording());
+          return;
+        }
         if (_showEmoji) {
           setState(() => _showEmoji = false);
           return;
@@ -1332,23 +1421,18 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                               ],
                             ],
                           ),
-                          Text(
-                            _peerIsTyping
-                                ? l10n.chatTyping(widget.name)
-                                : (widget.verified
-                                      ? 'verified contact'
-                                      : (widget.chat.hideIp()
-                                            ? 'relayed'
-                                            : 'online')),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: textTheme.bodySmall?.copyWith(
-                              color: _peerIsTyping
-                                  ? tokens.verifiedIcon
-                                  : tokens.headerSubtitle,
-                              fontSize: 12,
+                          // Only what is known: the peer is typing. Presence is
+                          // not known, so no line claims it.
+                          if (_peerIsTyping)
+                            Text(
+                              l10n.chatTyping(widget.name),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: textTheme.bodySmall?.copyWith(
+                                color: tokens.verifiedIcon,
+                                fontSize: 12,
+                              ),
                             ),
-                          ),
                         ],
                       ),
                     ),
@@ -1381,7 +1465,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                 IconButton(
                   style: IconButton.styleFrom(minimumSize: const Size(44, 48)),
                   icon: const Icon(Icons.videocam),
-                  tooltip: 'Video call ${widget.name}',
+                  tooltip: l10n.chatVideoCallTooltip(widget.name),
                   onPressed: _callActive
                       ? null
                       : () => unawaited(
@@ -1394,7 +1478,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                 IconButton(
                   style: IconButton.styleFrom(minimumSize: const Size(44, 48)),
                   icon: const Icon(Icons.call),
-                  tooltip: 'Voice call ${widget.name}',
+                  tooltip: l10n.chatVoiceCallTooltip(widget.name),
                   onPressed: _callActive
                       ? null
                       : () => unawaited(
@@ -1653,7 +1737,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      // With Hide my IP on, messages are relayed, not sent direct.
+                      // With Hide my IP on, messages go through the relay, not direct.
                       widget.chat.hideIp()
                           ? l10n.chatRelayNote
                           : l10n.chatDirectNote,
@@ -1690,7 +1774,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                                 crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
                                   IconButton(
-                                    tooltip: _showEmoji ? 'Keyboard' : 'Emoji',
+                                    tooltip: _showEmoji
+                                        ? l10n.chatKeyboardTooltip
+                                        : l10n.chatEmojiTooltip,
                                     style: IconButton.styleFrom(
                                       minimumSize: const Size(40, 48),
                                     ),
@@ -2066,7 +2152,7 @@ class _Bubble extends StatelessWidget {
       ),
       ChatState.read => (
         icon: Icons.done_all,
-        iconColor: const Color(0xFF53BDEB),
+        iconColor: tokens.readTick,
         labelColor: tokens.sentText,
         label: l10n.chatStatusRead,
       ),
@@ -2584,6 +2670,7 @@ class _ImageThumbnail extends StatefulWidget {
 
 class _ImageThumbnailState extends State<_ImageThumbnail> {
   Uint8List? _bytes;
+  ({int width, int height})? _size;
   bool _loading = true;
   bool _error = false;
 
@@ -2596,9 +2683,14 @@ class _ImageThumbnailState extends State<_ImageThumbnail> {
   Future<void> _load() async {
     try {
       final b = await widget.store.readFile(widget.message);
+      // The header is read first: an image too large to decode safely is
+      // not shown at all. The file card below still offers it.
+      final size = await safeImageSize(b);
       if (mounted) {
         setState(() {
-          _bytes = b;
+          _bytes = size == null ? null : b;
+          _size = size;
+          _error = size == null;
           _loading = false;
         });
       }
@@ -2630,7 +2722,23 @@ class _ImageThumbnailState extends State<_ImageThumbnail> {
       );
     }
     if (_error || _bytes == null) {
-      return const SizedBox.shrink();
+      final tokens = ChatTokens.of(context);
+      final color = widget.message.outgoing
+          ? tokens.sentSecondary
+          : tokens.receivedSecondary;
+      return Row(
+        children: [
+          Icon(Icons.broken_image_outlined, size: 20, color: color),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              AppLocalizations.of(context).chatImageLoadFailed,
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: color),
+            ),
+          ),
+        ],
+      );
     }
     return GestureDetector(
       onTap: widget.onTap,
@@ -2641,7 +2749,23 @@ class _ImageThumbnailState extends State<_ImageThumbnail> {
             maxHeight: 260,
             minWidth: double.infinity,
           ),
-          child: Image.memory(_bytes!, fit: BoxFit.cover),
+          // Decoded no wider than the screen, never at full size. The height
+          // follows, as the aspect ratio is kept. (The bubble sizes itself
+          // by intrinsic width, so a LayoutBuilder cannot be used here.)
+          child: Image.memory(
+            _bytes!,
+            fit: BoxFit.cover,
+            cacheWidth: math.max(
+              1,
+              math.min(
+                _size!.width,
+                (MediaQuery.sizeOf(context).width *
+                        MediaQuery.devicePixelRatioOf(context))
+                    .ceil(),
+              ),
+            ),
+            errorBuilder: (_, _, _) => const SizedBox.shrink(),
+          ),
         ),
       ),
     );
@@ -2679,9 +2803,10 @@ class _ImageViewerPageState extends State<_ImageViewerPage> {
   Future<void> _load() async {
     try {
       final b = await widget.store.readFile(widget.message);
+      final size = await safeImageSize(b);
       if (mounted) {
         setState(() {
-          _bytes = b;
+          _bytes = size == null ? null : b;
           _loading = false;
         });
       }
@@ -2696,7 +2821,12 @@ class _ImageViewerPageState extends State<_ImageViewerPage> {
 
   @override
   Widget build(BuildContext context) {
-    final name = widget.message.fileName ?? 'Image';
+    final l10n = AppLocalizations.of(context);
+    final name = widget.message.fileName ?? l10n.chatImage;
+    final failed = Text(
+      l10n.chatImageLoadFailed,
+      style: const TextStyle(color: Colors.white70),
+    );
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -2706,12 +2836,12 @@ class _ImageViewerPageState extends State<_ImageViewerPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.open_in_new),
-            tooltip: 'Open with app',
+            tooltip: l10n.chatImageOpenWith,
             onPressed: widget.onOpen,
           ),
           IconButton(
             icon: const Icon(Icons.download),
-            tooltip: 'Save to device',
+            tooltip: l10n.chatImageSave,
             onPressed: widget.onSaveAs,
           ),
         ],
@@ -2720,14 +2850,21 @@ class _ImageViewerPageState extends State<_ImageViewerPage> {
         child: _loading
             ? const CircularProgressIndicator(color: Colors.white)
             : _bytes == null
-            ? const Text(
-                'Could not load image',
-                style: TextStyle(color: Colors.white70),
-              )
+            ? failed
             : InteractiveViewer(
                 minScale: 0.5,
                 maxScale: 4.0,
-                child: Image.memory(_bytes!, fit: BoxFit.contain),
+                // Decoded to at most maxViewerSide on its long side.
+                child: Image(
+                  image: ResizeImage(
+                    MemoryImage(_bytes!),
+                    width: maxViewerSide,
+                    height: maxViewerSide,
+                    policy: ResizeImagePolicy.fit,
+                  ),
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, _, _) => failed,
+                ),
               ),
       ),
     );
@@ -3199,7 +3336,6 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel>
   static const _categories = [
     (
       icon: Icons.sentiment_satisfied_alt_outlined,
-      label: 'Smileys',
       emojis: [
         '😀',
         '😃',
@@ -3301,7 +3437,6 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel>
     ),
     (
       icon: Icons.front_hand_outlined,
-      label: 'People',
       emojis: [
         '👋',
         '🤚',
@@ -3379,7 +3514,6 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel>
     ),
     (
       icon: Icons.pets_outlined,
-      label: 'Animals',
       emojis: [
         '🐶',
         '🐱',
@@ -3469,7 +3603,6 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel>
     ),
     (
       icon: Icons.fastfood_outlined,
-      label: 'Food',
       emojis: [
         '🍏',
         '🍎',
@@ -3559,7 +3692,6 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel>
     ),
     (
       icon: Icons.sports_soccer_outlined,
-      label: 'Activities',
       emojis: [
         '⚽',
         '🏀',
@@ -3637,7 +3769,6 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel>
     ),
     (
       icon: Icons.directions_car_outlined,
-      label: 'Travel',
       emojis: [
         '🚗',
         '🚕',
@@ -3715,7 +3846,6 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel>
     ),
     (
       icon: Icons.lightbulb_outlined,
-      label: 'Objects',
       emojis: [
         '⌚',
         '📱',
@@ -3793,7 +3923,6 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel>
     ),
     (
       icon: Icons.favorite_outline,
-      label: 'Symbols',
       emojis: [
         '❤️',
         '🧡',
@@ -3921,6 +4050,18 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel>
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    // In the order of [_categories].
+    final labels = [
+      l10n.chatEmojiSmileys,
+      l10n.chatEmojiPeople,
+      l10n.chatEmojiAnimals,
+      l10n.chatEmojiFood,
+      l10n.chatEmojiActivities,
+      l10n.chatEmojiTravel,
+      l10n.chatEmojiObjects,
+      l10n.chatEmojiSymbols,
+    ];
     return Container(
       height: 270,
       decoration: BoxDecoration(
@@ -3999,13 +4140,18 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel>
                     padding: EdgeInsets.zero,
                     labelPadding: const EdgeInsets.symmetric(horizontal: 10),
                     tabs: [
-                      for (final cat in _categories)
-                        Tab(icon: Icon(cat.icon, size: 22)),
+                      for (final (i, cat) in _categories.indexed)
+                        Tab(
+                          icon: Tooltip(
+                            message: labels[i],
+                            child: Icon(cat.icon, size: 22),
+                          ),
+                        ),
                     ],
                   ),
                 ),
                 IconButton(
-                  tooltip: 'Backspace',
+                  tooltip: l10n.chatEmojiBackspace,
                   icon: Icon(
                     Icons.backspace_outlined,
                     color: widget.tokens.attachIcon,

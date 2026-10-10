@@ -247,5 +247,94 @@
   "chatVoiceNeedsParecord": "Voice messages on Linux need the pulseaudio-utils package, which provides parecord. Install it, then try again.",
   "chatVoiceInCall": "Voice messages are not available during a call.",
   "chatVoicePlay": "Play voice message",
-  "chatVoicePause": "Pause voice message"
+  "chatVoicePause": "Pause voice message",
+  "chatPickMedia": "Images and videos",
+  "chatPickAudio": "Audio",
+  "chatPickDocuments": "Documents",
+  "chatAttachGallery": "Gallery",
+  "chatAttachDocument": "Document",
+  "chatAttachAudio": "Audio",
+  "chatFileDownloadingWeb": "Downloading {name}…",
+  "@chatFileDownloadingWeb": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "report.pdf"
+      }
+    }
+  },
+  "chatFileSavedToDownloads": "Saved to Downloads: {name}",
+  "@chatFileSavedToDownloads": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "report.pdf"
+      }
+    }
+  },
+  "chatFileTypeCannotOpen": "This file type can't be opened here. Use Save instead.",
+  "chatVideoCallTooltip": "Video call {name}",
+  "@chatVideoCallTooltip": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Amina"
+      }
+    }
+  },
+  "chatVoiceCallTooltip": "Voice call {name}",
+  "@chatVoiceCallTooltip": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Amina"
+      }
+    }
+  },
+  "chatImage": "Image",
+  "chatImageOpenWith": "Open with app",
+  "chatImageSave": "Save to device",
+  "chatImageLoadFailed": "Could not load image",
+  "chatEmojiSmileys": "Smileys",
+  "chatEmojiPeople": "People",
+  "chatEmojiAnimals": "Animals and nature",
+  "chatEmojiFood": "Food and drink",
+  "chatEmojiActivities": "Activities",
+  "chatEmojiTravel": "Travel and places",
+  "chatEmojiObjects": "Objects",
+  "chatEmojiSymbols": "Symbols",
+  "chatEmojiBackspace": "Backspace",
+  "chatVoiceDiscardTitle": "Discard voice message?",
+  "chatVoiceDiscardBody": "You are recording a voice message. If you leave, it is deleted and not sent.",
+  "chatVoiceDiscard": "Discard",
+  "chatsAddContactsFirst": "Add contacts from the Contacts tab first.",
+  "chatsNewConversation": "New conversation",
+  "chatsNewChat": "New chat",
+  "chatsSearchHint": "Search conversations…",
+  "chatsFilterAll": "All ({count})",
+  "@chatsFilterAll": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "chatsFilterUnread": "Unread",
+  "chatsEmptyTitle": "No conversations yet",
+  "chatsNoMatches": "No matching conversations",
+  "chatsUnknownContact": "Contact {id}",
+  "@chatsUnknownContact": {
+    "placeholders": {
+      "id": {
+        "type": "String",
+        "example": "3f9a1c2b"
+      }
+    }
+  },
+  "chatsYouPrefix": "You: ",
+  "chatKeyboardTooltip": "Keyboard",
+  "chatEmojiTooltip": "Emoji",
+  "chatFileNoApp": "No app on this device can open this file.",
+  "chatFileStoragePermission": "Allow storage access, then tap Save again."
 }

@@ -404,4 +404,143 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get chatVoicePause => 'Pause voice message';
+
+  @override
+  String get chatPickMedia => 'Images and videos';
+
+  @override
+  String get chatPickAudio => 'Audio';
+
+  @override
+  String get chatPickDocuments => 'Documents';
+
+  @override
+  String get chatAttachGallery => 'Gallery';
+
+  @override
+  String get chatAttachDocument => 'Document';
+
+  @override
+  String get chatAttachAudio => 'Audio';
+
+  @override
+  String chatFileDownloadingWeb(String name) {
+    return 'Downloading $name…';
+  }
+
+  @override
+  String chatFileSavedToDownloads(String name) {
+    return 'Saved to Downloads: $name';
+  }
+
+  @override
+  String get chatFileTypeCannotOpen =>
+      'This file type can\'t be opened here. Use Save instead.';
+
+  @override
+  String chatVideoCallTooltip(String name) {
+    return 'Video call $name';
+  }
+
+  @override
+  String chatVoiceCallTooltip(String name) {
+    return 'Voice call $name';
+  }
+
+  @override
+  String get chatImage => 'Image';
+
+  @override
+  String get chatImageOpenWith => 'Open with app';
+
+  @override
+  String get chatImageSave => 'Save to device';
+
+  @override
+  String get chatImageLoadFailed => 'Could not load image';
+
+  @override
+  String get chatEmojiSmileys => 'Smileys';
+
+  @override
+  String get chatEmojiPeople => 'People';
+
+  @override
+  String get chatEmojiAnimals => 'Animals and nature';
+
+  @override
+  String get chatEmojiFood => 'Food and drink';
+
+  @override
+  String get chatEmojiActivities => 'Activities';
+
+  @override
+  String get chatEmojiTravel => 'Travel and places';
+
+  @override
+  String get chatEmojiObjects => 'Objects';
+
+  @override
+  String get chatEmojiSymbols => 'Symbols';
+
+  @override
+  String get chatEmojiBackspace => 'Backspace';
+
+  @override
+  String get chatVoiceDiscardTitle => 'Discard voice message?';
+
+  @override
+  String get chatVoiceDiscardBody =>
+      'You are recording a voice message. If you leave, it is deleted and not sent.';
+
+  @override
+  String get chatVoiceDiscard => 'Discard';
+
+  @override
+  String get chatsAddContactsFirst =>
+      'Add contacts from the Contacts tab first.';
+
+  @override
+  String get chatsNewConversation => 'New conversation';
+
+  @override
+  String get chatsNewChat => 'New chat';
+
+  @override
+  String get chatsSearchHint => 'Search conversations…';
+
+  @override
+  String chatsFilterAll(int count) {
+    return 'All ($count)';
+  }
+
+  @override
+  String get chatsFilterUnread => 'Unread';
+
+  @override
+  String get chatsEmptyTitle => 'No conversations yet';
+
+  @override
+  String get chatsNoMatches => 'No matching conversations';
+
+  @override
+  String chatsUnknownContact(String id) {
+    return 'Contact $id';
+  }
+
+  @override
+  String get chatsYouPrefix => 'You: ';
+
+  @override
+  String get chatKeyboardTooltip => 'Keyboard';
+
+  @override
+  String get chatEmojiTooltip => 'Emoji';
+
+  @override
+  String get chatFileNoApp => 'No app on this device can open this file.';
+
+  @override
+  String get chatFileStoragePermission =>
+      'Allow storage access, then tap Save again.';
 }

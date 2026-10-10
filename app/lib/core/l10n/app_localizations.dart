@@ -753,6 +753,252 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Pause voice message'**
   String get chatVoicePause;
+
+  /// No description provided for @chatPickMedia.
+  ///
+  /// In en, this message translates to:
+  /// **'Images and videos'**
+  String get chatPickMedia;
+
+  /// No description provided for @chatPickAudio.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio'**
+  String get chatPickAudio;
+
+  /// No description provided for @chatPickDocuments.
+  ///
+  /// In en, this message translates to:
+  /// **'Documents'**
+  String get chatPickDocuments;
+
+  /// No description provided for @chatAttachGallery.
+  ///
+  /// In en, this message translates to:
+  /// **'Gallery'**
+  String get chatAttachGallery;
+
+  /// No description provided for @chatAttachDocument.
+  ///
+  /// In en, this message translates to:
+  /// **'Document'**
+  String get chatAttachDocument;
+
+  /// No description provided for @chatAttachAudio.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio'**
+  String get chatAttachAudio;
+
+  /// No description provided for @chatFileDownloadingWeb.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading {name}…'**
+  String chatFileDownloadingWeb(String name);
+
+  /// No description provided for @chatFileSavedToDownloads.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved to Downloads: {name}'**
+  String chatFileSavedToDownloads(String name);
+
+  /// No description provided for @chatFileTypeCannotOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'This file type can\'t be opened here. Use Save instead.'**
+  String get chatFileTypeCannotOpen;
+
+  /// No description provided for @chatVideoCallTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Video call {name}'**
+  String chatVideoCallTooltip(String name);
+
+  /// No description provided for @chatVoiceCallTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice call {name}'**
+  String chatVoiceCallTooltip(String name);
+
+  /// No description provided for @chatImage.
+  ///
+  /// In en, this message translates to:
+  /// **'Image'**
+  String get chatImage;
+
+  /// No description provided for @chatImageOpenWith.
+  ///
+  /// In en, this message translates to:
+  /// **'Open with app'**
+  String get chatImageOpenWith;
+
+  /// No description provided for @chatImageSave.
+  ///
+  /// In en, this message translates to:
+  /// **'Save to device'**
+  String get chatImageSave;
+
+  /// No description provided for @chatImageLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load image'**
+  String get chatImageLoadFailed;
+
+  /// No description provided for @chatEmojiSmileys.
+  ///
+  /// In en, this message translates to:
+  /// **'Smileys'**
+  String get chatEmojiSmileys;
+
+  /// No description provided for @chatEmojiPeople.
+  ///
+  /// In en, this message translates to:
+  /// **'People'**
+  String get chatEmojiPeople;
+
+  /// No description provided for @chatEmojiAnimals.
+  ///
+  /// In en, this message translates to:
+  /// **'Animals and nature'**
+  String get chatEmojiAnimals;
+
+  /// No description provided for @chatEmojiFood.
+  ///
+  /// In en, this message translates to:
+  /// **'Food and drink'**
+  String get chatEmojiFood;
+
+  /// No description provided for @chatEmojiActivities.
+  ///
+  /// In en, this message translates to:
+  /// **'Activities'**
+  String get chatEmojiActivities;
+
+  /// No description provided for @chatEmojiTravel.
+  ///
+  /// In en, this message translates to:
+  /// **'Travel and places'**
+  String get chatEmojiTravel;
+
+  /// No description provided for @chatEmojiObjects.
+  ///
+  /// In en, this message translates to:
+  /// **'Objects'**
+  String get chatEmojiObjects;
+
+  /// No description provided for @chatEmojiSymbols.
+  ///
+  /// In en, this message translates to:
+  /// **'Symbols'**
+  String get chatEmojiSymbols;
+
+  /// No description provided for @chatEmojiBackspace.
+  ///
+  /// In en, this message translates to:
+  /// **'Backspace'**
+  String get chatEmojiBackspace;
+
+  /// No description provided for @chatVoiceDiscardTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard voice message?'**
+  String get chatVoiceDiscardTitle;
+
+  /// No description provided for @chatVoiceDiscardBody.
+  ///
+  /// In en, this message translates to:
+  /// **'You are recording a voice message. If you leave, it is deleted and not sent.'**
+  String get chatVoiceDiscardBody;
+
+  /// No description provided for @chatVoiceDiscard.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard'**
+  String get chatVoiceDiscard;
+
+  /// No description provided for @chatsAddContactsFirst.
+  ///
+  /// In en, this message translates to:
+  /// **'Add contacts from the Contacts tab first.'**
+  String get chatsAddContactsFirst;
+
+  /// No description provided for @chatsNewConversation.
+  ///
+  /// In en, this message translates to:
+  /// **'New conversation'**
+  String get chatsNewConversation;
+
+  /// No description provided for @chatsNewChat.
+  ///
+  /// In en, this message translates to:
+  /// **'New chat'**
+  String get chatsNewChat;
+
+  /// No description provided for @chatsSearchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search conversations…'**
+  String get chatsSearchHint;
+
+  /// No description provided for @chatsFilterAll.
+  ///
+  /// In en, this message translates to:
+  /// **'All ({count})'**
+  String chatsFilterAll(int count);
+
+  /// No description provided for @chatsFilterUnread.
+  ///
+  /// In en, this message translates to:
+  /// **'Unread'**
+  String get chatsFilterUnread;
+
+  /// No description provided for @chatsEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'No conversations yet'**
+  String get chatsEmptyTitle;
+
+  /// No description provided for @chatsNoMatches.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching conversations'**
+  String get chatsNoMatches;
+
+  /// No description provided for @chatsUnknownContact.
+  ///
+  /// In en, this message translates to:
+  /// **'Contact {id}'**
+  String chatsUnknownContact(String id);
+
+  /// No description provided for @chatsYouPrefix.
+  ///
+  /// In en, this message translates to:
+  /// **'You: '**
+  String get chatsYouPrefix;
+
+  /// No description provided for @chatKeyboardTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Keyboard'**
+  String get chatKeyboardTooltip;
+
+  /// No description provided for @chatEmojiTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Emoji'**
+  String get chatEmojiTooltip;
+
+  /// No description provided for @chatFileNoApp.
+  ///
+  /// In en, this message translates to:
+  /// **'No app on this device can open this file.'**
+  String get chatFileNoApp;
+
+  /// No description provided for @chatFileStoragePermission.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow storage access, then tap Save again.'**
+  String get chatFileStoragePermission;
 }
 
 class _AppLocalizationsDelegate

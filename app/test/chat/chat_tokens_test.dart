@@ -52,6 +52,7 @@ final List<(String, _Pick, _Pick)> _iconPairs = [
   ('attach icon', (t) => t.attachIcon, (t) => t.footer),
   ('send and voice icon', (t) => t.sendIcon, (t) => t.sendFill),
   ('not-sent icon', (t) => t.notSentIcon, (t) => t.sentFill),
+  ('read double tick', (t) => t.readTick, (t) => t.sentFill),
   (
     'file icon you received',
     (t) => t.receivedFileIcon,
@@ -133,6 +134,7 @@ void main() {
     expect(copy.sentFill, changed);
     expect(copy.receivedFill, ChatTokens.light.receivedFill);
     expect(copy.bannerText, ChatTokens.light.bannerText);
+    expect(ChatTokens.light.copyWith(readTick: changed).readTick, changed);
   });
 
   test('lerp moves between the two sets and keeps the ends', () {

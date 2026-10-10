@@ -1,6 +1,8 @@
+import 'dart:io' show Directory, File, ZLibEncoder;
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:record/record.dart';
@@ -51,6 +53,86 @@ double _contrastRatio(Color a, Color b) {
   final lighter = math.max(_luminance(a), _luminance(b));
   final darker = math.min(_luminance(a), _luminance(b));
   return (lighter + 0.05) / (darker + 0.05);
+}
+
+/// CRC-32 as PNG uses it, over [bytes].
+int _crc32(List<int> bytes) {
+  var crc = 0xFFFFFFFF;
+  for (final byte in bytes) {
+    crc ^= byte;
+    for (var k = 0; k < 8; k++) {
+      crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320 : crc >> 1;
+    }
+  }
+  return crc ^ 0xFFFFFFFF;
+}
+
+List<int> _chunk(String type, List<int> data) {
+  final body = [...type.codeUnits, ...data];
+  final crc = _crc32(body);
+  return [..._u32(data.length), ...body, ..._u32(crc)];
+}
+
+List<int> _u32(int v) => [
+  (v >> 24) & 0xFF,
+  (v >> 16) & 0xFF,
+  (v >> 8) & 0xFF,
+  v & 0xFF,
+];
+
+/// A PNG of [width] by [height] grey pixels. With [rows] false its pixel data
+/// is a few bytes only, so a huge size costs nothing to send: the attack.
+Uint8List _png(int width, int height, {bool rows = true}) {
+  final raw = <int>[];
+  if (rows) {
+    for (var y = 0; y < height; y++) {
+      raw.add(0); // no filter
+      raw.addAll(List.filled(width, 0x80));
+    }
+  } else {
+    raw.addAll([0, 0, 0, 0]);
+  }
+  return Uint8List.fromList([
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // signature
+    ..._chunk('IHDR', [
+      ..._u32(width),
+      ..._u32(height),
+      8, // bit depth
+      0, // greyscale
+      0,
+      0,
+      0,
+    ]),
+    ..._chunk('IDAT', ZLibEncoder().convert(raw)),
+    ..._chunk('IEND', const []),
+  ]);
+}
+
+/// A received image, complete, whose bytes the store holds in memory.
+ChatMessage _image(String name) => ChatMessage(
+  id: ChatFrames.newId(),
+  contactId: 'bob',
+  outgoing: false,
+  ts: 1700000000000,
+  text: name,
+  state: ChatState.received,
+  fileId: ChatFrames.newId(),
+  fileName: name,
+  fileSize: 100,
+  fileMime: 'image/png',
+  fileStatus: 'completed',
+  filePath: 'web:$name',
+);
+
+/// A store whose decrypted copy for opening is a plain temp file, so the
+/// Android open path runs without the encrypted file store.
+class _CopyStore extends ChatStore {
+  _CopyStore(this.copy) : super(MemorySecretStore());
+
+  final File copy;
+
+  @override
+  Future<File> openCopy(ChatMessage message) async => copy;
 }
 
 class _NoScreenAwake implements ScreenAwake {
@@ -408,6 +490,215 @@ void main() {
     );
   });
 
+  group('received images are checked before they are decoded', () {
+    test('the size limits', () {
+      expect(imageSizeAllowed(4000, 3000), isTrue);
+      expect(imageSizeAllowed(maxImageSide, 4000), isTrue);
+      expect(imageSizeAllowed(maxImageSide + 1, 10), isFalse);
+      expect(imageSizeAllowed(10, maxImageSide + 1), isFalse);
+      // 8000 x 6000 is 48 MP: each side is allowed, the pixel count is not.
+      expect(imageSizeAllowed(8000, 6000), isFalse);
+      expect(imageSizeAllowed(30000, 30000), isFalse);
+      expect(imageSizeAllowed(0, 10), isFalse);
+    });
+
+    testWidgets('a small file that declares 30000 x 30000 is refused', (
+      tester,
+    ) async {
+      final bomb = _png(30000, 30000, rows: false);
+      expect(bomb.length, lessThan(200));
+      final header = await tester.runAsync(() => imageHeaderSize(bomb));
+      expect(header, (width: 30000, height: 30000));
+      expect(await tester.runAsync(() => safeImageSize(bomb)), isNull);
+
+      final ok = _png(4, 3);
+      expect(await tester.runAsync(() => safeImageSize(ok)), (
+        width: 4,
+        height: 3,
+      ));
+      // Bytes that are not an image have no size.
+      expect(
+        await tester.runAsync(
+          () => imageHeaderSize(Uint8List.fromList([1, 2, 3, 4])),
+        ),
+        isNull,
+      );
+    });
+
+    Future<void> showImage(WidgetTester tester, Uint8List bytes) async {
+      final message = _image('photo.png');
+      await tester.runAsync(() => store.add(message));
+      store.rememberFile(message.fileId!, bytes);
+      await pumpPage(tester);
+      for (var i = 0; i < 5; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump();
+      }
+    }
+
+    testWidgets('the thumbnail of an image bomb is never decoded', (
+      tester,
+    ) async {
+      await showImage(tester, _png(30000, 30000, rows: false));
+      expect(find.text('Could not load image'), findsOneWidget);
+      expect(find.byType(Image), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('a thumbnail is decoded at the size it is shown', (
+      tester,
+    ) async {
+      await showImage(tester, _png(40, 30));
+      expect(find.text('Could not load image'), findsNothing);
+      final image = tester.widget<Image>(find.byType(Image));
+      expect(image.image, isA<ResizeImage>());
+      final resize = image.image as ResizeImage;
+      // Never larger than the image itself.
+      expect(resize.width, lessThanOrEqualTo(40));
+      await tester.pumpWidget(const SizedBox());
+    });
+  });
+
+  group('opening and saving a received file on Android', () {
+    const channel = MethodChannel('sotto/android');
+    late List<MethodCall> calls;
+
+    ChatMessage pdf() => ChatMessage(
+      id: ChatFrames.newId(),
+      contactId: 'bob',
+      outgoing: false,
+      ts: 1700000000000,
+      text: 'report.pdf',
+      state: ChatState.received,
+      fileId: ChatFrames.newId(),
+      fileName: 'report.pdf',
+      fileSize: 4,
+      fileMime: 'application/pdf',
+      fileStatus: 'completed',
+      filePath: 'web:report.pdf',
+    );
+
+    /// Shows one received file on an Android page whose native side throws.
+    Future<void> showOnAndroid(
+      WidgetTester tester,
+      ChatStore fileStore, {
+      required String code,
+    }) async {
+      calls = [];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+        call,
+      ) async {
+        calls.add(call);
+        throw PlatformException(code: code);
+      });
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          null,
+        ),
+      );
+      final message = pdf();
+      await tester.runAsync(() => fileStore.add(message));
+      fileStore.rememberFile(message.fileId!, Uint8List.fromList([1, 2, 3, 4]));
+      await chat.dispose();
+      chat = ChatManager(
+        myId: 'alice',
+        store: fileStore,
+        isContact: {'bob'}.contains,
+        send: (to, type, body, callId) {},
+        iceServers: () async => const [],
+        hideIp: () => false,
+        createRtc: ({required iceServers, required relayOnly}) async =>
+            throw StateError('no connection in this test'),
+        clock: DateTime.now,
+      );
+      await pumpPage(tester);
+    }
+
+    Future<void> settle(WidgetTester tester) async {
+      for (var i = 0; i < 5; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump();
+      }
+    }
+
+    for (final (code, text) in [
+      (
+        'blocked_type',
+        "This file type can't be opened here. Use Save instead.",
+      ),
+      ('no_app', 'No app on this device can open this file.'),
+      ('failed', 'Could not open file'),
+    ]) {
+      testWidgets('an open refused with $code says so, and stops there', (
+        tester,
+      ) async {
+        final dir = Directory.systemTemp.createTempSync('sotto_open');
+        addTearDown(() => dir.deleteSync(recursive: true));
+        final copy = File('${dir.path}/report.pdf')..writeAsBytesSync([1]);
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        try {
+          await showOnAndroid(tester, _CopyStore(copy), code: code);
+          await tester.tap(find.text('Open'));
+          await settle(tester);
+          // One call, no fallback, and the peer's type is not passed on.
+          expect(calls.single.method, 'openFile');
+          expect(calls.single.arguments, {'path': copy.path});
+          expect(find.text(text), findsOneWidget);
+          await tester.pumpWidget(const SizedBox());
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      });
+    }
+
+    for (final (code, text) in [
+      ('failed', 'Could not save file'),
+      ('permission_required', 'Allow storage access, then tap Save again.'),
+    ]) {
+      testWidgets('a save refused with $code writes nothing and says so', (
+        tester,
+      ) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        try {
+          await showOnAndroid(
+            tester,
+            ChatStore(MemorySecretStore()),
+            code: code,
+          );
+          await tester.tap(find.text('Save to…'));
+          await settle(tester);
+          expect(calls.single.method, 'saveToDownloads');
+          expect((calls.single.arguments as Map).containsKey('mime'), isFalse);
+          expect(find.text(text), findsOneWidget);
+          expect(find.textContaining('Saved to Downloads'), findsNothing);
+          await tester.pumpWidget(const SizedBox());
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      });
+    }
+
+    test('open errors are translated in every language', () {
+      for (final locale in AppLanguage.supported) {
+        final l10n = lookupAppLocalizations(locale);
+        expect(
+          openFileErrorMessage(l10n, 'blocked_type'),
+          l10n.chatFileTypeCannotOpen,
+        );
+        expect(openFileErrorMessage(l10n, 'no_app'), l10n.chatFileNoApp);
+        expect(
+          openFileErrorMessage(l10n, 'not_found'),
+          l10n.chatFileOpenFailed,
+        );
+      }
+    });
+  });
+
   group('voice messages on the chat screen', () {
     late FakeRecord record;
 
@@ -456,6 +747,57 @@ void main() {
       );
       await tester.pump();
     }
+
+    voiceTest('back while recording asks first, and Discard drops it', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: AppLanguage.english.locale,
+          supportedLocales: AppLanguage.supported,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      ChatPage(chat: chat, contactId: 'bob', name: 'Bob'),
+                ),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+      await startRecording(tester);
+      expect(find.byTooltip('Cancel recording'), findsOneWidget);
+
+      // Back asks; Cancel keeps the recording and the screen.
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('Discard voice message?'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ChatPage), findsOneWidget);
+      expect(find.byTooltip('Cancel recording'), findsOneWidget);
+      expect(record.calls, isNot(contains('cancel')));
+
+      // Back again, and Discard: the recording is dropped and the page closes.
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Discard'));
+      await tester.pumpAndSettle();
+      expect(record.calls, contains('cancel'));
+      expect(find.byType(ChatPage), findsNothing);
+      expect(find.text('open'), findsOneWidget);
+      expect(await store.messages('bob'), isEmpty);
+    });
 
     voiceTest('leaving the screen discards a recording, and nothing is sent', (
       tester,
