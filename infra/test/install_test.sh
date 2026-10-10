@@ -255,6 +255,20 @@ out=$(installer install --domain calls.example.org --yes --behind-proxy 8185 2>&
 check 'the printed proxy config turns access logs off' grep -q 'access_log off;' <<<"$out"
 rm -rf "$WORK"
 
+# coturn's settings (infra/coturn/start.sh), with a stub turnserver.
+setup
+stub turnserver 'printf "%s\n" "$@" >"$WORK/turnserver-args"'
+START="$HERE/../coturn/start.sh"
+check 'coturn start.sh turns TCP relaying off' grep -q -- '--no-tcp-relay' "$START"
+env PATH="$WORK/bin:$PATH" WORK="$WORK" SOTTO_DOMAIN=calls.example.org SOTTO_TURN_SECRET=x \
+  SOTTO_CERT_DIR="$WORK/none" sh "$START" >/dev/null
+check 'coturn runs with --no-tcp-relay' grep -qx -- '--no-tcp-relay' "$WORK/turnserver-args"
+check '... and without its own IP denied when none is set' bash -c "! grep -q 198.51.100.20 '$WORK/turnserver-args'"
+env PATH="$WORK/bin:$PATH" WORK="$WORK" SOTTO_DOMAIN=calls.example.org SOTTO_TURN_SECRET=x \
+  SOTTO_CERT_DIR="$WORK/none" SOTTO_TURN_EXTERNAL_IP=198.51.100.20 sh "$START" >/dev/null
+check 'coturn refuses relaying to its external IP' grep -qx -- '--denied-peer-ip=198.51.100.20' "$WORK/turnserver-args"
+rm -rf "$WORK"
+
 if [[ $FAILED == 1 ]]; then
   echo 'install.sh tests FAILED'
   exit 1

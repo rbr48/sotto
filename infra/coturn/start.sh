@@ -5,6 +5,8 @@
 #   coturn stores no users.
 # - Relaying to private and special-purpose networks is refused, so the
 #   server can't be used to reach anything inside its own network.
+# - Only UDP is relayed (--no-tcp-relay): calls need nothing else, and TCP
+#   relaying would let the server be used as a TCP proxy.
 # - TURN over TLS (port 5349) is enabled automatically once Caddy has obtained
 #   the certificate for SOTTO_DOMAIN (or, behind another reverse proxy, with
 #   that proxy's certificate: SOTTO_TLS_CERT and SOTTO_TLS_KEY); install.sh
@@ -27,6 +29,7 @@ set -- \
   --fingerprint \
   --no-cli \
   --no-multicast-peers \
+  --no-tcp-relay \
   --stale-nonce=600 \
   --min-port="${SOTTO_TURN_MIN_PORT:-49152}" \
   --max-port="${SOTTO_TURN_MAX_PORT:-65535}" \
@@ -53,7 +56,11 @@ set -- \
   "$@"
 
 if [ -n "${SOTTO_TURN_EXTERNAL_IP:-}" ]; then
-  set -- "$@" --external-ip="$SOTTO_TURN_EXTERNAL_IP"
+  # coturn uses the host's network, so also refuse relaying to the server's
+  # own public address (it is not on an interface behind NAT).
+  set -- "$@" \
+    --external-ip="$SOTTO_TURN_EXTERNAL_IP" \
+    --denied-peer-ip="${SOTTO_TURN_EXTERNAL_IP%%/*}"
 fi
 
 if [ -r "$CERT" ] && [ -r "$KEY" ]; then
