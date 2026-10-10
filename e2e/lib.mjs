@@ -209,11 +209,76 @@ export async function addContact(page, link, name) {
   await page.getByRole('button', { name: new RegExp(`^${name}`) }).first().waitFor();
 }
 
-/** Opens the chat with a contact from the Contacts tab. */
+const composer = (page) => page.getByRole('textbox', { name: 'Write a message' });
+
+/**
+ * Opens the chat with a contact from any tab. A chat that is already open is
+ * left first, since the tab bar is hidden under it; then the contact's Message
+ * button on the Contacts tab opens the chat.
+ */
 export async function openChat(page, name) {
+  if ((await composer(page).count()) > 0) {
+    await clickButton(page, 'Back');
+    await composer(page).first().waitFor({ state: 'detached', timeout });
+  }
   await openTab(page, 'Contacts');
   await clickButton(page, new RegExp(`^Message: ${name}`));
-  await page.getByRole('textbox', { name: 'Write a message' }).first().waitFor();
+  await composer(page).first().waitFor();
+}
+
+/** Escapes text for use inside a RegExp. */
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * The bubble that shows `text`. An optional `status` (a regex fragment, such as
+ * "Not sent" or "(Delivered|Read)") must be in the same bubble. Flutter exposes
+ * a bubble's words either as text (a Delivered or incoming bubble) or as the
+ * accessible name of its group (a Not sent bubble, whose Retry button is its
+ * only text), so both are matched. The group's label names the status before
+ * the text ("You, 4:21 PM, Not sent: ...: Are you there?") and the visible
+ * text shows it after, so both orders are matched.
+ */
+export function bubble(page, text, status = '') {
+  const body = escapeRegExp(text);
+  const pattern = status
+    ? new RegExp(`${body}[\\s\\S]*${status}|${status}[\\s\\S]*${body}`)
+    : new RegExp(body);
+  return page.getByText(pattern).or(page.getByRole('group', { name: pattern }));
+}
+
+/**
+ * Opens the menu of the bubble that shows `text`, as a user does on this
+ * project: a long press on a touch device, a right click on a desktop one.
+ * A touch project sets `hasTouch` on its context.
+ */
+export async function longPressBubble(page, text) {
+  const target = bubble(page, text).first();
+  await target.waitFor({ timeout });
+  const box = await target.boundingBox();
+  if (!box) throw new Error(`the bubble "${text}" has no position on the page`);
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  if (await page.evaluate(() => navigator.maxTouchPoints > 0)) {
+    // Flutter starts a long press after 500 ms; hold a little longer.
+    await page.mouse.down();
+    await page.waitForTimeout(700);
+    await page.mouse.up();
+  } else {
+    await page.mouse.click(x, y, { button: 'right' });
+  }
+}
+
+/**
+ * Runs `action`, a click that starts a download, and returns the Playwright
+ * Download. `download.path()` gives the saved file, kept until the browser closes.
+ */
+export async function captureDownload(page, action) {
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout }),
+    action(),
+  ]);
+  return download;
 }
 
 export const dataAttribute = (page, name, value) =>
