@@ -693,7 +693,7 @@ class ChatSession {
             _write(FileDeclineFrame(id: id));
           } else {
             _events.add(FileOfferReceived(message));
-            if (autoAcceptFiles && !_ended) await acceptFile(id);
+            if ((voice || autoAcceptFiles) && !_ended) await acceptFile(id);
           }
         }
       case FileAcceptFrame(:final id):
