@@ -16,6 +16,7 @@ import 'package:sotto/chat/chat_session.dart';
 import 'package:sotto/chat/chat_store.dart';
 import 'package:sotto/chat/file_storage.dart';
 import 'package:sotto/chat/ui/chat_page.dart';
+import 'package:sotto/chat/ui/message_info_sheet.dart';
 import 'package:sotto/chat/ui/chat_tokens.dart';
 import 'package:sotto/core/l10n/app_localizations.dart';
 import 'package:sotto/core/l10n/language.dart';
@@ -997,6 +998,8 @@ void main() {
         }
         expect(find.text('Edit'), findsNothing);
         expect(find.text('Delete for everyone'), findsNothing);
+        expect(find.text('Star'), findsOneWidget);
+        expect(find.text('Message info'), findsOneWidget);
         await leave(tester);
       },
     );
@@ -1526,5 +1529,60 @@ void main() {
       expect(find.text('Forward to'), findsNothing);
       await leave(tester);
     });
+
+    testWidgets(
+      'a message is starred and unstarred from its menu, on this device',
+      (tester) async {
+        final mine = text('Keep this', outgoing: true);
+        await tester.runAsync(() => store.add(mine));
+        await pumpPage(tester);
+
+        await openMenu(tester, 'Keep this');
+        await tester.tap(find.text('Star'));
+        await settleStore(tester);
+        await tester.pumpAndSettle();
+        expect((await store.find('bob', mine.id))?.starred, isTrue);
+
+        await openMenu(tester, 'Keep this');
+        expect(find.text('Unstar'), findsOneWidget);
+        expect(find.text('Star'), findsNothing);
+        await tester.tap(find.text('Unstar'));
+        await settleStore(tester);
+        await tester.pumpAndSettle();
+        expect((await store.find('bob', mine.id))?.starred, isFalse);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'message info shows the times this device knows, and no others',
+      (tester) async {
+        final mine = text('Timed', outgoing: true);
+        final delivered = nowMs();
+        await tester.runAsync(
+          () => store.add(mine.copyWith(deliveredAt: delivered)),
+        );
+        await pumpPage(tester);
+
+        await openMenu(tester, 'Timed');
+        await tester.tap(find.text('Message info'));
+        await tester.pumpAndSettle();
+
+        final sheet = find.byType(MessageInfoSheet);
+        expect(
+          find.descendant(of: sheet, matching: find.text('Sent')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: sheet, matching: find.text('Delivered')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: sheet, matching: find.text('Read')),
+          findsNothing,
+        );
+        await leave(tester);
+      },
+    );
   });
 }

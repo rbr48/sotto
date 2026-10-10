@@ -27,6 +27,7 @@ import '../web_download.dart';
 import 'chat_tokens.dart';
 import 'emoji_picker_panel.dart';
 import 'forward_picker.dart';
+import 'message_info_sheet.dart';
 import 'message_menu.dart';
 import 'reaction_bar.dart';
 
@@ -1296,6 +1297,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         unawaited(_forward(message));
       case MessageAction.copy:
         _copyMessage(message);
+      case MessageAction.star:
+        unawaited(_toggleStar(message));
+      case MessageAction.info:
+        unawaited(showMessageInfo(context, message));
       case MessageAction.edit:
         _startEdit(message);
       case MessageAction.deleteForEveryone:
@@ -1303,6 +1308,16 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       case MessageAction.deleteForMe:
         unawaited(_deleteMessage(message));
     }
+  }
+
+  /// Stars or unstars [message] on this device. Nothing is sent.
+  Future<void> _toggleStar(ChatMessage message) async {
+    await widget.chat.setStarred(
+      widget.contactId,
+      message.id,
+      !message.starred,
+    );
+    await _load();
   }
 
   void _startReply(ChatMessage message) {
