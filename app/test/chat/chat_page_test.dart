@@ -9,8 +9,10 @@ import 'package:record/record.dart';
 import 'package:sotto/call/call_controller.dart';
 import 'package:sotto/call/call_manager.dart';
 import 'package:sotto/call/screen_awake.dart';
+import 'package:sotto/contacts/contact_book.dart';
 import 'package:sotto/chat/chat_frames.dart';
 import 'package:sotto/chat/chat_manager.dart';
+import 'package:sotto/chat/chat_session.dart';
 import 'package:sotto/chat/chat_store.dart';
 import 'package:sotto/chat/file_storage.dart';
 import 'package:sotto/chat/ui/chat_page.dart';
@@ -18,6 +20,7 @@ import 'package:sotto/chat/ui/chat_tokens.dart';
 import 'package:sotto/core/l10n/app_localizations.dart';
 import 'package:sotto/core/l10n/language.dart';
 import 'package:sotto/core/theme.dart';
+import 'package:sotto/crypto/identity.dart';
 import 'package:sotto/crypto/identity_store.dart';
 import 'package:sotto/chat/voice/voice_format.dart';
 
@@ -183,6 +186,7 @@ void main() {
     ThemeData? theme,
     String name = 'Bob',
     CallController? calls,
+    ContactBook? contacts,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -190,7 +194,13 @@ void main() {
         locale: AppLanguage.english.locale,
         supportedLocales: AppLanguage.supported,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
-        home: ChatPage(chat: chat, contactId: 'bob', name: name, calls: calls),
+        home: ChatPage(
+          chat: chat,
+          contactId: 'bob',
+          name: name,
+          calls: calls,
+          contacts: contacts,
+        ),
       ),
     );
     // The store is read asynchronously; let it finish.
@@ -901,5 +911,620 @@ void main() {
         expect(await store.messages('bob'), isEmpty);
       },
     );
+  });
+
+  group('replies, edits, forwards, reactions and deletes', () {
+    int nowMs() => DateTime.now().millisecondsSinceEpoch;
+
+    ChatMessage text(
+      String body, {
+      required bool outgoing,
+      int? ts,
+      ChatState? state,
+      ({String id, String text})? replyTo,
+      bool forwarded = false,
+      int? editedAt,
+      bool deletedForAll = false,
+    }) => ChatMessage(
+      id: ChatFrames.newId(),
+      contactId: 'bob',
+      outgoing: outgoing,
+      ts: ts ?? nowMs(),
+      text: deletedForAll ? '' : body,
+      state: state ?? (outgoing ? ChatState.delivered : ChatState.received),
+      arrivedAt: outgoing ? null : (ts ?? nowMs()),
+      replyTo: replyTo,
+      forwarded: forwarded,
+      editedAt: editedAt,
+      deletedForAll: deletedForAll,
+    );
+
+    /// Long presses the bubble showing [body], which opens its menu.
+    Future<void> openMenu(WidgetTester tester, String body) async {
+      await tester.longPress(find.text(body));
+      await tester.pumpAndSettle();
+    }
+
+    /// Lets the store finish a write, which runs in real time.
+    Future<void> settleStore(WidgetTester tester) async {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+
+    /// Takes the page off screen, so its timers and streams are cancelled.
+    Future<void> leave(WidgetTester tester) async {
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(chat.dispose);
+    }
+
+    testWidgets(
+      'your new text offers every action; the other person\'s does not offer edit or delete for everyone',
+      (tester) async {
+        final mine = text('Mine', outgoing: true);
+        final theirs = text('Theirs', outgoing: false);
+        await tester.runAsync(() async {
+          await store.add(mine);
+          await store.add(theirs);
+        });
+        await pumpPage(tester);
+
+        await openMenu(tester, 'Mine');
+        for (final item in [
+          'React',
+          'Reply',
+          'Forward',
+          'Copy text',
+          'Edit',
+          'Delete for everyone',
+          'Delete message',
+        ]) {
+          expect(find.text(item), findsOneWidget, reason: item);
+        }
+        await tester.tapAt(const Offset(5, 5));
+        await tester.pumpAndSettle();
+
+        await openMenu(tester, 'Theirs');
+        for (final item in [
+          'React',
+          'Reply',
+          'Forward',
+          'Copy text',
+          'Delete message',
+        ]) {
+          expect(find.text(item), findsOneWidget, reason: item);
+        }
+        expect(find.text('Edit'), findsNothing);
+        expect(find.text('Delete for everyone'), findsNothing);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'an hour-old text of yours offers no edit and no delete for everyone',
+      (tester) async {
+        final old = text(
+          'Old',
+          outgoing: true,
+          ts: nowMs() - const Duration(hours: 2).inMilliseconds,
+        );
+        await tester.runAsync(() => store.add(old));
+        await pumpPage(tester);
+
+        await openMenu(tester, 'Old');
+        expect(find.text('Edit'), findsNothing);
+        expect(find.text('Delete for everyone'), findsNothing);
+        expect(find.text('Delete message'), findsOneWidget);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'reply shows the message above the box, and the send quotes it',
+      (tester) async {
+        final question = text('Are you free?', outgoing: false);
+        await tester.runAsync(() => store.add(question));
+        await pumpPage(tester);
+
+        await openMenu(tester, 'Are you free?');
+        await tester.tap(find.text('Reply'));
+        await tester.pumpAndSettle();
+        expect(find.byTooltip('Cancel reply'), findsOneWidget);
+        // The message, in the preview and in its bubble.
+        expect(find.text('Are you free?'), findsNWidgets(2));
+
+        await tester.enterText(find.byType(TextField), 'Yes');
+        await tester.pump();
+        await tester.tap(find.byTooltip('Send'));
+        await settleStore(tester);
+
+        final sent = await tester.runAsync(() => store.messages('bob'));
+        final reply = sent!.singleWhere((m) => m.text == 'Yes');
+        expect(reply.replyTo, (id: question.id, text: 'Are you free?'));
+        expect(find.byTooltip('Cancel reply'), findsNothing);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'cancelling a reply removes the preview, and the next send is not a reply',
+      (tester) async {
+        final question = text('Coming?', outgoing: false);
+        await tester.runAsync(() => store.add(question));
+        await pumpPage(tester);
+
+        await openMenu(tester, 'Coming?');
+        await tester.tap(find.text('Reply'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Cancel reply'));
+        await tester.pumpAndSettle();
+        expect(find.byTooltip('Cancel reply'), findsNothing);
+
+        await tester.enterText(find.byType(TextField), 'Plain');
+        await tester.pump();
+        await tester.tap(find.byTooltip('Send'));
+        await settleStore(tester);
+
+        final sent = await tester.runAsync(() => store.messages('bob'));
+        expect(sent!.singleWhere((m) => m.text == 'Plain').replyTo, isNull);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'a reply ends when the other person deletes the message it answers',
+      (tester) async {
+        final question = text('Are you free?', outgoing: false);
+        await tester.runAsync(() => store.add(question));
+        await pumpPage(tester);
+
+        await openMenu(tester, 'Are you free?');
+        await tester.tap(find.text('Reply'));
+        await tester.pumpAndSettle();
+        expect(find.byTooltip('Cancel reply'), findsOneWidget);
+
+        await tester.runAsync(
+          () => store.changeMessage(
+            'bob',
+            question.id,
+            (m) =>
+                m.copyWith(text: '', deletedForAll: true, reactions: const {}),
+          ),
+        );
+        chat.publishForTest(ChatUpdate('bob', MessageChanged(question.id)));
+        await settleStore(tester);
+
+        expect(find.byTooltip('Cancel reply'), findsNothing);
+        expect(find.text('Are you free?'), findsNothing);
+        expect(find.text('Message deleted'), findsOneWidget);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'a reply whose message is gone is not sent; the reply ends and the text stays',
+      (tester) async {
+        final question = text('Coming to the mosque?', outgoing: false);
+        await tester.runAsync(() => store.add(question));
+        await pumpPage(tester);
+
+        await openMenu(tester, 'Coming to the mosque?');
+        await tester.tap(find.text('Reply'));
+        await tester.pumpAndSettle();
+        await tester.runAsync(() => store.deleteMessage('bob', question.id));
+
+        await tester.enterText(find.byType(TextField), 'Yes, inshallah');
+        await tester.pump();
+        await tester.tap(find.byTooltip('Send'));
+        await settleStore(tester);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text(
+            'The message you replied to was deleted, so the reply was removed.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.byTooltip('Cancel reply'), findsNothing);
+        expect(
+          tester.widget<TextField>(find.byType(TextField)).controller!.text,
+          'Yes, inshallah',
+        );
+        final sent = await tester.runAsync(() => store.messages('bob'));
+        expect(sent!.any((m) => m.text == 'Yes, inshallah'), isFalse);
+        await leave(tester);
+      },
+    );
+
+    testWidgets('edit fills the box, and the send edits the message in place', (
+      tester,
+    ) async {
+      final mine = text('First try', outgoing: true);
+      await tester.runAsync(() => store.add(mine));
+      await pumpPage(tester);
+
+      await openMenu(tester, 'First try');
+      await tester.tap(find.text('Edit'));
+      await tester.pumpAndSettle();
+      expect(find.text('Editing message'), findsOneWidget);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        'First try',
+      );
+
+      await tester.enterText(find.byType(TextField), 'Fixed');
+      await tester.pump();
+      await tester.tap(find.byTooltip('Send'));
+      await settleStore(tester);
+
+      final stored = (await tester.runAsync(() => store.find('bob', mine.id)))!;
+      expect(stored.text, 'Fixed');
+      expect(stored.editedAt, isNotNull);
+      expect(find.text('Fixed'), findsOneWidget);
+      expect(find.text('Edited'), findsOneWidget);
+      expect(find.text('Editing message'), findsNothing);
+      await leave(tester);
+    });
+
+    testWidgets(
+      'cancelling an edit empties the box, and the message keeps its text',
+      (tester) async {
+        final mine = text('Keep me', outgoing: true);
+        await tester.runAsync(() => store.add(mine));
+        await pumpPage(tester);
+
+        await openMenu(tester, 'Keep me');
+        await tester.tap(find.text('Edit'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Cancel edit'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Editing message'), findsNothing);
+        expect(
+          tester.widget<TextField>(find.byType(TextField)).controller!.text,
+          isEmpty,
+        );
+        final stored = (await tester.runAsync(
+          () => store.find('bob', mine.id),
+        ))!;
+        expect(stored.text, 'Keep me');
+        expect(stored.editedAt, isNull);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'delete for everyone asks first, says a copy may stay, then leaves a placeholder',
+      (tester) async {
+        final secret = text('Secret', outgoing: true);
+        await tester.runAsync(() => store.add(secret));
+        await pumpPage(tester);
+
+        await openMenu(tester, 'Secret');
+        await tester.tap(find.text('Delete for everyone'));
+        await tester.pumpAndSettle();
+        expect(find.text('Delete for everyone?'), findsOneWidget);
+        expect(find.textContaining('may keep a copy'), findsOneWidget);
+        // The other app is only asked; the dialog does not promise it removes the message.
+        expect(find.textContaining('is asked to remove it'), findsOneWidget);
+        // Nothing is deleted until the dialog is confirmed.
+        expect(find.text('Secret'), findsOneWidget);
+
+        await tester.tap(
+          find.widgetWithText(FilledButton, 'Delete for everyone'),
+        );
+        await settleStore(tester);
+        await tester.pumpAndSettle();
+
+        expect(find.text('Secret'), findsNothing);
+        expect(find.text('Message deleted'), findsOneWidget);
+        final stored = (await tester.runAsync(
+          () => store.find('bob', secret.id),
+        ))!;
+        expect(stored.deletedForAll, isTrue);
+        expect(stored.text, isEmpty);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'a deleted message shows its placeholder, and its menu offers only delete message',
+      (tester) async {
+        final gone = text('', outgoing: true, deletedForAll: true);
+        await tester.runAsync(() => store.add(gone));
+        await pumpPage(tester);
+
+        expect(find.text('Message deleted'), findsOneWidget);
+        await openMenu(tester, 'Message deleted');
+        expect(find.text('Delete message'), findsOneWidget);
+        expect(find.text('Reply'), findsNothing);
+        expect(find.text('Copy text'), findsNothing);
+        expect(find.text('React'), findsNothing);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'an edited and a forwarded message say so under the text, and in the label',
+      (tester) async {
+        final semantics = tester.ensureSemantics();
+        final note = text(
+          'Copied note',
+          outgoing: false,
+          forwarded: true,
+          editedAt: nowMs(),
+        );
+        await tester.runAsync(() => store.add(note));
+        await pumpPage(tester);
+
+        expect(find.text('Edited'), findsOneWidget);
+        expect(find.text('Forwarded'), findsOneWidget);
+        expect(
+          find.bySemanticsLabel(RegExp(r'Copied note, Edited, Forwarded$')),
+          findsOneWidget,
+        );
+        semantics.dispose();
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'a quote shows the message it answers, and a quote of a deleted one reads as deleted',
+      (tester) async {
+        final first = text(
+          'The first note',
+          outgoing: false,
+          ts: nowMs() - const Duration(minutes: 2).inMilliseconds,
+        );
+        final answer = text(
+          'Answering',
+          outgoing: true,
+          replyTo: (id: first.id, text: 'The first note'),
+        );
+        final orphan = text(
+          'Orphan',
+          outgoing: true,
+          replyTo: (id: ChatFrames.newId(), text: ''),
+        );
+        await tester.runAsync(() async {
+          await store.add(first);
+          await store.add(answer);
+          await store.add(orphan);
+        });
+        await pumpPage(tester);
+
+        expect(find.text('The first note'), findsNWidgets(2));
+        expect(find.text('Message deleted'), findsOneWidget);
+
+        // Tapping a quote scrolls to what it quotes, and changes nothing else.
+        await tester.tap(find.text('The first note').first);
+        await tester.pumpAndSettle();
+        expect(find.text('Answering'), findsOneWidget);
+        expect(find.text('The first note'), findsNWidgets(2));
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'a quote scrolls to its message however far up it is, when the message is shown',
+      (tester) async {
+        final base = nowMs() - const Duration(minutes: 40).inMilliseconds;
+        final far = text('Far note', outgoing: false, ts: base);
+        final messages = [
+          far,
+          for (var i = 1; i < 40; i++)
+            text('Filler $i', outgoing: i.isEven, ts: base + i * 1000),
+          text(
+            'Quoting it',
+            outgoing: true,
+            ts: base + 40 * 1000,
+            replyTo: (id: far.id, text: 'Far note'),
+          ),
+        ];
+        await tester.runAsync(() async {
+          for (final message in messages) {
+            await store.add(message);
+          }
+        });
+        await pumpPage(tester);
+
+        // The far note is above the screen, so it is not built yet.
+        expect(find.text('Far note'), findsOneWidget);
+        await tester.tap(find.text('Far note'));
+        await tester.pumpAndSettle();
+
+        // The view moved up to the note, so the newest bubble is off screen.
+        expect(find.text('Far note'), findsOneWidget);
+        final rect = tester.getRect(find.text('Far note'));
+        expect(rect.top, greaterThanOrEqualTo(0));
+        expect(rect.bottom, lessThanOrEqualTo(600));
+        await leave(tester);
+      },
+    );
+
+    testWidgets('a quote of a message that is not shown moves nothing', (
+      tester,
+    ) async {
+      final lost = text(
+        'Orphan',
+        outgoing: true,
+        replyTo: (id: ChatFrames.newId(), text: 'Gone for good'),
+      );
+      await tester.runAsync(() => store.add(lost));
+      await pumpPage(tester);
+
+      await tester.tap(find.text('Gone for good'));
+      await tester.pumpAndSettle();
+      expect(find.text('Orphan'), findsOneWidget);
+      expect(find.text('Gone for good'), findsOneWidget);
+      await leave(tester);
+    });
+
+    testWidgets(
+      'React shows the quick choices; a choice reacts, and tapping your reaction removes it',
+      (tester) async {
+        final news = text('Good news', outgoing: false);
+        await tester.runAsync(() => store.add(news));
+        await pumpPage(tester);
+
+        await openMenu(tester, 'Good news');
+        await tester.tap(find.text('React'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('👍'));
+        await settleStore(tester);
+
+        var stored = (await tester.runAsync(() => store.find('bob', news.id)))!;
+        expect(stored.reactions, {'me': '👍'});
+        // The choices close once one is picked; the reaction stays on the bubble.
+        expect(find.text('👍'), findsOneWidget);
+        expect(find.byIcon(Icons.add_reaction_outlined), findsNothing);
+
+        await tester.tap(find.text('👍'));
+        await settleStore(tester);
+        final removed = (await tester.runAsync(
+          () => store.find('bob', news.id),
+        ))!;
+        expect(removed.reactions, isEmpty);
+        expect(find.text('👍'), findsNothing);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'a tap elsewhere in the chat closes the reaction choices, and sets nothing',
+      (tester) async {
+        final news = text('Good news', outgoing: false);
+        final other = text('Another note', outgoing: false);
+        await tester.runAsync(() async {
+          await store.add(news);
+          await store.add(other);
+        });
+        await pumpPage(tester);
+
+        await openMenu(tester, 'Good news');
+        await tester.tap(find.text('React'));
+        await tester.pumpAndSettle();
+        expect(find.byIcon(Icons.add_reaction_outlined), findsOneWidget);
+
+        await tester.tap(find.text('Another note'));
+        await tester.pumpAndSettle();
+        expect(find.byIcon(Icons.add_reaction_outlined), findsNothing);
+        expect(find.text('👍'), findsNothing);
+        final stored = (await tester.runAsync(
+          () => store.find('bob', news.id),
+        ))!;
+        expect(stored.reactions, isEmpty);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'closing the full picker without an emoji closes the reaction choices',
+      (tester) async {
+        final news = text('Good news', outgoing: false);
+        await tester.runAsync(() => store.add(news));
+        await pumpPage(tester);
+
+        await openMenu(tester, 'Good news');
+        await tester.tap(find.text('React'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byIcon(Icons.add_reaction_outlined));
+        await tester.pumpAndSettle();
+        await tester.tapAt(const Offset(10, 10));
+        await tester.pumpAndSettle();
+
+        expect(find.byIcon(Icons.add_reaction_outlined), findsNothing);
+        expect(find.text('👍'), findsNothing);
+        final stored = (await tester.runAsync(
+          () => store.find('bob', news.id),
+        ))!;
+        expect(stored.reactions, isEmpty);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'the other person\'s reaction, edit and delete show in the open chat when the session reports them',
+      (tester) async {
+        final mine = text('Our plan', outgoing: true);
+        final theirs = text('Old words', outgoing: false);
+        await tester.runAsync(() async {
+          await store.add(mine);
+          await store.add(theirs);
+        });
+        await pumpPage(tester);
+
+        // The contact reacts to my message. The store changes; the session
+        // reports which message changed, and the open chat reloads.
+        await tester.runAsync(
+          () => store.changeMessage(
+            'bob',
+            mine.id,
+            (m) => m.withReaction('peer', '\u{1F44D}'),
+          ),
+        );
+        chat.publishForTest(ChatUpdate('bob', MessageChanged(mine.id)));
+        await settleStore(tester);
+        expect(find.text('\u{1F44D}'), findsOneWidget);
+
+        await tester.runAsync(
+          () => store.changeMessage(
+            'bob',
+            theirs.id,
+            (m) => m.copyWith(text: 'New words', editedAt: nowMs()),
+          ),
+        );
+        chat.publishForTest(ChatUpdate('bob', MessageChanged(theirs.id)));
+        await settleStore(tester);
+        expect(find.text('New words'), findsOneWidget);
+        expect(find.text('Edited'), findsOneWidget);
+        expect(find.text('Old words'), findsNothing);
+
+        await tester.runAsync(
+          () => store.changeMessage(
+            'bob',
+            theirs.id,
+            (m) =>
+                m.copyWith(text: '', deletedForAll: true, reactions: const {}),
+          ),
+        );
+        chat.publishForTest(ChatUpdate('bob', MessageChanged(theirs.id)));
+        await settleStore(tester);
+        expect(find.text('New words'), findsNothing);
+        expect(find.text('Message deleted'), findsOneWidget);
+        await leave(tester);
+      },
+    );
+
+    testWidgets('forward lists the contacts only, under Forward to', (
+      tester,
+    ) async {
+      final book = ContactBook(MemorySecretStore());
+      await tester.runAsync(
+        () => book.add(
+          PublicIdentity(
+            signKey: Uint8List.fromList(List.filled(32, 7)),
+            boxKey: Uint8List(32),
+          ),
+          name: 'Bob',
+        ),
+      );
+      final pass = text('Pass this on', outgoing: true);
+      await tester.runAsync(() => store.add(pass));
+      await pumpPage(tester, contacts: book);
+
+      await openMenu(tester, 'Pass this on');
+      await tester.tap(find.text('Forward'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Forward to'), findsOneWidget);
+      // The name is also the app bar title, so look for the row in the sheet.
+      expect(find.widgetWithText(ListTile, 'Bob'), findsOneWidget);
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+      expect(find.text('Forward to'), findsNothing);
+      await leave(tester);
+    });
   });
 }

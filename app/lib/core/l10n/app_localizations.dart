@@ -1059,6 +1059,120 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Allow storage access, then tap Save again.'**
   String get chatFileStoragePermission;
+
+  /// No description provided for @chatReply.
+  ///
+  /// In en, this message translates to:
+  /// **'Reply'**
+  String get chatReply;
+
+  /// No description provided for @chatForward.
+  ///
+  /// In en, this message translates to:
+  /// **'Forward'**
+  String get chatForward;
+
+  /// No description provided for @chatEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit'**
+  String get chatEdit;
+
+  /// No description provided for @chatReact.
+  ///
+  /// In en, this message translates to:
+  /// **'React'**
+  String get chatReact;
+
+  /// No description provided for @chatDeleteForEveryone.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete for everyone'**
+  String get chatDeleteForEveryone;
+
+  /// No description provided for @chatDeleteForEveryoneTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete for everyone?'**
+  String get chatDeleteForEveryoneTitle;
+
+  /// No description provided for @chatDeleteForEveryoneBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The message is removed here. The other person\'s app is asked to remove it too, but it may not receive the request, and it may keep a copy.'**
+  String get chatDeleteForEveryoneBody;
+
+  /// No description provided for @chatEdited.
+  ///
+  /// In en, this message translates to:
+  /// **'Edited'**
+  String get chatEdited;
+
+  /// No description provided for @chatForwarded.
+  ///
+  /// In en, this message translates to:
+  /// **'Forwarded'**
+  String get chatForwarded;
+
+  /// No description provided for @chatMessageDeleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Message deleted'**
+  String get chatMessageDeleted;
+
+  /// No description provided for @chatCancelReply.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel reply'**
+  String get chatCancelReply;
+
+  /// No description provided for @chatEditing.
+  ///
+  /// In en, this message translates to:
+  /// **'Editing message'**
+  String get chatEditing;
+
+  /// No description provided for @chatCancelEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel edit'**
+  String get chatCancelEdit;
+
+  /// No description provided for @chatEditTooLate.
+  ///
+  /// In en, this message translates to:
+  /// **'This message can no longer be edited.'**
+  String get chatEditTooLate;
+
+  /// No description provided for @chatReplyGone.
+  ///
+  /// In en, this message translates to:
+  /// **'The message you replied to was deleted, so the reply was removed.'**
+  String get chatReplyGone;
+
+  /// No description provided for @chatSendRefused.
+  ///
+  /// In en, this message translates to:
+  /// **'This message could not be sent.'**
+  String get chatSendRefused;
+
+  /// No description provided for @chatForwardTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Forward to'**
+  String get chatForwardTitle;
+
+  /// No description provided for @chatYou.
+  ///
+  /// In en, this message translates to:
+  /// **'You'**
+  String get chatYou;
+
+  /// No description provided for @chatReactionSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'{emoji}, {who}'**
+  String chatReactionSemantics(String emoji, String who);
 }
 
 class _AppLocalizationsDelegate

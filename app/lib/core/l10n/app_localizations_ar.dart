@@ -592,4 +592,65 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get chatFileStoragePermission =>
       'اسمح بالوصول إلى التخزين، ثم اضغط على حفظ مرة أخرى.';
+
+  @override
+  String get chatReply => 'رد';
+
+  @override
+  String get chatForward => 'إعادة توجيه';
+
+  @override
+  String get chatEdit => 'تعديل';
+
+  @override
+  String get chatReact => 'تفاعل';
+
+  @override
+  String get chatDeleteForEveryone => 'حذف للجميع';
+
+  @override
+  String get chatDeleteForEveryoneTitle => 'حذف للجميع؟';
+
+  @override
+  String get chatDeleteForEveryoneBody =>
+      'تتم إزالة الرسالة هنا. يُطلب من تطبيق الطرف الآخر إزالتها أيضًا، لكنه قد لا يتلقى الطلب، وقد يحتفظ بنسخة.';
+
+  @override
+  String get chatEdited => 'تم التعديل';
+
+  @override
+  String get chatForwarded => 'تمت إعادة التوجيه';
+
+  @override
+  String get chatMessageDeleted => 'تم حذف الرسالة';
+
+  @override
+  String get chatCancelReply => 'إلغاء الرد';
+
+  @override
+  String get chatEditing => 'تعديل الرسالة';
+
+  @override
+  String get chatCancelEdit => 'إلغاء التعديل';
+
+  @override
+  String get chatEditTooLate => 'لم يعد من الممكن تعديل هذه الرسالة.';
+
+  @override
+  String get chatReplyGone =>
+      'تم حذف الرسالة التي رددت عليها، لذلك أُزيل الرد.';
+
+  @override
+  String get chatSendRefused => 'تعذّر إرسال الرسالة.';
+
+  @override
+  String get chatForwardTitle => 'إعادة التوجيه إلى';
+
+  @override
+  String get chatYou => 'أنت';
+
+  @override
+  String chatReactionSemantics(String emoji, String who) {
+    return '$emoji، $who';
+  }
 }

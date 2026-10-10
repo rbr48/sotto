@@ -20,6 +20,7 @@ import {
   assertNoThirdPartyRequests,
   assertRelaySawOnlyCiphertext,
   base,
+  bubble,
   clickButton,
   dumpPages,
   launch,
@@ -71,22 +72,6 @@ async function waitUntil(check, what, limit = slow) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const secondsSince = (from) => `${((Date.now() - from) / 1000).toFixed(1)} s`;
-
-/**
- * The bubble of the "Are you there?" message, with its status ("Sending",
- * "Not sent", "Delivered") when given. Flutter exposes a bubble's words either
- * as text (a Delivered or incoming bubble) or as the accessible name of its
- * group (a Not sent bubble, whose Retry button is its only text), so both are
- * matched.
- */
-const bubble = (page, status = '') => {
-  // The bubble's label names the status before the text ("You, 4:21 PM,
-  // Not sent: …: Are you there?"); its visible text shows it after.
-  const pattern = status
-    ? new RegExp(`Are you there\\?[\\s\\S]*${status}|${status}[\\s\\S]*Are you there\\?`)
-    : /Are you there\?/;
-  return page.getByText(pattern).or(page.getByRole('group', { name: pattern }));
-};
 
 /** The accessibility nodes on a page that carry a label or text, for failure output. */
 const accessibilityNodes = (page) =>
@@ -170,14 +155,16 @@ try {
   await typeInto(arun, 'Write a message', 'Are you there?');
   await clickButton(arun, 'Send');
   await waitUntil(() => arunRelay.sends > sendsBeforeMessage, "Arun's app to send the open to the relay");
-  await bubble(arun, 'Not sent: Meera Rao did not answer.').first().waitFor({ timeout: slow });
+  await bubble(arun, 'Are you there?', 'Not sent: Meera Rao did not answer.')
+    .first()
+    .waitFor({ timeout: slow });
   const notSentIn = secondsSince(sentAt);
   // The plan's wording (docs/MESSAGING_PLAN.md, "Offline").
   await arun
     .getByText('The connection could not be made. Your messages were not sent; you can retry.')
     .first()
     .waitFor({ timeout: slow });
-  assert.equal(await bubble(arun).count(), 1, 'Arun has exactly one "Are you there?" bubble');
+  assert.equal(await bubble(arun, 'Are you there?').count(), 1, 'Arun has exactly one "Are you there?" bubble');
   assert.equal(
     await arun.getByRole('button', { name: 'Retry', exact: true }).count(),
     1,
@@ -206,20 +193,20 @@ try {
   // check (every 30 s) until Meera acknowledges it, so it arrives by itself.
   // Meera's chat is opened only after Arun sees the text delivered: opening it
   // starts a direct connection, which would deliver the text by another route.
-  await bubble(arun, '(Delivered|Read)').first().waitFor({ timeout: slow });
+  await bubble(arun, 'Are you there?', '(Delivered|Read)').first().waitFor({ timeout: slow });
   const deliveredIn = secondsSince(backAt);
   await openChat(meera, 'Arun Mehta');
-  await bubble(meera).first().waitFor({ timeout: slow });
+  await bubble(meera, 'Are you there?').first().waitFor({ timeout: slow });
   // Wait before counting, so that a copy arriving late has time to show up.
   await sleep(3000);
-  assert.equal(await bubble(meera).count(), 1, 'Meera\'s chat shows "Are you there?" once');
-  assert.equal(await bubble(arun).count(), 1, 'Arun has exactly one "Are you there?" bubble');
+  assert.equal(await bubble(meera, 'Are you there?').count(), 1, 'Meera\'s chat shows "Are you there?" once');
+  assert.equal(await bubble(arun, 'Are you there?').count(), 1, 'Arun has exactly one "Are you there?" bubble');
   console.log(
     `✓ Meera is back: the sealed text reached her once by itself, and Arun sees it delivered (${deliveredIn} after she came back online)`,
   );
 
   // 4. Nothing is left to retry.
-  assert.equal(await bubble(arun, 'Not sent').count(), 0, 'no "Not sent" left on Arun\'s side');
+  assert.equal(await bubble(arun, 'Are you there?', 'Not sent').count(), 0, 'no "Not sent" left on Arun\'s side');
   assert.equal(
     await arun.getByRole('button', { name: 'Retry', exact: true }).count(),
     0,

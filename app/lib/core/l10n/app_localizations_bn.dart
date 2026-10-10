@@ -582,4 +582,65 @@ class AppLocalizationsBn extends AppLocalizations {
   @override
   String get chatFileStoragePermission =>
       'স্টোরেজ ব্যবহারের অনুমতি দিন, তারপর আবার সংরক্ষণে আলতো চাপুন।';
+
+  @override
+  String get chatReply => 'উত্তর দিন';
+
+  @override
+  String get chatForward => 'ফরওয়ার্ড করুন';
+
+  @override
+  String get chatEdit => 'সম্পাদনা';
+
+  @override
+  String get chatReact => 'প্রতিক্রিয়া';
+
+  @override
+  String get chatDeleteForEveryone => 'সবার জন্য মুছুন';
+
+  @override
+  String get chatDeleteForEveryoneTitle => 'সবার জন্য মুছবেন?';
+
+  @override
+  String get chatDeleteForEveryoneBody =>
+      'বার্তাটি এখান থেকে মুছে ফেলা হবে। অপর পক্ষের অ্যাপকেও এটি মুছে ফেলতে বলা হবে, তবে সেটি অনুরোধটি নাও পেতে পারে, এবং তাদের অ্যাপ একটি কপি রেখে দিতে পারে।';
+
+  @override
+  String get chatEdited => 'সম্পাদিত';
+
+  @override
+  String get chatForwarded => 'ফরওয়ার্ড করা হয়েছে';
+
+  @override
+  String get chatMessageDeleted => 'বার্তাটি মুছে ফেলা হয়েছে';
+
+  @override
+  String get chatCancelReply => 'উত্তর বাতিল করুন';
+
+  @override
+  String get chatEditing => 'বার্তা সম্পাদনা করা হচ্ছে';
+
+  @override
+  String get chatCancelEdit => 'সম্পাদনা বাতিল করুন';
+
+  @override
+  String get chatEditTooLate => 'এই বার্তাটি আর সম্পাদনা করা যাবে না।';
+
+  @override
+  String get chatReplyGone =>
+      'যে বার্তার উত্তর দিচ্ছিলেন সেটি মুছে ফেলা হয়েছে, তাই উত্তরটি সরিয়ে দেওয়া হয়েছে।';
+
+  @override
+  String get chatSendRefused => 'বার্তাটি পাঠানো যায়নি।';
+
+  @override
+  String get chatForwardTitle => 'কাকে পাঠাবেন';
+
+  @override
+  String get chatYou => 'আপনি';
+
+  @override
+  String chatReactionSemantics(String emoji, String who) {
+    return '$emoji, $who';
+  }
 }

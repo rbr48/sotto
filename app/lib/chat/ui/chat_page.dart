@@ -11,7 +11,9 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../call/call_controller.dart';
+import '../../contacts/contact_book.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/test_hooks.dart';
 import '../../core/ui_kit.dart';
 import '../chat_frames.dart';
 import '../chat_manager.dart';
@@ -23,6 +25,10 @@ import '../voice/voice_player.dart';
 import '../voice/voice_recorder.dart';
 import '../web_download.dart';
 import 'chat_tokens.dart';
+import 'emoji_picker_panel.dart';
+import 'forward_picker.dart';
+import 'message_menu.dart';
+import 'reaction_bar.dart';
 
 /// Whether a day separator goes above a message: it is the first message
 /// shown, or its local calendar day differs from the one before it.
@@ -198,6 +204,7 @@ class ChatPage extends StatefulWidget {
     this.verified = false,
     this.calls,
     this.avatar,
+    this.contacts,
   });
 
   final String? avatar;
@@ -225,6 +232,10 @@ class ChatPage extends StatefulWidget {
   /// microphone, so voice messages cannot be recorded then. Null in tests.
   final CallController? calls;
 
+  /// The contacts, to forward a message to one of them. Null: there is no one
+  /// to forward to.
+  final ContactBook? contacts;
+
   @override
   State<ChatPage> createState() => _ChatPageState();
 }
@@ -235,6 +246,17 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   final _scrollController = ScrollController();
   final _searchController = TextEditingController();
   bool _showEmoji = false;
+
+  /// The message a reply will answer, and the message being edited. Starting
+  /// one ends the other.
+  ChatMessage? _replyTo;
+  ChatMessage? _editing;
+
+  /// The message whose reaction choices are open, if any.
+  String? _reactingId;
+
+  /// One key per message, so a quote can find the message it quotes.
+  final _itemKeys = <String, GlobalKey>{};
 
   StreamSubscription<ChatManagerEvent>? _events;
   List<ChatMessage> _messages = const [];
@@ -432,10 +454,35 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       limit: _loadedCount,
     );
     if (!mounted) return;
+    // The browser tests count the quotes shown: a quote is kept out of the
+    // accessibility tree, so they cannot read it from there.
+    if (testHooks) {
+      publishForTests(
+        'quotes',
+        '${messages.where((m) => m.replyTo != null && !m.deletedForAll).length}',
+      );
+    }
     setState(() {
       _messages = messages;
       _hasMore = total > _loadedCount;
     });
+    await _endReplyIfGone();
+  }
+
+  /// Keeps the reply preview to the message it answers, as it is stored now.
+  /// A reply ends when that message is gone or deleted for everyone, since
+  /// there is then no text to quote. Returns whether a reply ended.
+  Future<bool> _endReplyIfGone() async {
+    final reply = _replyTo;
+    if (reply == null) return false;
+    final target = await widget.chat.store.find(widget.contactId, reply.id);
+    if (!mounted || _replyTo?.id != reply.id) return false;
+    if (target == null || target.deletedForAll) {
+      setState(() => _replyTo = null);
+      return true;
+    }
+    setState(() => _replyTo = target);
+    return false;
   }
 
   Future<void> _loadMore() async {
@@ -568,10 +615,34 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _typingDebounceTimer?.cancel();
     setState(() => _sending = true);
     try {
-      await widget.chat.sendText(widget.contactId, text);
-      _input.clear();
+      if (_editing case final editing?) {
+        final edited = await widget.chat.edit(
+          widget.contactId,
+          editing.id,
+          text,
+        );
+        if (edited) _input.clear();
+        if (mounted) setState(() => _editing = null);
+        if (!edited && mounted) {
+          _showSnack(AppLocalizations.of(context).chatEditTooLate);
+        }
+      } else {
+        await widget.chat.sendText(
+          widget.contactId,
+          text,
+          replyToId: _replyTo?.id,
+        );
+        _input.clear();
+        if (mounted) setState(() => _replyTo = null);
+      }
     } on ArgumentError {
-      // Too long, or not a contact any more: the text stays in the box.
+      // Too long, not a contact any more, or the message replied to is gone.
+      // The text stays in the box, and the reply ends when its message is gone.
+      final replyEnded = await _endReplyIfGone();
+      if (mounted) {
+        final l10n = AppLocalizations.of(context);
+        _showSnack(replyEnded ? l10n.chatReplyGone : l10n.chatSendRefused);
+      }
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -1197,6 +1268,235 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     );
   }
 
+  /// The messages shown: all of them, or those whose text or file name holds
+  /// the search.
+  List<ChatMessage> _shownMessages() => _searchQuery.isEmpty
+      ? _messages
+      : _messages
+            .where(
+              (m) =>
+                  m.text.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+                  (m.fileName?.toLowerCase().contains(
+                        _searchQuery.toLowerCase(),
+                      ) ??
+                      false),
+            )
+            .toList();
+
+  GlobalKey _keyFor(String id) => _itemKeys.putIfAbsent(id, GlobalKey.new);
+
+  /// Runs the menu item chosen for [message].
+  void _onAction(ChatMessage message, MessageAction action) {
+    switch (action) {
+      case MessageAction.react:
+        setState(() => _reactingId = message.id);
+      case MessageAction.reply:
+        _startReply(message);
+      case MessageAction.forward:
+        unawaited(_forward(message));
+      case MessageAction.copy:
+        _copyMessage(message);
+      case MessageAction.edit:
+        _startEdit(message);
+      case MessageAction.deleteForEveryone:
+        unawaited(_deleteForEveryone(message));
+      case MessageAction.deleteForMe:
+        unawaited(_deleteMessage(message));
+    }
+  }
+
+  void _startReply(ChatMessage message) {
+    final wasEditing = _editing != null;
+    setState(() {
+      _replyTo = message;
+      _editing = null;
+    });
+    if (wasEditing) _input.clear();
+    _inputFocusNode.requestFocus();
+  }
+
+  void _startEdit(ChatMessage message) {
+    setState(() {
+      _editing = message;
+      _replyTo = null;
+    });
+    _input.value = TextEditingValue(
+      text: message.text,
+      selection: TextSelection.collapsed(offset: message.text.length),
+    );
+    _inputFocusNode.requestFocus();
+  }
+
+  /// Leaves reply or edit mode. Leaving an edit clears the box, which holds
+  /// the text being edited.
+  void _cancelComposerAction() {
+    final wasEditing = _editing != null;
+    setState(() {
+      _replyTo = null;
+      _editing = null;
+    });
+    if (wasEditing) _input.clear();
+  }
+
+  Future<void> _react(ChatMessage message, String emoji) async {
+    setState(() => _reactingId = null);
+    await widget.chat.react(widget.contactId, message.id, emoji);
+    await _load();
+  }
+
+  Future<void> _forward(ChatMessage message) async {
+    await forwardText(
+      context,
+      chat: widget.chat,
+      contacts: widget.contacts?.contacts ?? const [],
+      text: message.text,
+    );
+  }
+
+  /// Deletes your message for everyone, once the user confirms. The other
+  /// device may keep its copy, and the dialog says so.
+  Future<void> _deleteForEveryone(ChatMessage message) async {
+    final l10n = AppLocalizations.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(l10n.chatDeleteForEveryoneTitle),
+        content: Text(l10n.chatDeleteForEveryoneBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(l10n.chatCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(l10n.chatDeleteForEveryone),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await widget.chat.deleteForEveryone(widget.contactId, message.id);
+    _forgetMessage(message.id);
+    await _load();
+  }
+
+  /// Drops the reply, edit and reaction state that points at message [id]
+  /// once that message is deleted here.
+  void _forgetMessage(String id) {
+    final editingIt = _editing?.id == id;
+    setState(() {
+      if (_replyTo?.id == id) _replyTo = null;
+      if (_reactingId == id) _reactingId = null;
+      if (editingIt) _editing = null;
+    });
+    if (editingIt) _input.clear();
+  }
+
+  /// Scrolls to message [id], when it is among those shown. Items are built as
+  /// they come into view, so a message far from the newest is reached by
+  /// stepping down from the newest, a screen at a time, until it is built.
+  /// A message that is not shown is not looked for, and nothing moves.
+  void _jumpTo(String id) {
+    if (!_shownMessages().any((m) => m.id == id)) return;
+    final key = _keyFor(id);
+    if (key.currentContext != null) {
+      _reveal(key);
+      return;
+    }
+    if (!_scrollController.hasClients) return;
+    _scrollController.jumpTo(0);
+    _stepTo(key, _scrollController.position.viewportDimension * 0.8);
+  }
+
+  void _stepTo(GlobalKey key, double step) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      if (key.currentContext != null) {
+        _reveal(key);
+        return;
+      }
+      final position = _scrollController.position;
+      if (position.pixels >= position.maxScrollExtent) return;
+      _scrollController.jumpTo(
+        math.min(position.maxScrollExtent, position.pixels + step),
+      );
+      _stepTo(key, step);
+    });
+    // A callback runs after a frame, and a jump that moves nothing draws none.
+    WidgetsBinding.instance.scheduleFrame();
+  }
+
+  void _reveal(GlobalKey key) {
+    final target = key.currentContext;
+    if (target == null) return;
+    unawaited(
+      Scrollable.ensureVisible(
+        target,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 250),
+      ),
+    );
+  }
+
+  /// Above the box, what the next send will do: the message a reply answers,
+  /// or the message being edited. Its cancel button leaves that mode.
+  Widget _composerContext(
+    AppLocalizations l10n,
+    ChatTokens tokens,
+    TextTheme textTheme,
+  ) {
+    final editing = _editing;
+    final reply = _replyTo;
+    final text = editing?.text ?? reply?.fileName ?? reply?.text ?? '';
+    return Container(
+      margin: const EdgeInsetsDirectional.only(bottom: 6),
+      padding: const EdgeInsetsDirectional.fromSTEB(12, 6, 4, 6),
+      decoration: BoxDecoration(
+        color: tokens.fieldFill,
+        borderRadius: BorderRadius.circular(12),
+        border: BorderDirectional(
+          start: BorderSide(color: tokens.sendFill, width: 3),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  editing != null ? l10n.chatEditing : l10n.chatReply,
+                  style: textTheme.labelMedium?.copyWith(
+                    color: tokens.sendFill,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  text,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: tokens.fieldText,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: editing != null
+                ? l10n.chatCancelEdit
+                : l10n.chatCancelReply,
+            style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+            icon: Icon(Icons.close, color: tokens.attachIcon),
+            onPressed: _cancelComposerAction,
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _deleteMessage(ChatMessage message) async {
     final l10n = AppLocalizations.of(context);
     final confirmed = await showDialog<bool>(
@@ -1218,6 +1518,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     );
     if (confirmed != true) return;
     await widget.chat.deleteMessage(widget.contactId, message.id);
+    _forgetMessage(message.id);
     await _load();
   }
 
@@ -1318,18 +1619,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final tokens = ChatTokens.of(context);
     final textTheme = Theme.of(context).textTheme;
     final now = widget.chat.clock();
-    final displayed = _searchQuery.isEmpty
-        ? _messages
-        : _messages
-              .where(
-                (m) =>
-                    m.text.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-                    (m.fileName?.toLowerCase().contains(
-                          _searchQuery.toLowerCase(),
-                        ) ??
-                        false),
-              )
-              .toList();
+    final displayed = _shownMessages();
 
     return PopScope(
       // A voice message being recorded, or held at its limit, is not dropped
@@ -1596,7 +1886,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                 child: GestureDetector(
                   behavior: HitTestBehavior.translucent,
                   onTap: () {
-                    if (_showEmoji) setState(() => _showEmoji = false);
+                    if (_showEmoji || _reactingId != null) {
+                      setState(() {
+                        _showEmoji = false;
+                        _reactingId = null;
+                      });
+                    }
                   },
                   child: _messages.isEmpty
                       ? _scrollableEmpty(
@@ -1660,26 +1955,36 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                                     ),
                                     now: now,
                                   ),
-                                Padding(
-                                  padding: EdgeInsetsDirectional.only(
-                                    top: sameRunAbove ? 2 : 10,
-                                  ),
-                                  child: _Bubble(
-                                    message: message,
-                                    lastInGroup: lastInRun,
-                                    contactName: widget.name,
-                                    l10n: l10n,
-                                    store: widget.chat.store,
-                                    onRetry: _retry,
-                                    onQueue: _queue,
-                                    onUnqueue: _unqueue,
-                                    onTapUrl: _handleUrlTap,
-                                    onCopy: () => _copyMessage(message),
-                                    onDelete: () => _deleteMessage(message),
-                                    onAccept: () => _acceptFile(message),
-                                    onDecline: () => _declineFile(message),
-                                    onOpen: () => _openFile(message),
-                                    onSaveAs: () => _saveFileAs(message),
+                                KeyedSubtree(
+                                  key: _keyFor(message.id),
+                                  child: Padding(
+                                    padding: EdgeInsetsDirectional.only(
+                                      top: sameRunAbove ? 2 : 10,
+                                    ),
+                                    child: _Bubble(
+                                      message: message,
+                                      lastInGroup: lastInRun,
+                                      contactName: widget.name,
+                                      l10n: l10n,
+                                      store: widget.chat.store,
+                                      clock: widget.chat.clock,
+                                      reacting: _reactingId == message.id,
+                                      onAction: (action) =>
+                                          _onAction(message, action),
+                                      onReact: (emoji) =>
+                                          _react(message, emoji),
+                                      onDismissReactions: () =>
+                                          setState(() => _reactingId = null),
+                                      onJump: _jumpTo,
+                                      onRetry: _retry,
+                                      onQueue: _queue,
+                                      onUnqueue: _unqueue,
+                                      onTapUrl: _handleUrlTap,
+                                      onAccept: () => _acceptFile(message),
+                                      onDecline: () => _declineFile(message),
+                                      onOpen: () => _openFile(message),
+                                      onSaveAs: () => _saveFileAs(message),
+                                    ),
                                   ),
                                 ),
                               ],
@@ -1747,6 +2052,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                       ),
                     ),
                     const SizedBox(height: 4),
+                    if (!_voiceActive && (_replyTo != null || _editing != null))
+                      _composerContext(l10n, tokens, textTheme),
                     if (_voiceActive)
                       _recordingRow(l10n, tokens, textTheme)
                     else
@@ -1890,7 +2197,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                 ),
               ),
               if (_showEmoji)
-                _EmojiPickerPanel(
+                EmojiPickerPanel(
                   tokens: tokens,
                   onEmojiSelected: _onEmojiSelected,
                   onBackspace: _onEmojiBackspace,
@@ -1993,12 +2300,16 @@ class _Bubble extends StatelessWidget {
     required this.contactName,
     required this.l10n,
     required this.store,
+    required this.clock,
+    required this.reacting,
+    required this.onAction,
+    required this.onReact,
+    required this.onDismissReactions,
+    required this.onJump,
     required this.onRetry,
     required this.onQueue,
     required this.onUnqueue,
     required this.onTapUrl,
-    required this.onCopy,
-    required this.onDelete,
     required this.onAccept,
     required this.onDecline,
     required this.onOpen,
@@ -2017,94 +2328,33 @@ class _Bubble extends StatelessWidget {
 
   /// Where the voice notes are kept, for playing them.
   final ChatStore store;
+
+  /// The chat's clock. The menu offers edit and delete for everyone by it.
+  final DateTime Function() clock;
+
+  /// Whether the reaction choices are open for this message.
+  final bool reacting;
+
+  /// Runs the menu item chosen for this message.
+  final ValueChanged<MessageAction> onAction;
+
+  /// Sets your reaction to the emoji given, or removes it with ''.
+  final ValueChanged<String> onReact;
+
+  /// Closes the reaction choices without setting one.
+  final VoidCallback onDismissReactions;
+
+  /// Scrolls to the message with this id: the one this message quotes.
+  final ValueChanged<String> onJump;
+
   final Future<void> Function(ChatMessage message) onRetry;
   final Future<void> Function(ChatMessage message) onQueue;
   final Future<void> Function(ChatMessage message) onUnqueue;
   final void Function(String url) onTapUrl;
-  final VoidCallback onCopy;
-  final VoidCallback onDelete;
   final VoidCallback onAccept;
   final VoidCallback onDecline;
   final VoidCallback onOpen;
   final VoidCallback onSaveAs;
-
-  void _showContextMenu(BuildContext context, Offset position) async {
-    final selected = await showMenu<String>(
-      context: context,
-      position: RelativeRect.fromLTRB(
-        position.dx,
-        position.dy,
-        position.dx,
-        position.dy,
-      ),
-      items: [
-        PopupMenuItem(
-          value: 'copy',
-          child: Row(
-            children: [
-              const Icon(Icons.copy, size: 18),
-              const SizedBox(width: 8),
-              Text(l10n.chatCopy),
-            ],
-          ),
-        ),
-        PopupMenuItem(
-          value: 'delete',
-          child: Row(
-            children: [
-              Icon(
-                Icons.delete_outline,
-                size: 18,
-                color: Theme.of(context).colorScheme.error,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                l10n.chatDeleteMessage,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-    if (selected == 'copy') onCopy();
-    if (selected == 'delete') onDelete();
-  }
-
-  void _showActionSheet(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.copy),
-              title: Text(l10n.chatCopy),
-              onTap: () {
-                Navigator.of(context).pop();
-                onCopy();
-              },
-            ),
-            ListTile(
-              leading: Icon(
-                Icons.delete_outline,
-                color: Theme.of(context).colorScheme.error,
-              ),
-              title: Text(
-                l10n.chatDeleteMessage,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-              onTap: () {
-                Navigator.of(context).pop();
-                onDelete();
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   /// The time, in the device's clock format. An outgoing message shows when
   /// it was sent; an incoming one, when it arrived on this device.
@@ -2194,6 +2444,7 @@ class _Bubble extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
     final outgoing = message.outgoing;
     final isFile = message.isAttachment;
+    final deleted = message.deletedForAll;
     // A voice note is what the offer said it was. Other audio is an ordinary
     // file, whatever its type.
     final isVoice = isFile && message.voiceNote;
@@ -2203,19 +2454,28 @@ class _Bubble extends StatelessWidget {
         : tokens.receivedSecondary;
     final linkColor = outgoing ? tokens.sentText : tokens.receivedLink;
     final time = _timeText(context);
-    final status = _status(tokens);
+    final stateStatus = _status(tokens);
+    // A deleted message shows no state: its text and its queue are gone.
+    final status = deleted ? null : stateStatus;
     final name = isVoice
         ? l10n.chatVoiceMessage
         : (message.fileName ?? message.text);
-    final showRetry = outgoing && !isFile && message.state == ChatState.notSent;
+    final edited = !deleted && message.editedAt != null;
+    final forwarded = !deleted && message.forwarded;
+    final showRetry =
+        outgoing && !isFile && !deleted && message.state == ChatState.notSent;
     final showCancelQueue =
-        outgoing && !isFile && message.state == ChatState.queued;
+        outgoing && !isFile && !deleted && message.state == ChatState.queued;
 
-    // One label per bubble: the time, the state and the text.
-    final label = outgoing
+    // One label per bubble: the time, the state, the text and the marks.
+    final spoken = outgoing
         ? l10n.chatBubbleSemanticsOwn(
             time,
-            status?.label ?? _fileStateWord() ?? l10n.chatStatusSending,
+            deleted
+                ? l10n.chatMessageDeleted
+                : (stateStatus?.label ??
+                      _fileStateWord() ??
+                      l10n.chatStatusSending),
             isFile ? name : message.text,
           )
         : l10n.chatBubbleSemanticsOther(
@@ -2223,147 +2483,250 @@ class _Bubble extends StatelessWidget {
             time,
             isFile && _fileStateWord() != null
                 ? '$name (${_fileStateWord()})'
-                : (isFile ? name : message.text),
+                : (isFile
+                      ? name
+                      : (deleted ? l10n.chatMessageDeleted : message.text)),
           );
+    final marks = [
+      if (edited) l10n.chatEdited,
+      if (forwarded) l10n.chatForwarded,
+    ].join(', ');
+    final label = marks.isEmpty ? spoken : '$spoken, $marks';
 
     final baseText = (textTheme.bodyLarge ?? const TextStyle()).copyWith(
       fontSize: 15,
       height: 1.4,
     );
+    final labelStyle = textTheme.labelMedium?.copyWith(color: secondary);
 
+    final bubble = GestureDetector(
+      onSecondaryTapUp: (details) => showMessageContextMenu(
+        context,
+        position: details.globalPosition,
+        message: message,
+        now: clock(),
+        onSelected: onAction,
+      ),
+      onLongPress: () => showMessageSheet(
+        context,
+        message: message,
+        now: clock(),
+        onSelected: onAction,
+      ),
+      child: Semantics(
+        container: true,
+        label: label,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: math.min(MediaQuery.sizeOf(context).width * 0.78, 560),
+          ),
+          child: IntrinsicWidth(
+            child: Container(
+              padding: const EdgeInsetsDirectional.fromSTEB(14, 10, 14, 8),
+              decoration: BoxDecoration(
+                color: outgoing ? tokens.sentFill : tokens.receivedFill,
+                borderRadius: BorderRadiusDirectional.only(
+                  topStart: const Radius.circular(18),
+                  topEnd: const Radius.circular(18),
+                  bottomStart: Radius.circular(
+                    !outgoing && lastInGroup ? 4 : 18,
+                  ),
+                  bottomEnd: Radius.circular(outgoing && lastInGroup ? 4 : 18),
+                ),
+                border: outgoing
+                    ? null
+                    : Border.all(color: tokens.receivedBorder),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (message.replyTo case final quote? when !deleted)
+                    ExcludeSemantics(
+                      child: _QuoteBlock(
+                        quote: quote,
+                        outgoing: outgoing,
+                        l10n: l10n,
+                        style: baseText.copyWith(
+                          fontSize: 13,
+                          color: secondary,
+                        ),
+                        onTap: () => onJump(quote.id),
+                      ),
+                    ),
+                  if (isVoice)
+                    _VoiceCard(
+                      message: message,
+                      outgoing: outgoing,
+                      l10n: l10n,
+                      store: store,
+                      onAccept: onAccept,
+                      onDecline: onDecline,
+                    )
+                  else if (isFile)
+                    _FileCard(
+                      message: message,
+                      outgoing: outgoing,
+                      l10n: l10n,
+                      store: store,
+                      onAccept: onAccept,
+                      onDecline: onDecline,
+                      onOpen: onOpen,
+                      onSaveAs: onSaveAs,
+                    )
+                  else if (deleted)
+                    ExcludeSemantics(
+                      child: Text(
+                        l10n.chatMessageDeleted,
+                        style: baseText.copyWith(
+                          color: secondary,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    )
+                  else
+                    ExcludeSemantics(
+                      child: _LinkifiedText(
+                        text: message.text,
+                        style: baseText.copyWith(color: fg),
+                        linkStyle: baseText.copyWith(
+                          color: linkColor,
+                          decoration: TextDecoration.underline,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        onTapUrl: onTapUrl,
+                      ),
+                    ),
+                  const SizedBox(height: 4),
+                  Wrap(
+                    alignment: WrapAlignment.end,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 6,
+                    runSpacing: 2,
+                    children: [
+                      ExcludeSemantics(child: Text(time, style: labelStyle)),
+                      if (edited)
+                        ExcludeSemantics(
+                          child: Text(l10n.chatEdited, style: labelStyle),
+                        ),
+                      if (forwarded)
+                        ExcludeSemantics(
+                          child: Text(l10n.chatForwarded, style: labelStyle),
+                        ),
+                      if (status != null)
+                        ExcludeSemantics(
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                status.icon,
+                                size: 14,
+                                color: status.iconColor,
+                              ),
+                              const SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  status.label,
+                                  style: textTheme.labelMedium?.copyWith(
+                                    color: status.labelColor,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (showRetry)
+                        TextButton(
+                          style: _actionStyle(tokens),
+                          onPressed: () => onRetry(message),
+                          child: Text(l10n.chatRetry),
+                        ),
+                      if (showRetry)
+                        TextButton(
+                          style: _actionStyle(tokens),
+                          onPressed: () => onQueue(message),
+                          child: Text(l10n.chatQueue),
+                        ),
+                      if (showCancelQueue)
+                        TextButton(
+                          style: _actionStyle(tokens),
+                          onPressed: () => onUnqueue(message),
+                          child: Text(l10n.chatCancelQueue),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // The reactions sit under the bubble, on its side.
     return Align(
       alignment: outgoing
           ? AlignmentDirectional.centerEnd
           : AlignmentDirectional.centerStart,
-      child: GestureDetector(
-        onSecondaryTapUp: (details) =>
-            _showContextMenu(context, details.globalPosition),
-        onLongPress: () => _showActionSheet(context),
-        child: Semantics(
-          container: true,
-          label: label,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: math.min(MediaQuery.sizeOf(context).width * 0.78, 560),
-            ),
-            child: IntrinsicWidth(
-              child: Container(
-                padding: const EdgeInsetsDirectional.fromSTEB(14, 10, 14, 8),
-                decoration: BoxDecoration(
-                  color: outgoing ? tokens.sentFill : tokens.receivedFill,
-                  borderRadius: BorderRadiusDirectional.only(
-                    topStart: const Radius.circular(18),
-                    topEnd: const Radius.circular(18),
-                    bottomStart: Radius.circular(
-                      !outgoing && lastInGroup ? 4 : 18,
-                    ),
-                    bottomEnd: Radius.circular(
-                      outgoing && lastInGroup ? 4 : 18,
-                    ),
-                  ),
-                  border: outgoing
-                      ? null
-                      : Border.all(color: tokens.receivedBorder),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (isVoice)
-                      _VoiceCard(
-                        message: message,
-                        outgoing: outgoing,
-                        l10n: l10n,
-                        store: store,
-                        onAccept: onAccept,
-                        onDecline: onDecline,
-                      )
-                    else if (isFile)
-                      _FileCard(
-                        message: message,
-                        outgoing: outgoing,
-                        l10n: l10n,
-                        store: store,
-                        onAccept: onAccept,
-                        onDecline: onDecline,
-                        onOpen: onOpen,
-                        onSaveAs: onSaveAs,
-                      )
-                    else
-                      ExcludeSemantics(
-                        child: _LinkifiedText(
-                          text: message.text,
-                          style: baseText.copyWith(color: fg),
-                          linkStyle: baseText.copyWith(
-                            color: linkColor,
-                            decoration: TextDecoration.underline,
-                            fontWeight: FontWeight.w600,
-                          ),
-                          onTapUrl: onTapUrl,
-                        ),
-                      ),
-                    const SizedBox(height: 4),
-                    Wrap(
-                      alignment: WrapAlignment.end,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      spacing: 6,
-                      runSpacing: 2,
-                      children: [
-                        ExcludeSemantics(
-                          child: Text(
-                            time,
-                            style: textTheme.labelMedium?.copyWith(
-                              color: secondary,
-                            ),
-                          ),
-                        ),
-                        if (status != null)
-                          ExcludeSemantics(
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  status.icon,
-                                  size: 14,
-                                  color: status.iconColor,
-                                ),
-                                const SizedBox(width: 4),
-                                Flexible(
-                                  child: Text(
-                                    status.label,
-                                    style: textTheme.labelMedium?.copyWith(
-                                      color: status.labelColor,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        if (showRetry)
-                          TextButton(
-                            style: _actionStyle(tokens),
-                            onPressed: () => onRetry(message),
-                            child: Text(l10n.chatRetry),
-                          ),
-                        if (showRetry)
-                          TextButton(
-                            style: _actionStyle(tokens),
-                            onPressed: () => onQueue(message),
-                            child: Text(l10n.chatQueue),
-                          ),
-                        if (showCancelQueue)
-                          TextButton(
-                            style: _actionStyle(tokens),
-                            onPressed: () => onUnqueue(message),
-                            child: Text(l10n.chatCancelQueue),
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: outgoing
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        children: [
+          bubble,
+          ReactionBar(
+            reactions: deleted ? const {} : message.reactions,
+            peerName: contactName,
+            choosing: reacting && !deleted,
+            onReact: onReact,
+            onDismiss: onDismissReactions,
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The message a reply quotes, above the reply's text. Tapping it jumps to
+/// that message when it is shown. A quote whose text is gone reads as
+/// deleted.
+class _QuoteBlock extends StatelessWidget {
+  const _QuoteBlock({
+    required this.quote,
+    required this.outgoing,
+    required this.l10n,
+    required this.style,
+    required this.onTap,
+  });
+
+  final ChatReply quote;
+  final bool outgoing;
+  final AppLocalizations l10n;
+  final TextStyle style;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = ChatTokens.of(context);
+    final gone = quote.text.isEmpty;
+    final accent = outgoing ? tokens.sentText : tokens.receivedLink;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsetsDirectional.only(bottom: 6),
+        padding: const EdgeInsetsDirectional.fromSTEB(8, 4, 8, 4),
+        decoration: BoxDecoration(
+          color: accent.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(8),
+          border: BorderDirectional(start: BorderSide(color: accent, width: 3)),
+        ),
+        child: Text(
+          gone ? l10n.chatMessageDeleted : quote.text,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: gone ? style.copyWith(fontStyle: FontStyle.italic) : style,
         ),
       ),
     );
@@ -3311,859 +3674,5 @@ class _LinkifiedTextState extends State<_LinkifiedText> {
   @override
   Widget build(BuildContext context) {
     return Text.rich(TextSpan(children: _buildSpans()));
-  }
-}
-
-class _EmojiPickerPanel extends StatefulWidget {
-  const _EmojiPickerPanel({
-    required this.tokens,
-    required this.onEmojiSelected,
-    required this.onBackspace,
-  });
-
-  final ChatTokens tokens;
-  final ValueChanged<String> onEmojiSelected;
-  final VoidCallback onBackspace;
-
-  @override
-  State<_EmojiPickerPanel> createState() => _EmojiPickerPanelState();
-}
-
-class _EmojiPickerPanelState extends State<_EmojiPickerPanel>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabController;
-
-  static const _categories = [
-    (
-      icon: Icons.sentiment_satisfied_alt_outlined,
-      emojis: [
-        '😀',
-        '😃',
-        '😄',
-        '😁',
-        '😆',
-        '😅',
-        '🤣',
-        '😂',
-        '🙂',
-        '🙃',
-        '😉',
-        '😊',
-        '😇',
-        '🥰',
-        '😍',
-        '🤩',
-        '😘',
-        '😗',
-        '😚',
-        '😙',
-        '😋',
-        '😛',
-        '😜',
-        '🤪',
-        '😝',
-        '🤑',
-        '🤗',
-        '🤭',
-        '🤫',
-        '🤔',
-        '🤐',
-        '🤨',
-        '😐',
-        '😑',
-        '😶',
-        '😏',
-        '😒',
-        '🙄',
-        '😬',
-        '🤥',
-        '😌',
-        '😔',
-        '😪',
-        '🤤',
-        '😴',
-        '😷',
-        '🤒',
-        '🤕',
-        '🤢',
-        '🤮',
-        '🤧',
-        '🥵',
-        '🥶',
-        '🥴',
-        '😵',
-        '🤯',
-        '🤠',
-        '🥳',
-        '🥸',
-        '😎',
-        '🤓',
-        '🧐',
-        '😕',
-        '😟',
-        '🙁',
-        '☹️',
-        '😮',
-        '😯',
-        '😲',
-        '😳',
-        '🥺',
-        '😦',
-        '😧',
-        '😨',
-        '😰',
-        '😥',
-        '😢',
-        '😭',
-        '😱',
-        '😖',
-        '😣',
-        '😞',
-        '😓',
-        '😩',
-        '😫',
-        '🥱',
-        '😤',
-        '😡',
-        '😠',
-        '🤬',
-        '💀',
-        '💩',
-        '🤡',
-        '👻',
-        '👽',
-        '🤖',
-      ],
-    ),
-    (
-      icon: Icons.front_hand_outlined,
-      emojis: [
-        '👋',
-        '🤚',
-        '🖐️',
-        '✋',
-        '🖖',
-        '🤙',
-        '👈',
-        '👉',
-        '👆',
-        '🖕',
-        '👇',
-        '☝️',
-        '👍',
-        '👎',
-        '✊',
-        '👊',
-        '🤛',
-        '🤜',
-        '👏',
-        '🙌',
-        '👐',
-        '🤲',
-        '🤝',
-        '🙏',
-        '✍️',
-        '💅',
-        '🤳',
-        '💪',
-        '🦾',
-        '🦿',
-        '🦵',
-        '🦶',
-        '👂',
-        '🦻',
-        '👃',
-        '🧠',
-        '🫀',
-        '🫁',
-        '🦷',
-        '🦴',
-        '👀',
-        '👁️',
-        '👅',
-        '👄',
-        '👶',
-        '🧒',
-        '👦',
-        '👧',
-        '🧑',
-        '👱',
-        '👨',
-        '🧔',
-        '👩',
-        '🧓',
-        '👴',
-        '👵',
-        '🙍',
-        '🙎',
-        '🙅',
-        '🙆',
-        '💁',
-        '🙋',
-        '🧏',
-        '🙇',
-        '🤦',
-        '🤷',
-        '🧑‍⚕️',
-        '🧑‍🎓',
-        '🧑‍🏫',
-        '🧑‍⚖️',
-        '🧑‍🌾',
-        '🧑‍🍳',
-      ],
-    ),
-    (
-      icon: Icons.pets_outlined,
-      emojis: [
-        '🐶',
-        '🐱',
-        '🐭',
-        '🐹',
-        '🐰',
-        '🦊',
-        '🐻',
-        '🐼',
-        '🐨',
-        '🐯',
-        '🦁',
-        '🐮',
-        '🐷',
-        '🐽',
-        '🐸',
-        '🐵',
-        '🙈',
-        '🙉',
-        '🙊',
-        '🐒',
-        '🐔',
-        '🐧',
-        '🐦',
-        '🐤',
-        '🐣',
-        '🐥',
-        '🦆',
-        '🦅',
-        '🦉',
-        '🦇',
-        '🐺',
-        '🐗',
-        '🐴',
-        '🦄',
-        '🐝',
-        '🐛',
-        '🦋',
-        '🐌',
-        '🐞',
-        '🐜',
-        '🦟',
-        '🐢',
-        '🐍',
-        '🦎',
-        '🐙',
-        '🦑',
-        '🦐',
-        '🦞',
-        '🦀',
-        '🐡',
-        '🐠',
-        '🐟',
-        '🐬',
-        '🐳',
-        '🐋',
-        '🦈',
-        '🐊',
-        '🐅',
-        '🐆',
-        '🦓',
-        '🐘',
-        '🦛',
-        '🦏',
-        '🐪',
-        '🐫',
-        '🦒',
-        '🦘',
-        '🌲',
-        '🌳',
-        '🌴',
-        '🌵',
-        '🌱',
-        '🌿',
-        '🍀',
-        '🍁',
-        '🍂',
-        '🍃',
-        '🌸',
-        '💮',
-        '🌹',
-        '🌺',
-        '🌻',
-        '🌼',
-        '🌷',
-      ],
-    ),
-    (
-      icon: Icons.fastfood_outlined,
-      emojis: [
-        '🍏',
-        '🍎',
-        '🍐',
-        '🍊',
-        '🍋',
-        '🍌',
-        '🍉',
-        '🍇',
-        '🍓',
-        '🫐',
-        '🍈',
-        '🍒',
-        '🍑',
-        '🥭',
-        '🍍',
-        '🥥',
-        '🥝',
-        '🍅',
-        '🍆',
-        '🥑',
-        '🥦',
-        '🥬',
-        '🥒',
-        '🌶️',
-        '🌽',
-        '🥕',
-        '🧄',
-        '🧅',
-        '🥔',
-        '🍠',
-        '🥐',
-        '🍞',
-        '🥖',
-        '🥨',
-        '🧀',
-        '🥚',
-        '🍳',
-        '🧈',
-        '🥞',
-        '🧇',
-        '🥓',
-        '🥩',
-        '🍗',
-        '🍖',
-        '🌭',
-        '🍔',
-        '🍟',
-        '🍕',
-        '🥪',
-        '🥙',
-        '🌮',
-        '🌯',
-        '🥗',
-        '🥘',
-        '🥫',
-        '🍝',
-        '🍜',
-        '🍲',
-        '🍛',
-        '🍣',
-        '🍱',
-        '🥟',
-        '🍤',
-        '🍙',
-        '🍚',
-        '🍢',
-        '🍡',
-        '🍧',
-        '🍨',
-        '🍦',
-        '🍰',
-        '🎂',
-        '🍮',
-        '🍭',
-        '🍬',
-        '🍫',
-        '🍿',
-        '🍩',
-        '🍪',
-        '🌰',
-        '🥜',
-        '🥛',
-        '☕',
-        '🫖',
-      ],
-    ),
-    (
-      icon: Icons.sports_soccer_outlined,
-      emojis: [
-        '⚽',
-        '🏀',
-        '🏈',
-        '⚾',
-        '🥎',
-        '🎾',
-        '🏐',
-        '🏉',
-        '🥏',
-        '🎱',
-        '🪀',
-        '🏓',
-        '🏸',
-        '🏒',
-        '🏑',
-        '🏏',
-        '🥅',
-        '⛳',
-        '🪁',
-        '🏹',
-        '🎣',
-        '🥊',
-        '🥋',
-        '🛹',
-        '🛼',
-        '🛷',
-        '⛸️',
-        '🎿',
-        '🏂',
-        '🏋️',
-        '🤼',
-        '🤸',
-        '⛹️',
-        '🤺',
-        '🏄',
-        '🏊',
-        '🤽',
-        '🚣',
-        '🧗',
-        '🚵',
-        '🚴',
-        '🏆',
-        '🥇',
-        '🥈',
-        '🥉',
-        '🏅',
-        '🎖️',
-        '🎗️',
-        '🎫',
-        '🎟️',
-        '🎪',
-        '🎭',
-        '🎨',
-        '🎬',
-        '🎤',
-        '🎧',
-        '🎼',
-        '🎵',
-        '🎶',
-        '🥁',
-        '🎷',
-        '🎺',
-        '🎸',
-        '🎻',
-        '🎲',
-        '♟️',
-        '🎯',
-        '🎳',
-        '🎮',
-        '🎰',
-        '🧩',
-        '🃏',
-      ],
-    ),
-    (
-      icon: Icons.directions_car_outlined,
-      emojis: [
-        '🚗',
-        '🚕',
-        '🚙',
-        '🚌',
-        '🚎',
-        '🏎️',
-        '🚓',
-        '🚑',
-        '🚒',
-        '🚐',
-        '🚚',
-        '🚛',
-        '🚜',
-        '🛴',
-        '🚲',
-        '🛵',
-        '🏍️',
-        '🛺',
-        '🚨',
-        '🚔',
-        '🚍',
-        '🚘',
-        '🚖',
-        '🚡',
-        '🚠',
-        '🚟',
-        '🚃',
-        '🚋',
-        '🚞',
-        '🚝',
-        '🚄',
-        '🚅',
-        '🚈',
-        '🚂',
-        '🚆',
-        '🚇',
-        '🚊',
-        '🚉',
-        '✈️',
-        '🛫',
-        '🛬',
-        '💺',
-        '🛰️',
-        '🚀',
-        '🛸',
-        '🚁',
-        '🛶',
-        '⛵',
-        '🚤',
-        '🛳️',
-        '⛴️',
-        '🚢',
-        '⚓',
-        '⛽',
-        '🚧',
-        '🚥',
-        '🚦',
-        '🛑',
-        '🗼',
-        '🗽',
-        '⛪',
-        '🕌',
-        '🛕',
-        '🕍',
-        '⛩️',
-        '🕋',
-        '⛲',
-        '⛺',
-        '🌁',
-        '🌃',
-        '🏙️',
-        '🌄',
-      ],
-    ),
-    (
-      icon: Icons.lightbulb_outlined,
-      emojis: [
-        '⌚',
-        '📱',
-        '📲',
-        '💻',
-        '⌨️',
-        '🖥️',
-        '🖨️',
-        '🖱️',
-        '🕹️',
-        '💾',
-        '💿',
-        '📀',
-        '📷',
-        '📸',
-        '📹',
-        '🎥',
-        '📽️',
-        '📞',
-        '☎️',
-        '📟',
-        '📠',
-        '📺',
-        '📻',
-        '🎙️',
-        '⏱️',
-        '⏲️',
-        '⏰',
-        '🕰️',
-        '⌛',
-        '⏳',
-        '📡',
-        '🔋',
-        '🔌',
-        '💡',
-        '🔦',
-        '🕯️',
-        '🧯',
-        '💸',
-        '💵',
-        '💴',
-        '💶',
-        '💷',
-        '🪙',
-        '💰',
-        '💳',
-        '💎',
-        '⚖️',
-        '🧰',
-        '🔧',
-        '🔨',
-        '⚒️',
-        '🛠️',
-        '⛏️',
-        '🪓',
-        '🔩',
-        '⚙️',
-        '🧲',
-        '🔫',
-        '💣',
-        '🔪',
-        '🛡️',
-        '🔮',
-        '📿',
-        '💈',
-        '🔬',
-        '🔭',
-        '🩺',
-        '💊',
-        '💉',
-        '🩹',
-        '🧬',
-        '🔑',
-      ],
-    ),
-    (
-      icon: Icons.favorite_outline,
-      emojis: [
-        '❤️',
-        '🧡',
-        '💛',
-        '💚',
-        '💙',
-        '💜',
-        '🖤',
-        '🤍',
-        '🤎',
-        '💔',
-        '❤️‍🔥',
-        '❤️‍🩹',
-        '💕',
-        '💞',
-        '💓',
-        '💗',
-        '💖',
-        '💘',
-        '💝',
-        '💟',
-        '☮️',
-        '✝️',
-        '☪️',
-        '🕉️',
-        '☸️',
-        '✡️',
-        '🔯',
-        '🕎',
-        '☯️',
-        '☦️',
-        '🛐',
-        '⛎',
-        '♈',
-        '♉',
-        '♊',
-        '♋',
-        '♌',
-        '♍',
-        '♎',
-        '♏',
-        '♐',
-        '♑',
-        '♒',
-        '♓',
-        '🆔',
-        '⚛️',
-        '🉑',
-        '📴',
-        '📳',
-        '🈶',
-        '🈚',
-        '🈸',
-        '🈺',
-        '🈷️',
-        '✴️',
-        '📶',
-        '🈹',
-        '🈲',
-        '🔞',
-        '🔟',
-        '🔤',
-        '🔢',
-        '🔣',
-        '🔲',
-        '🔳',
-        '🔴',
-        '🟠',
-        '🟡',
-        '🟢',
-        '🔵',
-        '🟣',
-        '⚫',
-        '⚪',
-        '🟥',
-        '🟧',
-        '🟨',
-        '🟩',
-        '🟦',
-        '🟪',
-        '⬛',
-        '⬜',
-        '🔶',
-        '🔷',
-        '🔸',
-        '🔹',
-        '🔺',
-        '🔻',
-        '💠',
-        '🔘',
-        '🏁',
-        '🚩',
-        '🎌',
-        '🏴',
-        '🏳️',
-        '✨',
-        '⭐',
-        '🌟',
-        '💫',
-        '⚡',
-        '☄️',
-        '💥',
-        '🔥',
-        '🎉',
-        '🎊',
-        '🎈',
-        '🎁',
-        '💯',
-        '✅',
-      ],
-    ),
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: _categories.length, vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    // In the order of [_categories].
-    final labels = [
-      l10n.chatEmojiSmileys,
-      l10n.chatEmojiPeople,
-      l10n.chatEmojiAnimals,
-      l10n.chatEmojiFood,
-      l10n.chatEmojiActivities,
-      l10n.chatEmojiTravel,
-      l10n.chatEmojiObjects,
-      l10n.chatEmojiSymbols,
-    ];
-    return Container(
-      height: 270,
-      decoration: BoxDecoration(
-        color: widget.tokens.footer,
-        border: Border(top: BorderSide(color: widget.tokens.divider)),
-      ),
-      child: Column(
-        children: [
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                for (final cat in _categories)
-                  GridView.builder(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 8,
-                    ),
-                    gridDelegate:
-                        const SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 46,
-                          mainAxisSpacing: 4,
-                          crossAxisSpacing: 4,
-                          childAspectRatio: 1.0,
-                        ),
-                    itemCount: cat.emojis.length,
-                    itemBuilder: (context, index) {
-                      final emoji = cat.emojis[index];
-                      return Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(8),
-                          onTap: () => widget.onEmojiSelected(emoji),
-                          child: Center(
-                            child: Text(
-                              emoji,
-                              style: const TextStyle(
-                                fontSize: 26,
-                                fontFamilyFallback: [
-                                  'Apple Color Emoji',
-                                  'Segoe UI Emoji',
-                                  'Noto Color Emoji',
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-              ],
-            ),
-          ),
-          Container(
-            height: 44,
-            decoration: BoxDecoration(
-              color: widget.tokens.footer,
-              border: Border(
-                top: BorderSide(
-                  color: widget.tokens.divider.withValues(alpha: 0.5),
-                ),
-              ),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TabBar(
-                    controller: _tabController,
-                    isScrollable: true,
-                    tabAlignment: TabAlignment.start,
-                    indicatorColor: widget.tokens.sendFill,
-                    indicatorSize: TabBarIndicatorSize.label,
-                    labelColor: widget.tokens.sendFill,
-                    unselectedLabelColor: widget.tokens.attachIcon,
-                    dividerColor: Colors.transparent,
-                    padding: EdgeInsets.zero,
-                    labelPadding: const EdgeInsets.symmetric(horizontal: 10),
-                    tabs: [
-                      for (final (i, cat) in _categories.indexed)
-                        Tab(
-                          icon: Tooltip(
-                            message: labels[i],
-                            child: Icon(cat.icon, size: 22),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  tooltip: l10n.chatEmojiBackspace,
-                  icon: Icon(
-                    Icons.backspace_outlined,
-                    color: widget.tokens.attachIcon,
-                    size: 22,
-                  ),
-                  onPressed: widget.onBackspace,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }

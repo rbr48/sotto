@@ -438,6 +438,7 @@ class _HomeTabState extends State<HomeTab> {
                 sendReadReceipts: widget.calls.sendReadReceipts,
                 verified: contact.verified,
                 calls: widget.calls,
+                contacts: widget.calls.contacts,
               ),
             ),
           );

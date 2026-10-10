@@ -1,5 +1,6 @@
 import 'dart:async';
-import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
 
 import '../diagnostics/event_log.dart';
 import 'chat_frames.dart';
@@ -901,6 +902,11 @@ class ChatManager {
   void _emit(ChatManagerEvent event) {
     if (!_events.isClosed) _events.add(event);
   }
+
+  /// Publishes [event] to the listeners, as a session does. A widget test uses
+  /// it to show an open chat a change made without a live session.
+  @visibleForTesting
+  void publishForTest(ChatManagerEvent event) => _emit(event);
 
   /// Carries out what [ChatSignalling] decided.
   void _perform(List<ChatAction> actions) {

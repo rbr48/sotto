@@ -10,6 +10,7 @@ import '../../core/l10n/app_localizations.dart';
 import '../../core/ui_kit.dart';
 import 'chat_page.dart';
 import 'chat_tokens.dart';
+import 'contact_picker.dart';
 
 /// The dedicated Chats tab: full conversation inbox, search, unread filters,
 /// and direct confidential message threading.
@@ -104,7 +105,7 @@ class _ChatsTabState extends State<ChatsTab> {
     ChatState.received => Icons.done,
   };
 
-  void _startNewChat() {
+  Future<void> _startNewChat() async {
     final contacts = widget.app.contacts.contacts;
     if (contacts.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -115,68 +116,17 @@ class _ChatsTabState extends State<ChatsTab> {
       return;
     }
 
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (ctx) {
-        final theme = Theme.of(ctx);
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  AppLocalizations.of(ctx).chatsNewConversation,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Flexible(
-                  child: ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: contacts.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
-                    itemBuilder: (_, index) {
-                      final c = contacts[index];
-                      return ListTile(
-                        leading: InitialsAvatar(name: c.name, avatar: c.avatar),
-                        title: Text(
-                          c.name,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        subtitle: c.organisation.isNotEmpty
-                            ? Text(c.organisation)
-                            : null,
-                        trailing: c.verified
-                            ? Icon(
-                                Icons.verified,
-                                color: ChatTokens.of(ctx).verifiedIcon,
-                                size: 18,
-                                semanticLabel: AppLocalizations.of(ctx)
-                                    .chatVerifiedTooltip,
-                              )
-                            : null,
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          _openChat(
-                            c.identity.id,
-                            c.name,
-                            verified: c.verified,
-                            avatar: c.avatar,
-                          );
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+    final contact = await pickContact(
+      context,
+      title: AppLocalizations.of(context).chatsNewConversation,
+      contacts: contacts,
+    );
+    if (contact == null || !mounted) return;
+    _openChat(
+      contact.identity.id,
+      contact.name,
+      verified: contact.verified,
+      avatar: contact.avatar,
     );
   }
 
@@ -198,6 +148,7 @@ class _ChatsTabState extends State<ChatsTab> {
           sendReadReceipts: widget.calls.sendReadReceipts,
           verified: verified,
           calls: widget.calls,
+          contacts: widget.app.contacts,
           avatar: avatar,
         ),
       ),
