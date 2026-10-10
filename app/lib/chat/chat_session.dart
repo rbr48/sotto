@@ -457,9 +457,8 @@ class ChatSession {
       transport.sendBinary(chunkBytes);
       final progress = (i + 1) / count;
       _events.add(FileTransferProgress(fileId, progress));
-      await Future<void>.delayed(const Duration(milliseconds: 3));
+      await Future<void>.delayed(Duration.zero);
     }
-    await Future<void>.delayed(const Duration(milliseconds: 50));
     _write(FileDoneFrame(id: fileId));
   }
 
