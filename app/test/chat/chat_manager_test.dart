@@ -1550,6 +1550,35 @@ void main() {
       }
     });
 
+    test('an edit gives the replies to the edited message the new text, on both devices', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final bobStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      device('bob', contacts: {'alice'}, store: bobStore);
+
+      final quoted = await alice.sendText('bob', 'the door code is 4471');
+      await _settle();
+      final reply = await alice.sendText('bob', 'got it', replyToId: quoted.id);
+      await _settle();
+
+      expect(
+        await alice.edit('bob', quoted.id, 'the door code is 4472'),
+        isTrue,
+      );
+      await _settle();
+
+      for (final (store, contact) in [
+        (aliceStore, 'bob'),
+        (bobStore, 'alice'),
+      ]) {
+        final edited = (await store.find(contact, quoted.id))!;
+        expect(edited.text, 'the door code is 4472');
+        final quote = (await store.find(contact, reply.id))!;
+        expect(quote.text, 'got it');
+        expect(quote.replyTo, (id: quoted.id, text: 'the door code is 4472'));
+      }
+    });
+
     test('a text that came through the relay keeps the arrival time when its own time is far ahead', () async {
       final bobStore = ChatStore(MemorySecretStore());
       final bob = device('bob', contacts: {'alice'}, store: bobStore);

@@ -366,6 +366,11 @@ frames, so text and files work unchanged between old and new versions.
   `id` with an empty quote text. This happens on the device that deletes and on
   the contact's device when the delete arrives. A reply still waiting in the
   outbox is sent with its quote emptied.
+- **Quotes of an edited message.** An edit gives each reply to the message the
+  new text, cut to 200 characters as a quote is, so no quote keeps the earlier
+  text. This happens on the device that edits and on the contact's device when
+  the edit arrives. A reply still waiting in the outbox is sent with the new
+  quote.
 - Files and voice notes are never edited or deleted for everyone: an edit or
   delete of one is ignored.
 - A control frame is checked against the owner of its message, and the checks

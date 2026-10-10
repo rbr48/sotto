@@ -2029,6 +2029,94 @@ void main() {
         text: '',
       ));
     });
+
+    test('a peer\'s edit gives the stored replies to the edited message the new text', () async {
+      final (a, b) = _pair();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      a.send(helloAll);
+      final sentAt = now.millisecondsSinceEpoch;
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(id: _id(1), ts: sentAt, text: 'the door code is 4471'),
+        ),
+      );
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(
+            id: _id(2),
+            ts: sentAt,
+            text: 'got it',
+            reply: (id: _id(1), text: 'the door code is 4471'),
+          ),
+        ),
+      );
+      await _settle();
+
+      a.send(
+        ChatFrames.encode(
+          EditFrame(id: _id(1), ts: sentAt, text: 'the door code is 4472'),
+        ),
+      );
+      await _settle();
+
+      expect(
+        (await bob.store.find('alice', _id(1)))!.text,
+        'the door code is 4472',
+      );
+      final reply = (await bob.store.find('alice', _id(2)))!;
+      expect(reply.text, 'got it');
+      expect(reply.replyTo, (id: _id(1), text: 'the door code is 4472'));
+      expect(
+        await bob.secrets.read(ChatStore.contactKey('alice')),
+        isNot(contains('4471')),
+      );
+    });
+
+    test('a peer\'s edit gives the unsent replies to the edited message the new text in the outbox', () async {
+      final (a, b) = _pair();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      a.send(helloAll);
+      await _settle();
+      final sentAt = now.millisecondsSinceEpoch;
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(id: _id(1), ts: sentAt, text: 'the door code is 4471'),
+        ),
+      );
+      await _settle();
+      // Bob's reply to the same message is not acknowledged, so it waits in his
+      // outbox.
+      final mine = await bob.session.sendText(
+        'the code, again',
+        replyTo: (id: _id(1), text: 'the door code is 4471'),
+      );
+      await _settle();
+
+      a.send(
+        ChatFrames.encode(
+          EditFrame(id: _id(1), ts: sentAt, text: 'the door code is 4472'),
+        ),
+      );
+      await _settle();
+
+      // The contact says hello again, so the outbox goes out once more: the
+      // reply goes with the edited text in its quote.
+      a.send(helloAll);
+      await _settle();
+      final again = b.sentFrames
+          .map(ChatFrames.decode)
+          .whereType<MessageFrame>()
+          .where((f) => f.id == mine.id)
+          .last;
+      expect(again.text, 'the code, again');
+      expect(again.reply, (id: _id(1), text: 'the door code is 4472'));
+      expect((await bob.store.find('alice', mine.id))!.replyTo, (
+        id: _id(1),
+        text: 'the door code is 4472',
+      ));
+    });
   });
 }
 

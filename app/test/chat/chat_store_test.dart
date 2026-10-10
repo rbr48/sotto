@@ -723,6 +723,79 @@ void main() {
       );
     });
 
+    test('editing a message gives every quote of it the new text, and the old text is not kept', () async {
+      const before = 'the door code is 4471';
+      const after = 'the door code is 4472';
+      await store.add(
+        ChatMessage(
+          id: _id(1),
+          contactId: 'bob',
+          outgoing: true,
+          ts: 1000,
+          text: before,
+          state: ChatState.delivered,
+        ),
+      );
+      await store.add(
+        ChatMessage(
+          id: _id(2),
+          contactId: 'bob',
+          outgoing: false,
+          ts: 1001,
+          text: 'got it',
+          state: ChatState.received,
+          read: false,
+          replyTo: (id: _id(1), text: before),
+        ),
+      );
+      await store.add(
+        ChatMessage(
+          id: _id(3),
+          contactId: 'bob',
+          outgoing: true,
+          ts: 1002,
+          text: 'which door?',
+          state: ChatState.delivered,
+          replyTo: (id: _id(1), text: before),
+        ),
+      );
+      await store.add(
+        ChatMessage(
+          id: _id(4),
+          contactId: 'bob',
+          outgoing: false,
+          ts: 1003,
+          text: 'unrelated',
+          state: ChatState.received,
+          read: false,
+          replyTo: (id: _id(9), text: 'other'),
+        ),
+      );
+
+      expect(
+        await store.changeMessage(
+          'bob',
+          _id(1),
+          (m) => m.copyWith(text: after, editedAt: 2000),
+        ),
+        isTrue,
+      );
+
+      final reloaded = {
+        for (final m in await ChatStore(secrets).messages('bob')) m.id: m,
+      };
+      expect(reloaded[_id(1)]!.text, after);
+      expect(reloaded[_id(1)]!.editedAt, 2000);
+      expect(reloaded[_id(2)]!.replyTo, (id: _id(1), text: after));
+      expect(reloaded[_id(3)]!.replyTo, (id: _id(1), text: after));
+      expect(reloaded[_id(4)]!.replyTo, (id: _id(9), text: 'other'));
+      // Nothing of the old text is left in the stored record.
+      expect(
+        await secrets.read(ChatStore.contactKey('bob')),
+        isNot(contains('4471')),
+      );
+    });
+
     test('the chat list and search order by this device\'s clock, so a peer\'s time cannot pin a chat to the top', () async {
       // Bob's clock is far ahead; his message arrived here a minute after
       // Carol's, which is dated earlier by her clock.

@@ -632,7 +632,8 @@ class ChatStore {
   /// never lost. Returns whether the message was changed.
   ///
   /// A message that comes out deleted for everyone also takes its text out of
-  /// the chat's quotes (see [_cutQuotes]).
+  /// the chat's quotes. A message whose text is edited gives its quotes the new
+  /// text (see [_setQuotes]), so no quote keeps the text it had before.
   Future<bool> changeMessage(
     String contactId,
     String id,
@@ -641,24 +642,29 @@ class ChatStore {
     final list = [...await _loadContact(contactId)];
     final index = list.indexWhere((m) => m.id == id);
     if (index < 0) return false;
-    final next = change(list[index]);
+    final before = list[index];
+    final next = change(before);
     if (next == null) return false;
     list[index] = next;
-    if (next.deletedForAll) _cutQuotes(list, id);
+    if (next.deletedForAll) {
+      // The deleted message keeps no quote of its own.
+      list[index] = next.copyWith(clearReplyTo: true);
+      _setQuotes(list, id, '');
+    } else if (next.text != before.text) {
+      _setQuotes(list, id, ChatFrames.quoteText(next.text));
+    }
     await _saveContact(contactId, list);
     return true;
   });
 
-  /// Takes the text of the deleted message [id] out of [list]: the message
-  /// keeps no quote of its own, and each quote of it keeps its id with no text.
-  /// So the deleted text is not kept by the replies to it.
-  static void _cutQuotes(List<ChatMessage> list, String id) {
+  /// Gives each quote of the message [id] in [list] the text [quote]: empty
+  /// once the message is deleted for everyone, its new text once it is edited.
+  /// The quote keeps its id either way.
+  static void _setQuotes(List<ChatMessage> list, String id, String quote) {
     for (var i = 0; i < list.length; i++) {
       final m = list[i];
-      if (m.id == id) {
-        list[i] = m.copyWith(clearReplyTo: true);
-      } else if (m.replyTo?.id == id) {
-        list[i] = m.copyWith(replyTo: (id: id, text: ''));
+      if (m.replyTo?.id == id) {
+        list[i] = m.copyWith(replyTo: (id: id, text: quote));
       }
     }
   }

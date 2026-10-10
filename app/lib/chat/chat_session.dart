@@ -743,14 +743,15 @@ class ChatSession {
     _unsent.clear();
   }
 
-  /// Takes the text of the deleted message [id] out of the quotes of the
-  /// messages still in the outbox, so a reply sent later does not carry it.
-  /// The store is changed by the caller (see [ChatStore.changeMessage]).
-  void cutQuotesOf(String id) {
+  /// Gives each quote of the message [id] in the outbox the text [quote]: empty
+  /// once the message is deleted for everyone, its new text once it is edited,
+  /// so a reply sent later does not carry the text it had before. The store is
+  /// changed by the caller (see [ChatStore.changeMessage]).
+  void setQuotesOf(String id, String quote) {
     for (final key in _outbox.keys.toList()) {
       final message = _outbox[key]!;
       if (message.replyTo?.id == id) {
-        _outbox[key] = message.copyWith(replyTo: (id: id, text: ''));
+        _outbox[key] = message.copyWith(replyTo: (id: id, text: quote));
       }
     }
   }
@@ -1136,11 +1137,13 @@ class ChatSession {
         if (!ChatFrames.isCurrent(ts, clock().millisecondsSinceEpoch)) return;
         // Only the contact's own text messages can be edited, and only within
         // the window measured from when they were sent.
-        await store.changeMessage(contactId, id, (m) {
+        final edited = await store.changeMessage(contactId, id, (m) {
           if (m.outgoing || m.deletedForAll || m.isAttachment) return null;
           if (!ChatFrames.withinWindow(m.ts, ts, editWindow)) return null;
           return m.copyWith(text: text, editedAt: ts);
         });
+        // The replies to it still in the outbox quote the new text.
+        if (edited) setQuotesOf(id, ChatFrames.quoteText(text));
       case DeleteFrame(:final id, :final ts):
         if (!_peerHello) return;
         if (!ChatFrames.isCurrent(ts, clock().millisecondsSinceEpoch)) return;
@@ -1151,7 +1154,7 @@ class ChatSession {
           if (!ChatFrames.withinWindow(m.ts, ts, deleteWindow)) return null;
           return m.copyWith(text: '', deletedForAll: true, reactions: const {});
         });
-        if (deleted) cutQuotesOf(id);
+        if (deleted) setQuotesOf(id, '');
       case ByeFrame():
         await _end('bye');
     }

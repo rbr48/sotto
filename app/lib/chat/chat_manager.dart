@@ -347,6 +347,7 @@ class ChatManager {
       (m) => m.deletedForAll ? null : m.copyWith(text: cleaned, editedAt: now),
     );
     if (!changed) return false;
+    _setQuotes(contact, id, ChatFrames.quoteText(cleaned));
     await store.queueControl(
       contact,
       EditFrame(id: id, ts: now, text: cleaned),
@@ -381,7 +382,7 @@ class ChatManager {
           : m.copyWith(text: '', deletedForAll: true, reactions: const {}),
     );
     if (!changed) return false;
-    _cutQuotes(contact, id);
+    _setQuotes(contact, id, '');
     // The other side has not stored the text yet: it must not be sent again.
     final stored =
         message.state == ChatState.delivered || message.state == ChatState.read;
@@ -391,25 +392,26 @@ class ChatManager {
     return true;
   }
 
-  /// Takes the text of the deleted message [id] out of the replies to it that
-  /// are still waiting to go in the chat with [contact], so a reply sent later
-  /// does not carry it. The store is already changed (see
+  /// Gives the quote of message [id] to each reply to it that is still waiting
+  /// to go in the chat with [contact]: empty once the message is deleted for
+  /// everyone, its new text once it is edited. So a reply sent later does not
+  /// carry the text it had before. The store is already changed (see
   /// [ChatStore.changeMessage]).
-  void _cutQuotes(String contact, String id) {
-    ChatMessage cut(ChatMessage m) =>
-        m.replyTo?.id == id ? m.copyWith(replyTo: (id: id, text: '')) : m;
+  void _setQuotes(String contact, String id, String quote) {
+    ChatMessage withQuote(ChatMessage m) =>
+        m.replyTo?.id == id ? m.copyWith(replyTo: (id: id, text: quote)) : m;
     final waiting = _waiting[contact];
     if (waiting != null) {
       for (var i = 0; i < waiting.length; i++) {
-        waiting[i] = cut(waiting[i]);
+        waiting[i] = withQuote(waiting[i]);
       }
     }
     final live = _activeFor(contact);
     if (live != null) {
       for (var i = 0; i < live.resend.length; i++) {
-        live.resend[i] = cut(live.resend[i]);
+        live.resend[i] = withQuote(live.resend[i]);
       }
-      live.session?.cutQuotesOf(id);
+      live.session?.setQuotesOf(id, quote);
     }
   }
 
