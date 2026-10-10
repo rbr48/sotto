@@ -705,4 +705,64 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get chatStarredEmpty =>
       'لا توجد رسائل مميزة بنجمة. مَيِّز رسالة بنجمة لتجدها هنا.';
+
+  @override
+  String get chatExportChat => 'تصدير المحادثة';
+
+  @override
+  String get chatExportBody =>
+      'يتضمن التصدير رسائل هذه المحادثة وأوقاتها وعلاماتها، وأسماء الملفات وأحجامها. ولا يتضمن أبدًا محتويات الملفات أو المفاتيح أو المحادثات الأخرى.';
+
+  @override
+  String get chatExportEncrypted => 'مشفّر (موصى به)';
+
+  @override
+  String get chatExportPlain => 'نص عادي';
+
+  @override
+  String chatExportPassphrase(int count) {
+    return 'عبارة المرور ($count حرفًا على الأقل)';
+  }
+
+  @override
+  String get chatExportConfirmPassphrase => 'تأكيد عبارة المرور';
+
+  @override
+  String chatExportPassphraseShort(int count) {
+    return 'استخدم عبارة مرور من $count حرفًا على الأقل.';
+  }
+
+  @override
+  String get chatExportPassphraseMismatch => 'عبارتا المرور غير متطابقتين.';
+
+  @override
+  String get chatExportPlainWarning =>
+      'يستطيع أي شخص يملك هذا الملف قراءة المحادثة كاملة. الملف غير مشفّر، ولا تحميه عبارة المرور.';
+
+  @override
+  String get chatExportPlainConfirm =>
+      'أفهم أن أي شخص يملك هذا الملف يستطيع قراءته.';
+
+  @override
+  String get chatExportSave => 'حفظ التصدير';
+
+  @override
+  String chatExportSaved(String path) {
+    return 'تم تصدير المحادثة إلى $path';
+  }
+
+  @override
+  String get chatExportedLabel => 'صُدّرت في';
+
+  @override
+  String get chatExportFileLabel => 'ملف';
+
+  @override
+  String get chatExportBytesLabel => 'بايت';
+
+  @override
+  String get chatExportReplyLabel => 'ردًا على';
+
+  @override
+  String get chatExportReactionsLabel => 'التفاعلات';
 }

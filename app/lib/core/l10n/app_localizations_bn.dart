@@ -695,4 +695,64 @@ class AppLocalizationsBn extends AppLocalizations {
   @override
   String get chatStarredEmpty =>
       'কোনো তারকা দেওয়া বার্তা নেই। কোনো বার্তায় তারকা দিলে এখানে পাওয়া যাবে।';
+
+  @override
+  String get chatExportChat => 'চ্যাট রপ্তানি করুন';
+
+  @override
+  String get chatExportBody =>
+      'এই রপ্তানিতে এই চ্যাটের বার্তা, বার্তার সময় ও চিহ্ন, এবং ফাইলের নাম ও আকার থাকে। ফাইলের বিষয়বস্তু, চাবি বা অন্য চ্যাট কখনো থাকে না।';
+
+  @override
+  String get chatExportEncrypted => 'এনক্রিপ্ট করা (প্রস্তাবিত)';
+
+  @override
+  String get chatExportPlain => 'সাধারণ টেক্সট';
+
+  @override
+  String chatExportPassphrase(int count) {
+    return 'পাসফ্রেজ (কমপক্ষে $count অক্ষর)';
+  }
+
+  @override
+  String get chatExportConfirmPassphrase => 'পাসফ্রেজ নিশ্চিত করুন';
+
+  @override
+  String chatExportPassphraseShort(int count) {
+    return 'কমপক্ষে $count অক্ষরের একটি পাসফ্রেজ ব্যবহার করুন।';
+  }
+
+  @override
+  String get chatExportPassphraseMismatch => 'পাসফ্রেজ দুটি মেলেনি।';
+
+  @override
+  String get chatExportPlainWarning =>
+      'এই ফাইল যার কাছে আছে, সে পুরো চ্যাট পড়তে পারবে। এটি এনক্রিপ্ট করা নয়, আর আপনার পাসফ্রেজ একে সুরক্ষিত করে না।';
+
+  @override
+  String get chatExportPlainConfirm =>
+      'আমি বুঝেছি, এই ফাইল যার কাছে আছে সে এটি পড়তে পারবে।';
+
+  @override
+  String get chatExportSave => 'রপ্তানি সংরক্ষণ করুন';
+
+  @override
+  String chatExportSaved(String path) {
+    return 'চ্যাট রপ্তানি হয়েছে: $path';
+  }
+
+  @override
+  String get chatExportedLabel => 'রপ্তানির সময়';
+
+  @override
+  String get chatExportFileLabel => 'ফাইল';
+
+  @override
+  String get chatExportBytesLabel => 'বাইট';
+
+  @override
+  String get chatExportReplyLabel => 'উত্তর';
+
+  @override
+  String get chatExportReactionsLabel => 'প্রতিক্রিয়া';
 }

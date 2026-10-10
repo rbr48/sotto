@@ -94,4 +94,54 @@ void main() {
   test('a ciphertext shorter than the tag opens to null', () {
     expect(open(Uint8List(3)), isNull);
   });
+
+  test('a key derived once seals and opens each message under its nonce', () {
+    final key = PassphraseBox.derive(
+      sodium: sodium,
+      passphrase: correctPassphrase,
+      salt: salt,
+      opsLimit: ops,
+      memLimit: mem,
+    );
+    addTearDown(key.dispose);
+    final otherNonce = Uint8List.fromList(nonce)..[0] ^= 1;
+
+    final first = key.seal(
+      nonce: nonce,
+      additionalData: additionalData,
+      plain: plain,
+    );
+    expect(first, seal(), reason: 'the same bytes as PassphraseBox.seal');
+    final second = key.seal(
+      nonce: otherNonce,
+      additionalData: additionalData,
+      plain: plain,
+    );
+    expect(second, isNot(first));
+
+    Uint8List? openWith(Uint8List useNonce, Uint8List cipher) => key.open(
+      nonce: useNonce,
+      additionalData: additionalData,
+      cipher: cipher,
+    );
+    expect(openWith(nonce, first), plain);
+    expect(openWith(otherNonce, second), plain);
+    expect(openWith(nonce, second), isNull, reason: 'wrong nonce');
+    expect(openWith(otherNonce, first), isNull, reason: 'wrong nonce');
+  });
+
+  test('a derived key with the wrong passphrase opens to null', () {
+    final key = PassphraseBox.derive(
+      sodium: sodium,
+      passphrase: 'correct passphrasE',
+      salt: salt,
+      opsLimit: ops,
+      memLimit: mem,
+    );
+    addTearDown(key.dispose);
+    expect(
+      key.open(nonce: nonce, additionalData: additionalData, cipher: seal()),
+      isNull,
+    );
+  });
 }

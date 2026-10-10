@@ -141,6 +141,24 @@ try {
   await bubble(arun, 'Message deleted').first().waitFor();
   console.log('✓ Arun deleted his message for everyone; Meera sees "Message deleted"');
 
+  // 6b. The browser build offers no Export chat: its encrypted export needs
+  // Argon2id, which the browser build does not have. The menu still opens and
+  // holds its other items, so the check is that the menu really was read.
+  await enableSemantics(arun);
+  await arun.getByRole('button', { name: 'Show menu', exact: true }).first().click({ timeout });
+  await arun
+    .getByRole('menuitem', { name: 'Starred messages', exact: true })
+    .or(arun.getByRole('button', { name: 'Starred messages', exact: true }))
+    .first()
+    .waitFor({ timeout, polling: 250 });
+  assert.equal(
+    await arun.getByRole('menuitem', { name: 'Export chat', exact: true }).count(),
+    0,
+    'the browser build offers no Export chat in the chat menu',
+  );
+  await arun.keyboard.press('Escape');
+  console.log('✓ the chat menu in the browser build has no Export chat');
+
   // 7. Nothing readable reached the relay; no third-party hosts.
   const sends = assertRelaySawOnlyCiphertext(assert, [
     'Hello',

@@ -692,4 +692,64 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get chatStarredEmpty =>
       'No starred messages. Star a message to find it here.';
+
+  @override
+  String get chatExportChat => 'Export chat';
+
+  @override
+  String get chatExportBody =>
+      'The export holds this chat\'s messages, their times and marks, and the names and sizes of files. It never holds file contents, keys or other chats.';
+
+  @override
+  String get chatExportEncrypted => 'Encrypted (recommended)';
+
+  @override
+  String get chatExportPlain => 'Plain text';
+
+  @override
+  String chatExportPassphrase(int count) {
+    return 'Passphrase (at least $count characters)';
+  }
+
+  @override
+  String get chatExportConfirmPassphrase => 'Confirm passphrase';
+
+  @override
+  String chatExportPassphraseShort(int count) {
+    return 'Use a passphrase of at least $count characters.';
+  }
+
+  @override
+  String get chatExportPassphraseMismatch => 'The passphrases do not match.';
+
+  @override
+  String get chatExportPlainWarning =>
+      'Anyone who has this file can read the whole chat. It is not encrypted, and your passphrase does not protect it.';
+
+  @override
+  String get chatExportPlainConfirm =>
+      'I understand that anyone with this file can read it.';
+
+  @override
+  String get chatExportSave => 'Save export';
+
+  @override
+  String chatExportSaved(String path) {
+    return 'Chat exported to $path';
+  }
+
+  @override
+  String get chatExportedLabel => 'Exported';
+
+  @override
+  String get chatExportFileLabel => 'File';
+
+  @override
+  String get chatExportBytesLabel => 'bytes';
+
+  @override
+  String get chatExportReplyLabel => 'Reply to';
+
+  @override
+  String get chatExportReactionsLabel => 'Reactions';
 }

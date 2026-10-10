@@ -1615,6 +1615,22 @@ void main() {
       await leave(tester);
     });
 
+    testWidgets('the app bar menu offers Export chat, and opens the dialog', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Export chat'));
+      await settleStore(tester);
+      expect(find.text('Save export'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.text('Save export'), findsNothing);
+      await leave(tester);
+    });
+
     testWidgets(
       'a chat opened at a starred message shows that message, when it is loaded',
       (tester) async {

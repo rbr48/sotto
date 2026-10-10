@@ -1269,6 +1269,108 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No starred messages. Star a message to find it here.'**
   String get chatStarredEmpty;
+
+  /// No description provided for @chatExportChat.
+  ///
+  /// In en, this message translates to:
+  /// **'Export chat'**
+  String get chatExportChat;
+
+  /// No description provided for @chatExportBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The export holds this chat\'s messages, their times and marks, and the names and sizes of files. It never holds file contents, keys or other chats.'**
+  String get chatExportBody;
+
+  /// No description provided for @chatExportEncrypted.
+  ///
+  /// In en, this message translates to:
+  /// **'Encrypted (recommended)'**
+  String get chatExportEncrypted;
+
+  /// No description provided for @chatExportPlain.
+  ///
+  /// In en, this message translates to:
+  /// **'Plain text'**
+  String get chatExportPlain;
+
+  /// No description provided for @chatExportPassphrase.
+  ///
+  /// In en, this message translates to:
+  /// **'Passphrase (at least {count} characters)'**
+  String chatExportPassphrase(int count);
+
+  /// No description provided for @chatExportConfirmPassphrase.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm passphrase'**
+  String get chatExportConfirmPassphrase;
+
+  /// No description provided for @chatExportPassphraseShort.
+  ///
+  /// In en, this message translates to:
+  /// **'Use a passphrase of at least {count} characters.'**
+  String chatExportPassphraseShort(int count);
+
+  /// No description provided for @chatExportPassphraseMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'The passphrases do not match.'**
+  String get chatExportPassphraseMismatch;
+
+  /// No description provided for @chatExportPlainWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'Anyone who has this file can read the whole chat. It is not encrypted, and your passphrase does not protect it.'**
+  String get chatExportPlainWarning;
+
+  /// No description provided for @chatExportPlainConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'I understand that anyone with this file can read it.'**
+  String get chatExportPlainConfirm;
+
+  /// No description provided for @chatExportSave.
+  ///
+  /// In en, this message translates to:
+  /// **'Save export'**
+  String get chatExportSave;
+
+  /// No description provided for @chatExportSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Chat exported to {path}'**
+  String chatExportSaved(String path);
+
+  /// No description provided for @chatExportedLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Exported'**
+  String get chatExportedLabel;
+
+  /// No description provided for @chatExportFileLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'File'**
+  String get chatExportFileLabel;
+
+  /// No description provided for @chatExportBytesLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'bytes'**
+  String get chatExportBytesLabel;
+
+  /// No description provided for @chatExportReplyLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Reply to'**
+  String get chatExportReplyLabel;
+
+  /// No description provided for @chatExportReactionsLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Reactions'**
+  String get chatExportReactionsLabel;
 }
 
 class _AppLocalizationsDelegate

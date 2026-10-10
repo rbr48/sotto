@@ -24,14 +24,18 @@ abstract final class PassphraseBox {
     required Uint8List additionalData,
     required Uint8List plain,
   }) {
-    final aead = sodium.crypto.aeadXChaCha20Poly1305IETF;
-    final key = _deriveKey(sodium, passphrase, salt, opsLimit, memLimit);
+    final key = derive(
+      sodium: sodium,
+      passphrase: passphrase,
+      salt: salt,
+      opsLimit: opsLimit,
+      memLimit: memLimit,
+    );
     try {
-      return aead.encrypt(
-        message: plain,
+      return key.seal(
         nonce: nonce,
-        key: key,
         additionalData: additionalData,
+        plain: plain,
       );
     } finally {
       key.dispose();
@@ -50,34 +54,87 @@ abstract final class PassphraseBox {
     required Uint8List additionalData,
     required Uint8List cipher,
   }) {
-    final aead = sodium.crypto.aeadXChaCha20Poly1305IETF;
-    final key = _deriveKey(sodium, passphrase, salt, opsLimit, memLimit);
+    final key = derive(
+      sodium: sodium,
+      passphrase: passphrase,
+      salt: salt,
+      opsLimit: opsLimit,
+      memLimit: memLimit,
+    );
     try {
-      return aead.decrypt(
-        cipherText: cipher,
+      return key.open(
         nonce: nonce,
-        key: key,
         additionalData: additionalData,
+        cipher: cipher,
       );
-    } catch (_) {
-      return null;
     } finally {
       key.dispose();
     }
   }
 
-  static SecureKey _deriveKey(
-    SodiumSumo sodium,
-    String passphrase,
-    Uint8List salt,
-    int opsLimit,
-    int memLimit,
-  ) => sodium.crypto.pwhash.callStr(
-    outLen: sodium.crypto.aeadXChaCha20Poly1305IETF.keyBytes,
-    password: passphrase,
-    salt: salt,
-    opsLimit: opsLimit,
-    memLimit: memLimit,
-    alg: CryptoPwhashAlgorithm.argon2id13,
+  /// Derives the key once, for a caller that seals or opens many messages
+  /// under one passphrase and salt. Argon2id is the slow step, so each
+  /// message then costs only the cipher. The caller must [PassphraseKey.dispose]
+  /// the key.
+  static PassphraseKey derive({
+    required SodiumSumo sodium,
+    required String passphrase,
+    required Uint8List salt,
+    required int opsLimit,
+    required int memLimit,
+  }) => PassphraseKey._(
+    sodium,
+    sodium.crypto.pwhash.callStr(
+      outLen: sodium.crypto.aeadXChaCha20Poly1305IETF.keyBytes,
+      password: passphrase,
+      salt: salt,
+      opsLimit: opsLimit,
+      memLimit: memLimit,
+      alg: CryptoPwhashAlgorithm.argon2id13,
+    ),
   );
+}
+
+/// The 32-byte key of a passphrase, from [PassphraseBox.derive]. Each message
+/// still needs its own nonce, and the same nonce must never be used twice with
+/// this key.
+final class PassphraseKey {
+  PassphraseKey._(this._sodium, this._key);
+
+  final SodiumSumo _sodium;
+  final SecureKey _key;
+
+  /// Encrypts [plain]: the ciphertext followed by its 16-byte tag.
+  Uint8List seal({
+    required Uint8List nonce,
+    required Uint8List additionalData,
+    required Uint8List plain,
+  }) => _sodium.crypto.aeadXChaCha20Poly1305IETF.encrypt(
+    message: plain,
+    nonce: nonce,
+    key: _key,
+    additionalData: additionalData,
+  );
+
+  /// Decrypts [cipher]. Returns `null` when it was not sealed with this key,
+  /// nonce and additional data.
+  Uint8List? open({
+    required Uint8List nonce,
+    required Uint8List additionalData,
+    required Uint8List cipher,
+  }) {
+    try {
+      return _sodium.crypto.aeadXChaCha20Poly1305IETF.decrypt(
+        cipherText: cipher,
+        nonce: nonce,
+        key: _key,
+        additionalData: additionalData,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Wipes the key. The key cannot be used afterwards.
+  void dispose() => _key.dispose();
 }
