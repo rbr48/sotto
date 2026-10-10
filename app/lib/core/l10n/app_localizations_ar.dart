@@ -444,4 +444,144 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get chatVoicePause => 'إيقاف الرسالة الصوتية مؤقتاً';
+
+  @override
+  String get chatPickMedia => 'الصور ومقاطع الفيديو';
+
+  @override
+  String get chatPickAudio => 'الصوت';
+
+  @override
+  String get chatPickDocuments => 'المستندات';
+
+  @override
+  String get chatAttachGallery => 'المعرض';
+
+  @override
+  String get chatAttachDocument => 'مستند';
+
+  @override
+  String get chatAttachAudio => 'صوت';
+
+  @override
+  String chatFileDownloadingWeb(String name) {
+    return 'جارٍ تنزيل $name…';
+  }
+
+  @override
+  String chatFileSavedToDownloads(String name) {
+    return 'حُفظ في التنزيلات: $name';
+  }
+
+  @override
+  String get chatFileTypeCannotOpen =>
+      'لا يمكن فتح هذا النوع من الملفات هنا. استخدم الحفظ بدلاً من ذلك.';
+
+  @override
+  String chatVideoCallTooltip(String name) {
+    return 'مكالمة فيديو مع $name';
+  }
+
+  @override
+  String chatVoiceCallTooltip(String name) {
+    return 'مكالمة صوتية مع $name';
+  }
+
+  @override
+  String get chatImage => 'صورة';
+
+  @override
+  String get chatImageOpenWith => 'فتح باستخدام تطبيق';
+
+  @override
+  String get chatImageSave => 'حفظ على الجهاز';
+
+  @override
+  String get chatImageLoadFailed => 'تعذّر تحميل الصورة';
+
+  @override
+  String get chatEmojiSmileys => 'الوجوه الضاحكة';
+
+  @override
+  String get chatEmojiPeople => 'الأشخاص';
+
+  @override
+  String get chatEmojiAnimals => 'الحيوانات والطبيعة';
+
+  @override
+  String get chatEmojiFood => 'الطعام والشراب';
+
+  @override
+  String get chatEmojiActivities => 'الأنشطة';
+
+  @override
+  String get chatEmojiTravel => 'السفر والأماكن';
+
+  @override
+  String get chatEmojiObjects => 'الأشياء';
+
+  @override
+  String get chatEmojiSymbols => 'الرموز';
+
+  @override
+  String get chatEmojiBackspace => 'حذف';
+
+  @override
+  String get chatVoiceDiscardTitle => 'تجاهل الرسالة الصوتية؟';
+
+  @override
+  String get chatVoiceDiscardBody =>
+      'أنت تسجّل رسالة صوتية. إذا غادرت، فستُحذف ولن تُرسل.';
+
+  @override
+  String get chatVoiceDiscard => 'تجاهل';
+
+  @override
+  String get chatsAddContactsFirst =>
+      'أضف جهات اتصال من علامة تبويب جهات الاتصال أولاً.';
+
+  @override
+  String get chatsNewConversation => 'محادثة جديدة';
+
+  @override
+  String get chatsNewChat => 'دردشة جديدة';
+
+  @override
+  String get chatsSearchHint => 'البحث في المحادثات…';
+
+  @override
+  String chatsFilterAll(int count) {
+    return 'الكل ($count)';
+  }
+
+  @override
+  String get chatsFilterUnread => 'غير مقروءة';
+
+  @override
+  String get chatsEmptyTitle => 'لا توجد محادثات بعد';
+
+  @override
+  String get chatsNoMatches => 'لا توجد محادثات مطابقة';
+
+  @override
+  String chatsUnknownContact(String id) {
+    return 'جهة الاتصال $id';
+  }
+
+  @override
+  String get chatsYouPrefix => 'أنت: ';
+
+  @override
+  String get chatKeyboardTooltip => 'لوحة المفاتيح';
+
+  @override
+  String get chatEmojiTooltip => 'الرموز التعبيرية';
+
+  @override
+  String get chatFileNoApp =>
+      'لا يوجد تطبيق على هذا الجهاز يمكنه فتح هذا الملف.';
+
+  @override
+  String get chatFileStoragePermission =>
+      'اسمح بالوصول إلى التخزين، ثم اضغط على حفظ مرة أخرى.';
 }

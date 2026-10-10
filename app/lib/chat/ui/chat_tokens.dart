@@ -21,6 +21,7 @@ class ChatTokens extends ThemeExtension<ChatTokens> {
     required this.sentSecondary,
     required this.sentFileTile,
     required this.notSentIcon,
+    required this.readTick,
     required this.receivedFill,
     required this.receivedText,
     required this.receivedSecondary,
@@ -64,6 +65,7 @@ class ChatTokens extends ThemeExtension<ChatTokens> {
     sentSecondary: Color(0xFF486150),
     sentFileTile: Color(0xFFC3EEBD),
     notSentIcon: Color(0xFFBA1A1A),
+    readTick: Color(0xFF027EB5),
     receivedFill: Color(0xFFFFFFFF),
     receivedText: Color(0xFF111B21),
     receivedSecondary: Color(0xFF54656F),
@@ -107,6 +109,7 @@ class ChatTokens extends ThemeExtension<ChatTokens> {
     sentSecondary: Color(0xFF8AD4C4),
     sentFileTile: Color(0xFF024B3D),
     notSentIcon: Color(0xFFFFB4AB),
+    readTick: Color(0xFF53BDEB),
     receivedFill: Color(0xFF202C33),
     receivedText: Color(0xFFE9EDEF),
     receivedSecondary: Color(0xFF8696A0),
@@ -173,6 +176,10 @@ class ChatTokens extends ThemeExtension<ChatTokens> {
 
   /// Icon of a message that was not sent.
   final Color notSentIcon;
+
+  /// The double tick of a message that was read. It differs from the single
+  /// delivered tick by shape too, so colour is never the only cue.
+  final Color readTick;
 
   /// Fill of a message you received.
   final Color receivedFill;
@@ -275,6 +282,7 @@ class ChatTokens extends ThemeExtension<ChatTokens> {
     Color? sentSecondary,
     Color? sentFileTile,
     Color? notSentIcon,
+    Color? readTick,
     Color? receivedFill,
     Color? receivedText,
     Color? receivedSecondary,
@@ -316,6 +324,7 @@ class ChatTokens extends ThemeExtension<ChatTokens> {
       sentSecondary: sentSecondary ?? this.sentSecondary,
       sentFileTile: sentFileTile ?? this.sentFileTile,
       notSentIcon: notSentIcon ?? this.notSentIcon,
+      readTick: readTick ?? this.readTick,
       receivedFill: receivedFill ?? this.receivedFill,
       receivedText: receivedText ?? this.receivedText,
       receivedSecondary: receivedSecondary ?? this.receivedSecondary,
@@ -362,6 +371,7 @@ class ChatTokens extends ThemeExtension<ChatTokens> {
       sentSecondary: Color.lerp(sentSecondary, other.sentSecondary, t)!,
       sentFileTile: Color.lerp(sentFileTile, other.sentFileTile, t)!,
       notSentIcon: Color.lerp(notSentIcon, other.notSentIcon, t)!,
+      readTick: Color.lerp(readTick, other.readTick, t)!,
       receivedFill: Color.lerp(receivedFill, other.receivedFill, t)!,
       receivedText: Color.lerp(receivedText, other.receivedText, t)!,
       receivedSecondary: Color.lerp(
