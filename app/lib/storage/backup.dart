@@ -81,13 +81,18 @@ abstract final class Backup {
     DateTime? now,
     int opsLimit = defaultOpsLimit,
     int memLimit = defaultMemLimit,
+    @visibleForTesting Uint8List? fixedSalt,
+    @visibleForTesting Uint8List? fixedNonce,
   }) {
     if (passphrase.trim().length < minPassphraseLength) {
       throw const BackupException(BackupProblem.weakPassphrase);
     }
-    final salt = sodium.randombytes.buf(sodium.crypto.pwhash.saltBytes);
     final aead = sodium.crypto.aeadXChaCha20Poly1305IETF;
-    final nonce = sodium.randombytes.buf(aead.nonceBytes);
+    // Tests pin the salt and nonce to check the exact bytes. Production
+    // passes neither, and the random draws happen in the same order as before.
+    final salt =
+        fixedSalt ?? sodium.randombytes.buf(sodium.crypto.pwhash.saltBytes);
+    final nonce = fixedNonce ?? sodium.randombytes.buf(aead.nonceBytes);
     final key = _deriveKey(sodium, passphrase, salt, opsLimit, memLimit);
     try {
       final plain = utf8.encode(

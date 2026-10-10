@@ -111,6 +111,41 @@ void main() {
     );
     expect(Backup.generatePassphrase(sodium), isNot(generated));
   });
+
+  // Known answer: a backup with a fixed salt, nonce, passphrase, cost and
+  // contents. The bytes come from a separate libsodium build that follows
+  // docs/PROTOCOL.md section 8, so these tests fail if the file format or
+  // the cipher parameters change.
+  final knownSalt = Uint8List.fromList(List.generate(16, (i) => 0x40 + i));
+  final knownNonce = Uint8List.fromList(List.generate(24, (i) => 0x80 + i));
+  const knownPassphrase = 'correct horse battery staple';
+  const knownBackup =
+      '{"sotto":"backup","v":1,"kdf":{"alg":"argon2id13","ops":3,'
+      '"mem":67108864,"salt":"QEFCQ0RFRkdISUpLTE1OTw"},'
+      '"nonce":"gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaX","data":"'
+      'OlWrs0yeu4Exd5L8qeuOABOX06NzerQMzg4Ixvw3ID79-lLFXeCyCtZRTMt-W5AwKOLpf9'
+      '-EXQzvIIJoxJ3azNY3cW2PqCQVphiutMPYEqP84V7mXBiaPx2hH7HMdM1UBpm-iGtMZttZ'
+      'KpvBxfm6u5gRqABK3Dh6GxnTwcgBJpnB1jeVeMjd44_ZA-fP1FLuQCplXsyA"}';
+
+  test('known answer: create writes exactly these bytes', () {
+    final text = Backup.create(
+      sodium,
+      passphrase: knownPassphrase,
+      masterSecret: Uint8List.fromList(List.generate(32, (i) => i)),
+      values: {'sotto.contacts.v1': '[Priya]'},
+      now: DateTime.utc(2026, 10, 7),
+      fixedSalt: knownSalt,
+      fixedNonce: knownNonce,
+    );
+    expect(text, knownBackup);
+  });
+
+  test('known answer: open reads the same bytes', () {
+    final opened = Backup.open(sodium, knownBackup, knownPassphrase);
+    expect(opened.masterSecret, List.generate(32, (i) => i));
+    expect(opened.values, {'sotto.contacts.v1': '[Priya]'});
+    expect(opened.createdAt, DateTime.utc(2026, 10, 7));
+  });
 }
 
 Matcher _problem(BackupProblem problem) =>
