@@ -1390,6 +1390,59 @@ void main() {
     );
 
     testWidgets(
+      'a tap elsewhere in the chat closes the reaction choices, and sets nothing',
+      (tester) async {
+        final news = text('Good news', outgoing: false);
+        final other = text('Another note', outgoing: false);
+        await tester.runAsync(() async {
+          await store.add(news);
+          await store.add(other);
+        });
+        await pumpPage(tester);
+
+        await openMenu(tester, 'Good news');
+        await tester.tap(find.text('React'));
+        await tester.pumpAndSettle();
+        expect(find.byIcon(Icons.add_reaction_outlined), findsOneWidget);
+
+        await tester.tap(find.text('Another note'));
+        await tester.pumpAndSettle();
+        expect(find.byIcon(Icons.add_reaction_outlined), findsNothing);
+        expect(find.text('👍'), findsNothing);
+        final stored = (await tester.runAsync(
+          () => store.find('bob', news.id),
+        ))!;
+        expect(stored.reactions, isEmpty);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'closing the full picker without an emoji closes the reaction choices',
+      (tester) async {
+        final news = text('Good news', outgoing: false);
+        await tester.runAsync(() => store.add(news));
+        await pumpPage(tester);
+
+        await openMenu(tester, 'Good news');
+        await tester.tap(find.text('React'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byIcon(Icons.add_reaction_outlined));
+        await tester.pumpAndSettle();
+        await tester.tapAt(const Offset(10, 10));
+        await tester.pumpAndSettle();
+
+        expect(find.byIcon(Icons.add_reaction_outlined), findsNothing);
+        expect(find.text('👍'), findsNothing);
+        final stored = (await tester.runAsync(
+          () => store.find('bob', news.id),
+        ))!;
+        expect(stored.reactions, isEmpty);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
       'the other person\'s reaction, edit and delete show in the open chat when the session reports them',
       (tester) async {
         final mine = text('Our plan', outgoing: true);

@@ -9,7 +9,9 @@ import 'emoji_picker_panel.dart';
 /// [reactions] is keyed `me` (yours) or `peer`. Tapping a reaction you set
 /// removes it, by sending the empty emoji. Tapping the other person's adds
 /// the same emoji as yours. While [choosing] (the React item was picked), the
-/// quick emoji are shown, and the more button opens the full picker.
+/// quick emoji are shown, and the more button opens the full picker. The
+/// choices close once one is picked, or once the full picker is closed
+/// without one ([onDismiss]); the page closes them on a tap elsewhere.
 class ReactionBar extends StatelessWidget {
   const ReactionBar({
     super.key,
@@ -17,6 +19,7 @@ class ReactionBar extends StatelessWidget {
     required this.peerName,
     required this.choosing,
     required this.onReact,
+    this.onDismiss,
   });
 
   final Map<String, String> reactions;
@@ -28,6 +31,9 @@ class ReactionBar extends StatelessWidget {
 
   /// Called with the emoji to set, or with '' to remove your own reaction.
   final ValueChanged<String> onReact;
+
+  /// Called when the full picker is closed without an emoji.
+  final VoidCallback? onDismiss;
 
   /// The emoji offered first. Anything else is in the full picker.
   static const quickEmoji = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
@@ -82,7 +88,11 @@ class ReactionBar extends StatelessWidget {
         ),
       ),
     );
-    if (emoji != null) onReact(emoji);
+    if (emoji != null) {
+      onReact(emoji);
+    } else {
+      onDismiss?.call();
+    }
   }
 }
 

@@ -1877,7 +1877,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                 child: GestureDetector(
                   behavior: HitTestBehavior.translucent,
                   onTap: () {
-                    if (_showEmoji) setState(() => _showEmoji = false);
+                    if (_showEmoji || _reactingId != null) {
+                      setState(() {
+                        _showEmoji = false;
+                        _reactingId = null;
+                      });
+                    }
                   },
                   child: _messages.isEmpty
                       ? _scrollableEmpty(
@@ -1959,6 +1964,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                                           _onAction(message, action),
                                       onReact: (emoji) =>
                                           _react(message, emoji),
+                                      onDismissReactions: () =>
+                                          setState(() => _reactingId = null),
                                       onJump: _jumpTo,
                                       onRetry: _retry,
                                       onQueue: _queue,
@@ -2288,6 +2295,7 @@ class _Bubble extends StatelessWidget {
     required this.reacting,
     required this.onAction,
     required this.onReact,
+    required this.onDismissReactions,
     required this.onJump,
     required this.onRetry,
     required this.onQueue,
@@ -2323,6 +2331,9 @@ class _Bubble extends StatelessWidget {
 
   /// Sets your reaction to the emoji given, or removes it with ''.
   final ValueChanged<String> onReact;
+
+  /// Closes the reaction choices without setting one.
+  final VoidCallback onDismissReactions;
 
   /// Scrolls to the message with this id: the one this message quotes.
   final ValueChanged<String> onJump;
@@ -2660,6 +2671,7 @@ class _Bubble extends StatelessWidget {
             peerName: contactName,
             choosing: reacting && !deleted,
             onReact: onReact,
+            onDismiss: onDismissReactions,
           ),
         ],
       ),

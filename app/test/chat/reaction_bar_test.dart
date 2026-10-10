@@ -10,6 +10,7 @@ void main() {
     WidgetTester tester, {
     Map<String, String> reactions = const {},
     bool choosing = false,
+    VoidCallback? onDismiss,
   }) async {
     final reacted = <String>[];
     await tester.pumpWidget(
@@ -24,6 +25,7 @@ void main() {
             peerName: 'Bob',
             choosing: choosing,
             onReact: reacted.add,
+            onDismiss: onDismiss,
           ),
         ),
       ),
@@ -108,4 +110,30 @@ void main() {
     await tester.pumpAndSettle();
     expect(reacted, isEmpty);
   });
+
+  testWidgets(
+    'dismissing the full picker tells the page to close the choices',
+    (tester) async {
+      var dismissed = 0;
+      final reacted = await pumpBar(
+        tester,
+        choosing: true,
+        onDismiss: () => dismissed++,
+      );
+      await tester.tap(find.byIcon(Icons.add_reaction_outlined));
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+      expect(dismissed, 1);
+      expect(reacted, isEmpty);
+
+      // Choosing an emoji in the picker sets it, and does not count as a dismissal.
+      await tester.tap(find.byIcon(Icons.add_reaction_outlined));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('😀'));
+      await tester.pumpAndSettle();
+      expect(reacted, ['😀']);
+      expect(dismissed, 1);
+    },
+  );
 }
