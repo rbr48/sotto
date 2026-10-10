@@ -603,7 +603,7 @@ class AppLocalizationsBn extends AppLocalizations {
 
   @override
   String get chatDeleteForEveryoneBody =>
-      'বার্তাটি এই ডিভাইস থেকে এবং অপর পক্ষের অ্যাপ থেকে মুছে ফেলা হবে। তাদের অ্যাপ একটি কপি রেখে দিতে পারে।';
+      'বার্তাটি এখান থেকে মুছে ফেলা হবে। অপর পক্ষের অ্যাপকেও এটি মুছে ফেলতে বলা হবে, তবে সেটি অনুরোধটি নাও পেতে পারে, এবং তাদের অ্যাপ একটি কপি রেখে দিতে পারে।';
 
   @override
   String get chatEdited => 'সম্পাদিত';

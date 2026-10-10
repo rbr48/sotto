@@ -1099,7 +1099,7 @@ abstract class AppLocalizations {
   /// No description provided for @chatDeleteForEveryoneBody.
   ///
   /// In en, this message translates to:
-  /// **'The message is removed from this device and from the other person\'s app. Their app may keep a copy.'**
+  /// **'The message is removed here. The other person\'s app is asked to remove it too, but it may not receive the request, and it may keep a copy.'**
   String get chatDeleteForEveryoneBody;
 
   /// No description provided for @chatEdited.

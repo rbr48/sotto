@@ -166,7 +166,7 @@
   "chatReact": "تفاعل",
   "chatDeleteForEveryone": "حذف للجميع",
   "chatDeleteForEveryoneTitle": "حذف للجميع؟",
-  "chatDeleteForEveryoneBody": "تتم إزالة الرسالة من هذا الجهاز ومن تطبيق الطرف الآخر. قد يحتفظ تطبيقه بنسخة.",
+  "chatDeleteForEveryoneBody": "تتم إزالة الرسالة هنا. يُطلب من تطبيق الطرف الآخر إزالتها أيضًا، لكنه قد لا يتلقى الطلب، وقد يحتفظ بنسخة.",
   "chatEdited": "تم التعديل",
   "chatForwarded": "تمت إعادة التوجيه",
   "chatMessageDeleted": "تم حذف الرسالة",

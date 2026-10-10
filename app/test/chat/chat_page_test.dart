@@ -1206,6 +1206,8 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('Delete for everyone?'), findsOneWidget);
         expect(find.textContaining('may keep a copy'), findsOneWidget);
+        // The other app is only asked; the dialog does not promise it removes the message.
+        expect(find.textContaining('is asked to remove it'), findsOneWidget);
         // Nothing is deleted until the dialog is confirmed.
         expect(find.text('Secret'), findsOneWidget);
 

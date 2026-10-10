@@ -358,7 +358,7 @@
   "chatReact": "React",
   "chatDeleteForEveryone": "Delete for everyone",
   "chatDeleteForEveryoneTitle": "Delete for everyone?",
-  "chatDeleteForEveryoneBody": "The message is removed from this device and from the other person's app. Their app may keep a copy.",
+  "chatDeleteForEveryoneBody": "The message is removed here. The other person's app is asked to remove it too, but it may not receive the request, and it may keep a copy.",
   "chatEdited": "Edited",
   "chatForwarded": "Forwarded",
   "chatMessageDeleted": "Message deleted",

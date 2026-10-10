@@ -613,7 +613,7 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get chatDeleteForEveryoneBody =>
-      'تتم إزالة الرسالة من هذا الجهاز ومن تطبيق الطرف الآخر. قد يحتفظ تطبيقه بنسخة.';
+      'تتم إزالة الرسالة هنا. يُطلب من تطبيق الطرف الآخر إزالتها أيضًا، لكنه قد لا يتلقى الطلب، وقد يحتفظ بنسخة.';
 
   @override
   String get chatEdited => 'تم التعديل';
