@@ -22,6 +22,11 @@ on:
 permissions:
   contents: write
 
+# One release run per tag at a time; a second push waits instead of racing.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   FLUTTER_VERSION: '3.47.6'
 
@@ -55,12 +60,78 @@ jobs:
             echo "::error::app/pubspec.yaml needs a build number (e.g. $NAME+2): it is Android's version code"
             exit 1 ;;
           esac
+          # F-Droid and Google Play show this file as "What's new".
+          CHANGELOG="fastlane/metadata/android/en-US/changelogs/${VERSION#*+}.txt"
+          if [ ! -f "$CHANGELOG" ]; then
+            echo "::error::$CHANGELOG is missing: write what changed for users (500 bytes at most)"
+            exit 1
+          fi
+          if [ "$(wc -c < "$CHANGELOG")" -gt 500 ]; then
+            echo "::error::$CHANGELOG is longer than 500 bytes (the store limit)"
+            exit 1
+          fi
           echo "Releasing $TAG (version $VERSION)"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
+  gate:
+    name: Released from main, after CI passed
+    needs: version
+    runs-on: ubuntu-latest
+    # A release goes out only for a commit on main whose CI run passed, and
+    # never replaces an existing release (moving a tag must not silently swap
+    # the files people already downloaded and verified).
+    permissions:
+      actions: read
+      contents: read
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      SHA: ${{ github.sha }}
+      TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - name: The commit is on main
+        run: |
+          STATUS=$(gh api "repos/$REPO/compare/$SHA...main" --jq .status)
+          case "$STATUS" in
+            identical | ahead) echo "$SHA is on main" ;;
+            *)
+              echo "::error::$SHA is not on main (compare status: $STATUS). Release only from main."
+              exit 1 ;;
+          esac
+      - name: No release exists for this tag yet
+        run: |
+          # Lists drafts too (a draft is not found by its tag).
+          FOUND=$(gh api --paginate "repos/$REPO/releases?per_page=100" --jq ".[] | select(.tag_name == \"$TAG\") | .html_url")
+          if [ -n "$FOUND" ]; then
+            echo "$FOUND"
+            echo "::error::A release for $TAG already exists. Raise the version for a new release instead of moving the tag (or delete that release on purpose first)."
+            exit 1
+          fi
+      - name: CI passed for this commit on main
+        # The tag and main are usually pushed together: wait for CI's run.
+        run: |
+          for _ in $(seq 1 80); do
+            RUNS=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&branch=main&event=push&per_page=20" \
+              --jq '.workflow_runs[] | "\(.status) \(.conclusion) \(.html_url)"')
+            if echo "$RUNS" | grep -q '^completed success '; then
+              echo "CI passed: $(echo "$RUNS" | grep '^completed success ' | head -n 1 | cut -d' ' -f3)"
+              exit 0
+            fi
+            if [ -n "$RUNS" ] && ! echo "$RUNS" | grep -qv '^completed '; then
+              echo "$RUNS"
+              echo "::error::CI did not pass for $SHA on main. Fix it (or re-run CI), then run the release again."
+              exit 1
+            fi
+            echo "Waiting for CI on main for $SHA..."
+            sleep 30
+          done
+          echo "::error::No finished CI run on main for $SHA after 40 minutes"
+          exit 1
+
   build-android:
     name: Android Release (Signed APK)
-    needs: version
+    needs: [version, gate]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -144,7 +215,7 @@ jobs:
 
   build-linux:
     name: Linux Release (AppImage, .deb, tar.gz)
-    needs: version
+    needs: [version, gate]
     # The oldest supported Ubuntu: the app then runs on Ubuntu 22.04+ and
     # Debian 12+ (a build on 24.04 needs glibc 2.38).
     runs-on: ubuntu-22.04
@@ -188,7 +259,7 @@ jobs:
 
   build-windows:
     name: Windows Release (installer, ZIP)
-    needs: version
+    needs: [version, gate]
     runs-on: windows-latest
     outputs:
       signed: ${{ steps.signing.outputs.enabled }}
@@ -284,7 +355,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    needs: [version, build-android, build-linux, build-windows]
+    needs: [version, gate, build-android, build-linux, build-windows]
     runs-on: ubuntu-latest
     steps:
       - name: Download all build artifacts
@@ -314,7 +385,7 @@ jobs:
             fi
             echo
           } > notes.md
-      - name: Create or update GitHub Release
+      - name: Create the GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.version.outputs.tag }}

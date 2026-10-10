@@ -26,8 +26,8 @@
 <body>
 <main>
 <h1>Privacy policy</h1>
-<p class="muted">This Sotto server is run by the operator of sottocall.com.
-Contact: <a href="mailto:contact@sottocall.com">contact@sottocall.com</a> · Support: <a href="mailto:support@sottocall.com">support@sottocall.com</a> · Live Support: <a href="https://call.sottocall.com/#c=n3qJ6HlYC0WI3DU_ixZTW6VaXCTX04zQTw5FjPj20CQ">Sotto Live Call Center</a>.</p>
+<p class="muted">This Sotto server is run by {{with env "SOTTO_OPERATOR"}}{{html .}}{{else}}the operator of {{env "SOTTO_DOMAIN" | html}}{{end}}.
+Contact: {{with env "SOTTO_CONTACT"}}{{if hasPrefix "https://" .}}<a href="{{html .}}">{{html .}}</a>{{else if contains "@" .}}<a href="mailto:{{html .}}">{{html .}}</a>{{else}}{{html .}}{{end}}{{else}}the person or organisation that gave you this server's address{{end}}.{{with env "SOTTO_SUPPORT_EMAIL"}} Support: <a href="mailto:{{html .}}">{{html .}}</a>.{{end}}{{with env "SOTTO_SUPPORT_LINK"}}{{if hasPrefix "https://" .}} Live support: <a href="{{html .}}">call us in Sotto</a>.{{end}}{{end}}</p>
 
 <p>Sotto is a calling app built to know as little as possible about you. There are no
 accounts, no phone numbers or e-mail addresses, no advertising, no analytics and no
@@ -86,6 +86,9 @@ with a key the browser cannot export.</li>
 <ul>
 <li>The person you call sees the name in your profile (or the name you type as a guest),
 and your Sotto ID. A name that isn't verified is marked "not in your contacts".</li>
+<li>Anyone who opens your short call or contact link while your app is online gets your
+name, practice and profile photo (if you set one), encrypted so only they can read
+it.</li>
 <li>When a call or chat connects directly, the two devices learn each other's IP address.
 With "Hide my IP address" on, calls and chats always go through the relay, so the other
 person never sees yours.</li>

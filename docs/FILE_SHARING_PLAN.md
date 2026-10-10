@@ -1,7 +1,7 @@
 # Plan: file sharing
 
-Status: **proposal, awaiting approval.** Nothing here is built yet. It builds on
-the peer-to-peer messaging plan (`MESSAGING_PLAN.md`), which must be built first.
+Status: **built.** This was the plan; notes marked **Built:** say where the app
+differs. It builds on the peer-to-peer messaging plan (`MESSAGING_PLAN.md`).
 
 ## Summary
 
@@ -14,9 +14,15 @@ and nothing opens automatically.
 Both people must be online, as for messages. A file that can't be sent shows
 "Not sent" with Retry.
 
+**Built:** a file sent while the contact is offline is queued on the sender's
+device. It is offered when the contact is back (while the sender's app runs),
+and goes through the same checks as a file sent live: the photo metadata is
+removed, and the receiver accepts or declines it as usual.
+
 ## Why not through the relay, and why not the vault
 
-- **Relay:** envelopes are capped at about 72 KB and held only in memory. Files
+- **Relay:** envelopes are capped at about 72 KB (frames at 96 KiB) and held
+  only in memory. Files
   would have to be stored on the server, which breaks the no-storage promise.
 - **Vault:** the vault is one encrypted file, rewritten in full on every change
   (`PROTOCOL.md` §9). Storing megabytes of content there would slow every save
@@ -91,9 +97,10 @@ Rules:
   reliable, so this is the protection that matters.
 - Writes use a temporary file and a rename, the same as the vault.
 - **Browser:** the browser vault lives in memory and disappears with the tab
-  (`PROTOCOL.md` §9). A received file is offered as a download straight away
-  and is not stored. Storing files in the browser would need the Remember-me
-  storage, which has its own size limits. That is left for a later version.
+  (`PROTOCOL.md` §9). **Built:** a received file is held in memory for the
+  life of the tab, never in browser storage, and can be saved as a download.
+  Storing files in the browser would need the Remember-me storage, which has
+  its own size limits. That is left for a later version.
 
 ## Safety
 
@@ -157,7 +164,7 @@ name only, never the file name.
 
 | | Native | Browser |
 |---|---|---|
-| Largest file (proposed) | 100 MB | 25 MB, received as a download only |
+| Largest file (proposed) | 100 MB | 25 MB, held in memory for the tab |
 | Files at once | One per chat | One per chat |
 | Storage check | Before accepting, free space must cover the file | Not applicable |
 
@@ -218,7 +225,10 @@ and a relayed one by the TURN server. The steps below include a measurement.
 1. **Size limit:** 100 MB on desktop and Android, and 25 MB in the browser
    (recommended). The alternative is 25 MB everywhere, which is simpler.
 2. **Accepting files:** ask for every file (recommended). The alternative is
-   automatic for photos from contacts.
+   automatic for photos from contacts. **Built:** files are asked for by
+   default. *Download files automatically* in Settings (off by default)
+   downloads files from contacts without asking. Voice notes from contacts are
+   always downloaded at once, within their caps (`PROTOCOL.md` §9).
 3. **Photo location:** removed by default (recommended). HEIC photos get a
    warning until they can be re-encoded.
 4. **Executables and scripts:** blocked (recommended).

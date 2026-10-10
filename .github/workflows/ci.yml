@@ -6,7 +6,7 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   FLUTTER_VERSION: '3.47.6'
@@ -110,6 +110,12 @@ jobs:
       - name: Build web (pointed at the local relay)
         working-directory: app
         run: flutter build web --no-web-resources-cdn --dart-define=SOTTO_RELAY_URL=ws://localhost:8080/relay --dart-define=SOTTO_TEST_HOOKS=true
+      - name: The web server's emoji font files match this Flutter version
+        run: |
+          data="$(dirname "$(dirname "$(command -v flutter)")")/bin/cache/flutter_web_sdk/lib/ui/src/engine/font_fallback_data.dart"
+          grep -o "notocoloremoji/[^']*" "$data" | sort >/tmp/engine-emoji
+          awk '{print $2}' infra/fonts/fallback.sha256 | sort >/tmp/served-emoji
+          diff /tmp/engine-emoji /tmp/served-emoji || { echo "update infra/fonts/fallback.sha256"; exit 1; }
       - uses: actions/setup-node@v6
         with:
           node-version: 26
