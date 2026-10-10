@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:sodium/sodium_sumo.dart';
 
 import '../crypto/encoding.dart';
+import '../crypto/passphrase_box.dart';
 
 /// Why a backup could not be created or opened.
 enum BackupProblem {
@@ -44,7 +45,8 @@ class BackupContents {
 }
 
 /// Encrypted backups: Argon2id derives a key from the user's passphrase, and
-/// XChaCha20-Poly1305 encrypts the contents.
+/// XChaCha20-Poly1305 encrypts the contents. The cipher work is in
+/// `crypto/passphrase_box.dart`; this file defines the format.
 ///
 /// A backup is one line of JSON:
 ///
@@ -93,36 +95,37 @@ abstract final class Backup {
     final salt =
         fixedSalt ?? sodium.randombytes.buf(sodium.crypto.pwhash.saltBytes);
     final nonce = fixedNonce ?? sodium.randombytes.buf(aead.nonceBytes);
-    final key = _deriveKey(sodium, passphrase, salt, opsLimit, memLimit);
-    try {
-      final plain = utf8.encode(
+    final plain = Uint8List.fromList(
+      utf8.encode(
         jsonEncode({
           'master': b64Encode(masterSecret),
           'values': values,
           'created': (now ?? DateTime.now()).toUtc().toIso8601String(),
         }),
-      );
-      final data = aead.encrypt(
-        message: plain,
-        nonce: nonce,
-        key: key,
-        additionalData: _additionalData(opsLimit, memLimit, salt, nonce),
-      );
-      return jsonEncode({
-        'sotto': 'backup',
-        'v': 1,
-        'kdf': {
-          'alg': _alg,
-          'ops': opsLimit,
-          'mem': memLimit,
-          'salt': b64Encode(salt),
-        },
-        'nonce': b64Encode(nonce),
-        'data': b64Encode(data),
-      });
-    } finally {
-      key.dispose();
-    }
+      ),
+    );
+    final data = PassphraseBox.seal(
+      sodium: sodium,
+      passphrase: passphrase.trim(),
+      salt: salt,
+      nonce: nonce,
+      opsLimit: opsLimit,
+      memLimit: memLimit,
+      additionalData: _additionalData(opsLimit, memLimit, salt, nonce),
+      plain: plain,
+    );
+    return jsonEncode({
+      'sotto': 'backup',
+      'v': 1,
+      'kdf': {
+        'alg': _alg,
+        'ops': opsLimit,
+        'mem': memLimit,
+        'salt': b64Encode(salt),
+      },
+      'nonce': b64Encode(nonce),
+      'data': b64Encode(data),
+    });
   }
 
   /// Opens a backup. Throws [BackupException].
@@ -165,19 +168,18 @@ abstract final class Backup {
       throw const BackupException(BackupProblem.notABackup);
     }
 
-    final key = _deriveKey(sodium, passphrase, salt, ops, mem);
-    final Uint8List plain;
-    try {
-      plain = aead.decrypt(
-        cipherText: data,
-        nonce: nonce,
-        key: key,
-        additionalData: _additionalData(ops, mem, salt, nonce),
-      );
-    } catch (_) {
+    final plain = PassphraseBox.open(
+      sodium: sodium,
+      passphrase: passphrase.trim(),
+      salt: salt,
+      nonce: nonce,
+      opsLimit: ops,
+      memLimit: mem,
+      additionalData: _additionalData(ops, mem, salt, nonce),
+      cipher: data,
+    );
+    if (plain == null) {
       throw const BackupException(BackupProblem.wrongPassphrase);
-    } finally {
-      key.dispose();
     }
     try {
       final json = jsonDecode(utf8.decode(plain)) as Map<String, dynamic>;
@@ -211,21 +213,6 @@ abstract final class Backup {
     }
     return groups.join('-');
   }
-
-  static SecureKey _deriveKey(
-    SodiumSumo sodium,
-    String passphrase,
-    Uint8List salt,
-    int ops,
-    int mem,
-  ) => sodium.crypto.pwhash.callStr(
-    outLen: sodium.crypto.aeadXChaCha20Poly1305IETF.keyBytes,
-    password: passphrase.trim(),
-    salt: salt,
-    opsLimit: ops,
-    memLimit: mem,
-    alg: CryptoPwhashAlgorithm.argon2id13,
-  );
 
   static Uint8List _additionalData(
     int ops,
