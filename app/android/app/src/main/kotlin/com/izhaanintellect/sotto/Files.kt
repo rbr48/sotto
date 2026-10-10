@@ -11,6 +11,8 @@ import android.content.pm.PackageManager
 import android.media.MediaScannerConnection
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.webkit.MimeTypeMap
 import androidx.core.app.ActivityCompat
@@ -47,7 +49,7 @@ object Files {
     /** The random folder ReceivedFileStore.writeOpenCopy makes per copy. */
     private val OPEN_COPY_FOLDER = Regex("^[0-9a-f]{16}$")
 
-    /** Open copies older than this are deleted the next time a file is opened. */
+    /** An open copy and its read grants are removed this long after the copy is made. */
     private const val OPEN_COPY_MAX_AGE_MS = 60L * 60L * 1000L
 
     private const val FALLBACK_MIME = "application/octet-stream"
@@ -157,17 +159,18 @@ object Files {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
 
-        // Grant explicit read URI permission to all applications capable of opening this file.
+        // Grant explicit read URI permission to the applications that can open this file.
         // Required on Android (especially Xiaomi MIUI/HyperOS, Samsung, etc.) where external
         // document viewers and PDF engines render files using a separate background process or service.
+        // MATCH_DEFAULT_ONLY keeps the list to the apps startActivity can actually deliver the intent to.
         val matches = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             app.packageManager.queryIntentActivities(
                 intent,
-                PackageManager.ResolveInfoFlags.of(0L)
+                PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong())
             )
         } else {
             @Suppress("DEPRECATION")
-            app.packageManager.queryIntentActivities(intent, 0)
+            app.packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
         }
         for (info in matches) {
             app.grantUriPermission(
@@ -176,6 +179,12 @@ object Files {
                 Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
         }
+        // This copy and its grants end an hour after the open, even if the app
+        // keeps running: nothing else would remove them until the next start.
+        Handler(Looper.getMainLooper()).postDelayed(
+            { removeStaleOpenCopies(app) },
+            OPEN_COPY_MAX_AGE_MS
+        )
 
         try {
             start(intent)
@@ -185,8 +194,20 @@ object Files {
         return true
     }
 
-    /** Removes open copies left from earlier opens (older than an hour). */
-    private fun deleteOldOpenCopies(app: Context, openRoot: File, keep: File) {
+    /**
+     * Removes copies an hour old, with their read grants. Runs when the app
+     * starts and an hour after each open (see [open]), so a copy does not
+     * outlive its hour while the app keeps running. Never throws.
+     */
+    fun removeStaleOpenCopies(app: Context) {
+        try {
+            deleteOldOpenCopies(app, File(app.cacheDir, OPEN_FOLDER), keep = null)
+        } catch (_: Exception) {
+        }
+    }
+
+    /** Removes open copies left from earlier opens (older than an hour), with their grants. */
+    private fun deleteOldOpenCopies(app: Context, openRoot: File, keep: File?) {
         val cutoff = System.currentTimeMillis() - OPEN_COPY_MAX_AGE_MS
         openRoot.listFiles()?.forEach { dir ->
             if (dir.isDirectory && dir != keep && OPEN_COPY_FOLDER.matches(dir.name) &&

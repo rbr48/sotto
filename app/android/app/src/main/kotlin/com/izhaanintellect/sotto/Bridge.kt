@@ -33,6 +33,7 @@ object Bridge {
 
     fun attach(context: Context, engine: FlutterEngine) {
         app = context
+        Files.removeStaleOpenCopies(context)
         channel = MethodChannel(engine.dartExecutor.binaryMessenger, CHANNEL).also {
             it.setMethodCallHandler { call, result ->
                 try {

@@ -142,3 +142,117 @@ Approved with the recommended option for each:
 2. **Notifications:** the sender's name only. No text preview on the lock screen.
 3. **History:** kept until you delete it. No automatic deletion in v1.
 4. **Offline:** "Not sent" with Retry for v1. A sender-side outbox comes later.
+
+## Second plan: the first group of messaging features
+
+Status: **proposed, no code yet.** Nothing here is built until the decisions
+below are approved.
+
+Adds to the one-to-one chat: replies, forwarding of text, reactions, editing,
+delete for everyone, archive, mute and pin, starred messages, chat export, and
+small groups of up to four people.
+
+Not in this plan, each needing its own decision: delivery beyond the outbox and
+the 60-second relay window (D1), history sync between one person's devices,
+status posts, channels and communities, groups larger than four, payments and
+business features, GIF and sticker search, link previews fetched by the
+receiving app, and finding people by phone number. Each of these either needs
+the server to store data or goes against a rule in `ROADMAP.md` §2.
+
+### Decisions to approve
+
+| # | Question | Recommended |
+|---|---|---|
+| D1 | Offline delivery | Keep the sender-side outbox, which is already built: a message the contact did not get waits on the sender's device and goes out when the chat reopens. The server keeps storing nothing. The gap that remains is when the sender closes the app before the contact returns. The alternative is an encrypted relay queue for a fixed time. That breaks "zero server storage" (`ROADMAP.md` §2, rule 1), so the privacy text would change, and it needs your approval. |
+| D2 | Group size | Four people in total, including you, as in the group calls plan (`GROUP_CALLS_PLAN.md`). Each device keeps a direct chat with each other member. |
+| D3 | Who can be in a group | Only people who are contacts of every member. Chats only open between contacts (recorded decision 1 above), so this is needed anyway. |
+| D4 | Delete for everyone | Allowed for one hour after sending. Best effort: another device may keep its copy, and the app says so. |
+| D5 | Editing | Allowed for 15 minutes after sending. The new text replaces the old one and is marked "Edited". No edit history is kept. |
+| D6 | Forwarding | Text only at first. A forwarded message keeps no link to the original, so nothing about the original is sent. Files can be forwarded later. |
+| D7 | Reactions | One emoji per person per message. Sending an empty emoji removes your reaction. |
+| D8 | Export | Encrypted with a passphrase by default, the same way as backups (`PROTOCOL.md` §8). Plain text only after a warning that anyone who has the file can read it. |
+| D9 | Older app versions | Keep working. `hello` lists the features each side supports, and a new frame is sent only when both sides list it. Text and files keep working between old and new versions. |
+
+### Protocol changes (`PROTOCOL.md` §5.10)
+
+All new frames are UTF-8 JSON under the 16 KiB limit. Each device checks the
+sender of every frame against the owner of the message it changes.
+
+- `msg` gets an optional `reply`: `{"id", "text"}`. `text` is a copy of up to
+  200 characters of the quoted message, so the quote still shows when the
+  original is gone. No lookup is needed.
+- `react`: `{"id", "emoji"}`, where `id` is the message reacted to. Each person
+  has at most one reaction on a message.
+- `edit`: `{"id", "ts", "text"}`. Accepted only for the sender's own message,
+  within 15 minutes of its `ts`.
+- `delete`: `{"id"}`. Accepted only for the sender's own message, within one
+  hour of its `ts`.
+- Forwarding uses an ordinary `msg`, so nothing new is needed.
+- Groups use envelope types through the relay, as `chat.text` does:
+  `group.invite` `{"group", "name", "members"}`, answered by `group.accept` or
+  `group.decline`, and `group.leave`. Text that cannot go over a direct chat is
+  sent as `group.text`, with the same 60-second rule as `chat.text`.
+- A group message is a `group.msg` frame on each member's direct chat, with the
+  fields of `msg` plus `group`. Each copy travels only over that member's own
+  connection, as in a one-to-one chat.
+
+### Storage
+
+Added to the encrypted vault as optional fields, so older records still load:
+
+- Message: `replyTo`, reactions (one emoji per person), `editedAt`,
+  `deletedForAll`, `forwarded`, `starred`.
+- Chat: `archived`, `muted`, `pinnedAt`. These never leave the device.
+- Group: id, name, members, creation time, and whether you left.
+
+### Screens
+
+- Message menu: Reply, Forward, Copy, Star, Edit and Delete for everyone (only
+  on your own message, inside its window), Delete for me, and Info (delivered
+  and read times).
+- A reaction bar under a message.
+- Chat list: archived chats in their own section, pinned chats on top, and a
+  mute icon.
+- New group from the chats screen, with two or three contacts. The group header
+  shows member names, and group info lists members and has "Leave group".
+- Export from the chat menu, with the choice in D8.
+- All new text in English, Bengali and Arabic. Golden images are regenerated.
+
+Not in this plan: admins, removing other people from a group, and group names
+changed by anyone except the creator. These can wait until there is a reason.
+
+### Threat model and docs
+
+- `THREAT_MODEL.md`: delete for everyone and editing cannot be enforced on
+  another device. Members of a group see each other's names. An exported file
+  can be read by whoever has it, and an encrypted export only with its
+  passphrase.
+- `FEATURES.md` and the privacy page: check the wording, because reactions and
+  groups are new things users can do.
+- `PROTOCOL.md` §5.10: the new frames and envelope types above.
+- No relay change is expected, because the relay routes envelopes of any type
+  without reading them (`PROTOCOL.md` §5.2).
+
+### Tests
+
+- Unit: the new frames (valid, too long, malformed emoji, wrong owner, outside
+  the edit or delete window); reactions (one per person, an empty emoji removes
+  it); storage migration of old records; the outbox for each group member; and
+  archive, mute and pin kept across restarts. Export in both formats.
+- Widget: the message menu for your own message and for the contact's message,
+  inside and outside each window; the four-person limit when creating a group;
+  and the plain-text export warning.
+- End-to-end, two browsers (like `e2e/chat.mjs`): reply, reaction, edit, delete
+  for everyone, and forwarding. Three browsers: a group message reaches both
+  others, and a member who was offline gets it from the outbox when they return.
+
+### Steps
+
+1. Approve decisions D1–D9.
+2. Protocol and storage for replies, forwarding, reactions, edit and delete,
+   with unit tests and no new screens.
+3. Screens for those, and the local-only features: archive, mute, pin, star and
+   export.
+4. Groups: invite, accept, decline, leave, group messages, the outbox for each
+   member, and the screens. This is the largest step.
+5. End-to-end tests, the docs above, then a release.

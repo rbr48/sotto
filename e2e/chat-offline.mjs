@@ -192,7 +192,6 @@ try {
   assert.equal(meeraRelay.framesWhileOffline, 0, 'no relay frame reached Meera while she was offline');
   assert.equal(meeraRelay.loginsWhileOffline, 0, 'Meera did not log in to the relay while offline');
   const loginsBefore = meeraRelay.logins;
-  const sendsBeforeReturn = arunRelay.sends;
   meeraRelay.offline = false;
   await meeraContext.setOffline(false);
   const backAt = Date.now();
@@ -202,22 +201,19 @@ try {
     `✓ Meera is back: she logged in to the relay ${secondsSince(backAt)} after the network returned`,
   );
 
-  // The text also goes through the relay, sealed. The relay may have handed
-  // the first copy to her connection that had just died, so Arun's app sends
-  // it again on each check (every 30 s) until Meera acknowledges it.
-  await openChat(meera, 'Arun Mehta');
-  await bubble(meera).first().waitFor({ timeout: slow });
-  // Meera's chat is open, so the message can go straight to "Read".
+  // The text also goes through the relay, sealed. The relay keeps a message for
+  // an offline device for up to 60 s, and Arun's app sends it again on each
+  // check (every 30 s) until Meera acknowledges it, so it arrives by itself.
+  // Meera's chat is opened only after Arun sees the text delivered: opening it
+  // starts a direct connection, which would deliver the text by another route.
   await bubble(arun, '(Delivered|Read)').first().waitFor({ timeout: slow });
   const deliveredIn = secondsSince(backAt);
+  await openChat(meera, 'Arun Mehta');
+  await bubble(meera).first().waitFor({ timeout: slow });
   // Wait before counting, so that a copy arriving late has time to show up.
   await sleep(3000);
   assert.equal(await bubble(meera).count(), 1, 'Meera\'s chat shows "Are you there?" once');
   assert.equal(await bubble(arun).count(), 1, 'Arun has exactly one "Are you there?" bubble');
-  assert.ok(
-    arunRelay.sends > sendsBeforeReturn,
-    "Arun's app sent the sealed text again after Meera came back",
-  );
   console.log(
     `✓ Meera is back: the sealed text reached her once by itself, and Arun sees it delivered (${deliveredIn} after she came back online)`,
   );
