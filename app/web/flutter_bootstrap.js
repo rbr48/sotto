@@ -16,5 +16,6 @@ if ('serviceWorker' in navigator) {
 _flutter.loader.load({
   config: {
     fontFallbackBaseUrl: 'fonts/fallback/',
+    useColorEmoji: true,
   },
 });

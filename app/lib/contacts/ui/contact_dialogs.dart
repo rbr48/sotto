@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
@@ -307,7 +308,11 @@ class _ContactDetailsDialogState extends State<ContactDetailsDialog> {
       return AlertDialog(
         title: Row(
           children: [
-            InitialsAvatar(name: contact.name, avatar: contact.avatar, radius: 22),
+            InitialsAvatar(
+              name: contact.name,
+              avatar: contact.avatar,
+              radius: 22,
+            ),
             const SizedBox(width: 12),
             Expanded(child: Text(contact.label)),
           ],

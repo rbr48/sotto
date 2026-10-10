@@ -136,7 +136,9 @@ class ProfileExchange {
     final waiter = _waiting[message.sender.id];
     final name = message.body['n'];
     final organisation = message.body['o'];
-    final avatar = message.body['av'] is String ? message.body['av'] as String : null;
+    final avatar = message.body['av'] is String
+        ? message.body['av'] as String
+        : null;
     if (waiter == null ||
         waiter.isCompleted ||
         name is! String ||

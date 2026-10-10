@@ -136,10 +136,7 @@ class _ChatsTabState extends State<ChatsTab> {
                     itemBuilder: (_, index) {
                       final c = contacts[index];
                       return ListTile(
-                        leading: InitialsAvatar(
-                          name: c.name,
-                          avatar: c.avatar,
-                        ),
+                        leading: InitialsAvatar(name: c.name, avatar: c.avatar),
                         title: Text(
                           c.name,
                           style: const TextStyle(fontWeight: FontWeight.w600),
@@ -369,11 +366,7 @@ class _ChatsTabState extends State<ChatsTab> {
       leading: Stack(
         clipBehavior: Clip.none,
         children: [
-          InitialsAvatar(
-            name: name,
-            avatar: contact?.avatar,
-            radius: 24,
-          ),
+          InitialsAvatar(name: name, avatar: contact?.avatar, radius: 24),
           if (contact?.verified ?? false)
             const Positioned(
               right: -2,

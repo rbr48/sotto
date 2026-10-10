@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -951,7 +952,9 @@ class _ProfileFormState extends State<_ProfileForm> {
   @override
   Widget build(BuildContext context) {
     final avatar = widget.app.profile?.avatar;
-    final name = _name.text.isNotEmpty ? _name.text : (widget.app.profile?.name ?? 'You');
+    final name = _name.text.isNotEmpty
+        ? _name.text
+        : (widget.app.profile?.name ?? 'You');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -959,11 +962,7 @@ class _ProfileFormState extends State<_ProfileForm> {
         Center(
           child: Stack(
             children: [
-              InitialsAvatar(
-                name: name,
-                avatar: avatar,
-                radius: 44,
-              ),
+              InitialsAvatar(name: name, avatar: avatar, radius: 44),
               Positioned(
                 right: -4,
                 bottom: -4,

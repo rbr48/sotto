@@ -17,5 +17,9 @@ COPY app/ ./
 RUN flutter build web --release --no-web-resources-cdn
 
 FROM caddy:2-alpine
+RUN apk add --no-cache curl \
+ && mkdir -p /srv/fonts/fallback \
+ && curl -fsSL -o /srv/fonts/fallback/NotoColorEmoji.ttf https://raw.githubusercontent.com/google/fonts/main/ofl/notocoloremoji/NotoColorEmoji-Regular.ttf \
+ && apk del curl
 COPY infra/caddy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /src/build/web /srv

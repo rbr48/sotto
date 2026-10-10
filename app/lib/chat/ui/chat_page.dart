@@ -3931,7 +3931,14 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel>
                           child: Center(
                             child: Text(
                               emoji,
-                              style: const TextStyle(fontSize: 26),
+                              style: const TextStyle(
+                                fontSize: 26,
+                                fontFamilyFallback: [
+                                  'Apple Color Emoji',
+                                  'Segoe UI Emoji',
+                                  'Noto Color Emoji',
+                                ],
+                              ),
                             ),
                           ),
                         ),
