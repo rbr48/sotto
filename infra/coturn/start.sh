@@ -27,7 +27,6 @@ set -- \
   --fingerprint \
   --no-cli \
   --no-multicast-peers \
-  --no-tcp-relay \
   --stale-nonce=600 \
   --min-port="${SOTTO_TURN_MIN_PORT:-49152}" \
   --max-port="${SOTTO_TURN_MAX_PORT:-65535}" \

@@ -593,6 +593,12 @@ class ChatSession {
           ..clear()
           ..addAll(_outbox.keys);
         _sendOutbox();
+        // Any queued files waiting for this contact are offered now.
+        for (final m in await store.messages(contactId)) {
+          if (m.outgoing && m.isAttachment && m.state == ChatState.queued) {
+            await offerStoredFile(m);
+          }
+        }
         if (_pendingReads.isNotEmpty) {
           _writeReads(_pendingReads);
           _pendingReads.clear();
@@ -683,9 +689,9 @@ class ChatSession {
             _write(FileDeclineFrame(id: id));
           } else {
             _events.add(FileOfferReceived(message));
-            // A voice note from a contact, within its cap, is downloaded at
-            // once, so it plays on a tap without an Accept first.
-            if (voice && !_ended) await acceptFile(id);
+            // All valid files and media from a contact are downloaded directly
+            // upon receipt without requiring manual acceptance.
+            if (!_ended) await acceptFile(id);
           }
         }
       case FileAcceptFrame(:final id):
