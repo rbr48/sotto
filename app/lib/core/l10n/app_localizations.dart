@@ -154,6 +154,54 @@ abstract class AppLocalizations {
   /// **'Changes the language of the app. Your contacts and calls are not affected.'**
   String get languageHelp;
 
+  /// No description provided for @avatarChangePhoto.
+  ///
+  /// In en, this message translates to:
+  /// **'Change photo'**
+  String get avatarChangePhoto;
+
+  /// No description provided for @avatarRemovePhoto.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove photo'**
+  String get avatarRemovePhoto;
+
+  /// No description provided for @avatarVisibilityNote.
+  ///
+  /// In en, this message translates to:
+  /// **'People who have your contact link can see your photo.'**
+  String get avatarVisibilityNote;
+
+  /// No description provided for @avatarInputTooLarge.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose an image under 10 MB.'**
+  String get avatarInputTooLarge;
+
+  /// No description provided for @avatarUnreadable.
+  ///
+  /// In en, this message translates to:
+  /// **'That file could not be read as a picture. Try a JPEG or PNG.'**
+  String get avatarUnreadable;
+
+  /// No description provided for @avatarTooLarge.
+  ///
+  /// In en, this message translates to:
+  /// **'That picture could not be made small enough to share. Try another one.'**
+  String get avatarTooLarge;
+
+  /// No description provided for @avatarFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not set the photo.'**
+  String get avatarFailed;
+
+  /// No description provided for @profileSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved. Guest links show your new name; your contact link shows your new name and photo.'**
+  String get profileSaved;
+
   /// No description provided for @navHome.
   ///
   /// In en, this message translates to:

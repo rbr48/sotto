@@ -42,6 +42,34 @@ class AppLocalizationsEn extends AppLocalizations {
       'Changes the language of the app. Your contacts and calls are not affected.';
 
   @override
+  String get avatarChangePhoto => 'Change photo';
+
+  @override
+  String get avatarRemovePhoto => 'Remove photo';
+
+  @override
+  String get avatarVisibilityNote =>
+      'People who have your contact link can see your photo.';
+
+  @override
+  String get avatarInputTooLarge => 'Choose an image under 10 MB.';
+
+  @override
+  String get avatarUnreadable =>
+      'That file could not be read as a picture. Try a JPEG or PNG.';
+
+  @override
+  String get avatarTooLarge =>
+      'That picture could not be made small enough to share. Try another one.';
+
+  @override
+  String get avatarFailed => 'Could not set the photo.';
+
+  @override
+  String get profileSaved =>
+      'Saved. Guest links show your new name; your contact link shows your new name and photo.';
+
+  @override
   String get navHome => 'Home';
 
   @override
