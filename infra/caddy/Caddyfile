@@ -23,7 +23,7 @@
 		X-Frame-Options "DENY"
 		Referrer-Policy "no-referrer"
 		Permissions-Policy "camera=(self), microphone=(self), display-capture=(self)"
-		Content-Security-Policy "default-src 'none'; manifest-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval' https://www.gstatic.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' wss: https: https://www.gstatic.com; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
+		Content-Security-Policy "default-src 'none'; manifest-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval' https://www.gstatic.com; style-src 'self' 'unsafe-inline'; font-src 'self' data: blob: https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' blob: data: wss: https: https://www.gstatic.com https://fonts.gstatic.com; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
 		-Server
 	}
 
@@ -44,6 +44,14 @@
 
 	@download_page path /download /download/ /downloads /downloads/ /downloads.html
 	redir @download_page https://sottocall.com/#download 308
+
+	# Static files: return 404 if missing, do not rewrite to index.html
+	@static path *.js *.wasm *.css *.json *.png *.jpg *.jpeg *.webp *.svg *.ico *.ttf *.woff *.woff2 *.map
+	handle @static {
+		header Cache-Control "no-cache"
+		root * /srv
+		file_server
+	}
 
 	handle {
 		# The app's files keep their names from one version to the next:
