@@ -42,6 +42,34 @@ class AppLocalizationsBn extends AppLocalizations {
       'অ্যাপের ভাষা বদলায়। আপনার পরিচিতি ও কলে কোনো প্রভাব পড়ে না।';
 
   @override
+  String get avatarChangePhoto => 'ছবি বদলান';
+
+  @override
+  String get avatarRemovePhoto => 'ছবি সরান';
+
+  @override
+  String get avatarVisibilityNote =>
+      'যাদের কাছে আপনার কন্টাক্ট লিঙ্ক আছে, তারা আপনার ছবি দেখতে পারেন।';
+
+  @override
+  String get avatarInputTooLarge => '১০ MB-এর চেয়ে ছোট একটি ছবি বেছে নিন।';
+
+  @override
+  String get avatarUnreadable =>
+      'ফাইলটি ছবি হিসেবে পড়া যায়নি। একটি JPEG বা PNG ছবি দিয়ে চেষ্টা করুন।';
+
+  @override
+  String get avatarTooLarge =>
+      'ছবিটি শেয়ার করার মতো ছোট করা যায়নি। অন্য একটি ছবি দিয়ে চেষ্টা করুন।';
+
+  @override
+  String get avatarFailed => 'ছবিটি সেট করা যায়নি।';
+
+  @override
+  String get profileSaved =>
+      'সেভ হয়েছে। গেস্ট লিঙ্কে আপনার নতুন নাম দেখাবে; কন্টাক্ট লিঙ্কে আপনার নতুন নাম ও ছবি দেখাবে।';
+
+  @override
   String get navHome => 'হোম';
 
   @override

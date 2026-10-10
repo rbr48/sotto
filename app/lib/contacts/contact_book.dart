@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import '../call/call_manager.dart';
+import '../core/avatar_data.dart';
 import '../core/test_hooks.dart';
 import '../crypto/encoding.dart';
 import '../crypto/identity.dart';
@@ -36,7 +37,8 @@ class Contact {
   /// Answer with the camera on (otherwise voice only).
   final bool autoAnswerVideo;
 
-  /// Optional base64-encoded profile picture data URI or raw base64 JPEG/PNG.
+  /// Optional profile picture: a JPEG or PNG data URI that passes
+  /// [AvatarData.parse] (others are dropped when added or loaded).
   final String? avatar;
   final DateTime addedAt;
 
@@ -86,7 +88,7 @@ class Contact {
     verified: json['verified'] as bool? ?? false,
     autoAnswer: json['auto'] as bool? ?? false,
     autoAnswerVideo: json['autoVideo'] as bool? ?? false,
-    avatar: json['avatar'] as String?,
+    avatar: AvatarData.sanitize(json['avatar'] as String?),
     addedAt: DateTime.fromMillisecondsSinceEpoch(
       json['added'] as int? ?? 0,
       isUtc: true,
@@ -222,6 +224,7 @@ class ContactBook extends ChangeNotifier {
     bool verified = false,
     String? avatar,
   }) async {
+    avatar = AvatarData.sanitize(avatar);
     final existing = find(identity);
     final contact =
         existing?.copyWith(
@@ -255,9 +258,12 @@ class ContactBook extends ChangeNotifier {
     await _save();
   }
 
+  /// Sets or (with null) removes the picture shown for [identity]. A picture
+  /// that does not pass [AvatarData.parse] removes it too.
   Future<void> setAvatar(PublicIdentity identity, String? avatar) async {
     final contact = find(identity);
     if (contact == null) return;
+    avatar = AvatarData.sanitize(avatar);
     await update(
       contact.copyWith(
         avatar: avatar,

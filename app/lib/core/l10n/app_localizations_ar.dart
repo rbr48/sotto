@@ -42,6 +42,34 @@ class AppLocalizationsAr extends AppLocalizations {
       'تغيّر لغة التطبيق. لا تتأثر جهات الاتصال والمكالمات.';
 
   @override
+  String get avatarChangePhoto => 'تغيير الصورة';
+
+  @override
+  String get avatarRemovePhoto => 'إزالة الصورة';
+
+  @override
+  String get avatarVisibilityNote =>
+      'يمكن لكل من لديه رابط جهة الاتصال الخاص بك أن يرى صورتك.';
+
+  @override
+  String get avatarInputTooLarge => 'اختر صورة أصغر من 10 ميغابايت.';
+
+  @override
+  String get avatarUnreadable =>
+      'تعذّرت قراءة هذا الملف كصورة. جرّب صورة بصيغة JPEG أو PNG.';
+
+  @override
+  String get avatarTooLarge =>
+      'تعذّر تصغير هذه الصورة بما يكفي لمشاركتها. جرّب صورة أخرى.';
+
+  @override
+  String get avatarFailed => 'تعذّر تعيين الصورة.';
+
+  @override
+  String get profileSaved =>
+      'تم الحفظ. تعرض روابط الضيوف اسمك الجديد، ويعرض رابط جهة الاتصال اسمك الجديد وصورتك.';
+
+  @override
   String get navHome => 'الرئيسية';
 
   @override

@@ -13,6 +13,7 @@ import '../core/update_check.dart';
 import '../call/devices.dart';
 import '../chat/file_storage.dart';
 import '../contacts/contact_book.dart';
+import '../core/avatar_data.dart';
 import '../core/config.dart';
 import '../core/leave_warning.dart';
 import '../core/server_address.dart';
@@ -559,9 +560,9 @@ class AppController extends ChangeNotifier {
           final p? => (
             name: p.name,
             organisation: p.practice,
-            avatar: (p.avatar != null && p.avatar!.length <= 24 * 1024)
-                ? p.avatar
-                : null,
+            // Only a picture that receivers would accept (pictures made by
+            // this version are at most AvatarData.maxCreatedLength).
+            avatar: AvatarData.sanitize(p.avatar),
           ),
           null => null,
         },

@@ -221,4 +221,39 @@ void main() {
       }
     });
   });
+
+  group('pictures', () {
+    const good =
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAA'
+        'AADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const bad = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
+
+    test('only checked pictures are kept, when added, set or loaded', () async {
+      final store = MemorySecretStore();
+      final book = ContactBook(store);
+      final meera = person();
+      final arun = person();
+      await book.add(meera, name: 'Meera', avatar: bad);
+      expect(book.find(meera)!.avatar, isNull);
+      await book.setAvatar(meera, good);
+      expect(book.find(meera)!.avatar, good);
+      await book.setAvatar(meera, bad);
+      expect(book.find(meera)!.avatar, isNull);
+      await book.add(arun, name: 'Arun', avatar: good);
+
+      // A picture stored by an earlier version that fails the checks.
+      final json = jsonDecode(
+        (await store.read(ContactBook.storageKey))!,
+      ) as Map<String, dynamic>;
+      final contacts = json['contacts'] as List<dynamic>;
+      for (final c in contacts.cast<Map<String, dynamic>>()) {
+        if (c['name'] == 'Meera') c['avatar'] = bad;
+      }
+      await store.write(ContactBook.storageKey, jsonEncode(json));
+      final reloaded = ContactBook(store);
+      await reloaded.load();
+      expect(reloaded.find(meera)!.avatar, isNull);
+      expect(reloaded.find(arun)!.avatar, good);
+    });
+  });
 }

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:sodium/sodium.dart';
 
+import '../core/avatar_data.dart';
 import '../crypto/encoding.dart';
 import '../crypto/envelope.dart';
 import '../crypto/identity.dart';
@@ -24,8 +25,12 @@ class ProfileUnavailableException implements Exception {
 ///
 /// ```
 /// request = "p1." || base64url(requester's identity card)    (not secret)
-/// reply   = envelope of type "profile", body {n, o?}           (sealed, signed)
+/// reply   = envelope of type "profile", body {n, o?, av?}      (sealed, signed)
 /// ```
+/// `av` is the profile picture, a JPEG or PNG data URI; it is sent only, and
+/// accepted only, when it passes [AvatarData.parse] (at most
+/// [AvatarData.maxSharedLength] characters and [AvatarData.maxSide] pixels a
+/// side, with bytes of the type it claims). Anyone who has the link gets it.
 /// The reply is an ordinary envelope signed by the key in the link, so its
 /// encryption key, name and organisation are as trustworthy as a full
 /// contact link. The relay sees only that one ID asked another for its
@@ -111,46 +116,38 @@ class ProfileExchange {
     if (_lastAnswer.length > 1000) _lastAnswer.clear();
     final name = profile.name.trim();
     final organisation = profile.organisation.trim();
-    final avatar = profile.avatar?.trim();
+    final reply = <String, Object>{
+      'n': name.isEmpty
+          ? 'Sotto user'
+          : name.substring(0, name.length.clamp(0, 80)),
+      if (organisation.isNotEmpty)
+        'o': organisation.substring(0, organisation.length.clamp(0, 80)),
+    };
+    final avatar = AvatarData.sanitize(profile.avatar?.trim());
 
     String? sealed;
-    // Only attempt to include avatar if it is small enough (< 24 KB base64)
-    // so it doesn't exceed EnvelopeCodec.maxInnerBytes (48 KB) or relay limits.
-    if (avatar != null && avatar.isNotEmpty && avatar.length <= 24 * 1024) {
+    if (avatar != null) {
       try {
         sealed = _codec.seal(
           recipient: requester,
           type: replyType,
-          body: {
-            'n': name.isEmpty
-                ? 'Sotto user'
-                : name.substring(0, name.length.clamp(0, 80)),
-            if (organisation.isNotEmpty)
-              'o': organisation.substring(0, organisation.length.clamp(0, 80)),
-            'av': avatar,
-          },
+          body: {...reply, 'av': avatar},
         );
       } catch (_) {
         sealed = null;
       }
     }
-
-    // Fallback: send reply without avatar so lookup never crashes or times out
     try {
+      // Without the picture if it could not be sealed, so the lookup is
+      // still answered.
       sealed ??= _codec.seal(
         recipient: requester,
         type: replyType,
-        body: {
-          'n': name.isEmpty
-              ? 'Sotto user'
-              : name.substring(0, name.length.clamp(0, 80)),
-          if (organisation.isNotEmpty)
-            'o': organisation.substring(0, organisation.length.clamp(0, 80)),
-        },
+        body: reply,
       );
       _send(from, sealed);
     } catch (_) {
-      // Ignore if even minimal reply cannot be sealed
+      // Not even the name could be sealed: no answer.
     }
   }
 
@@ -161,10 +158,10 @@ class ProfileExchange {
     final waiter = _waiting[message.sender.id];
     final name = message.body['n'];
     final organisation = message.body['o'];
+    // A picture that is not a small, well-formed JPEG or PNG is dropped;
+    // the name and organisation are still taken.
     final rawAvatar = message.body['av'];
-    final avatar = (rawAvatar is String && rawAvatar.length <= 48 * 1024)
-        ? rawAvatar
-        : null;
+    final avatar = rawAvatar is String ? AvatarData.sanitize(rawAvatar) : null;
     if (waiter == null ||
         waiter.isCompleted ||
         name is! String ||
