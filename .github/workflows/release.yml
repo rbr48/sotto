@@ -367,6 +367,7 @@ jobs:
       - name: Build iOS App (.app)
         working-directory: app
         run: |
+          flutter pub get
           flutter build ios --release --no-codesign
       - name: Package .ipa for Sideloading
         run: |
