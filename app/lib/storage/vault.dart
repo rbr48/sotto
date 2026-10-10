@@ -138,6 +138,22 @@ class Vault implements SecretStore {
     return _save();
   }
 
+  /// Sets all of [values] and removes [deleted] in one file write. The values
+  /// are set at once, so a backup taken meanwhile sees all of the change or
+  /// none of it.
+  @override
+  Future<void> writeAll(
+    Map<String, String> values, {
+    Iterable<String> deleted = const [],
+  }) {
+    var changed = values.isNotEmpty;
+    for (final key in deleted) {
+      if (_values.remove(key) != null) changed = true;
+    }
+    _values.addAll(values);
+    return changed ? _save() : _writes;
+  }
+
   /// A copy of everything stored (for backups).
   Map<String, String> snapshot() => Map.of(_values);
 

@@ -2334,4 +2334,14 @@ class _GatedSecrets extends MemorySecretStore {
     if (gate != null) await gate.future;
     await super.write(key, value);
   }
+
+  @override
+  Future<void> writeAll(
+    Map<String, String> values, {
+    Iterable<String> deleted = const [],
+  }) async {
+    final gate = _gate;
+    if (gate != null) await gate.future;
+    await super.writeAll(values, deleted: deleted);
+  }
 }

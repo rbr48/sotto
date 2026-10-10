@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../crypto/identity_store.dart';
+import '../diagnostics/event_log.dart';
 import 'chat_frames.dart';
 import 'file_storage.dart';
 
@@ -346,14 +347,29 @@ class ChatStoreException implements Exception {
 
 /// The history of each chat, kept in the encrypted vault.
 /// Conversations are stored per contact under separate keys (`sotto.chats.contact.<id>`),
-/// with a directory index under `sotto.chats.contacts.v1`.
+/// with a directory index under `sotto.chats.contacts.v1`. Each chat also has a
+/// summary (`sotto.chats.summary.<id>`) with its last message and unread count,
+/// so the chat list does not read whole histories.
 /// Legacy monolithic stores (`sotto.chats.v1`) are automatically migrated.
 class ChatStore {
   ChatStore(
     this._store, {
     this.files,
     this.browserMemoryBytes = defaultBrowserMemoryBytes,
-  });
+    void Function(String event)? log,
+  }) : _log = log ?? EventLog.instance.add;
+
+  /// Where problems with a chat's records are reported (the diagnostic report).
+  /// Never a contact, an id or any text of a message.
+  final void Function(String event) _log;
+
+  /// The problems reported so far, by contact, so that a chat which stays
+  /// broken is reported once, not on every change.
+  final _reported = <String>{};
+
+  void _report(String contactId, String problem) {
+    if (_reported.add('$contactId $problem')) _log(problem);
+  }
 
   /// Where received files are kept, encrypted. Null in the browser, which
   /// keeps none.
@@ -419,6 +435,15 @@ class ChatStore {
   /// [queueControl]).
   static String pendingKey(String contactId) =>
       'sotto.chats.pending.$contactId';
+
+  /// Storage key for a chat's summary: its last message as stored and its
+  /// unread count. Written with every change to the chat's messages. The chat
+  /// list trusts it without checking the messages, so a build that changes a
+  /// chat without writing its summary leaves the list stale until that chat
+  /// changes again. So one vault must not be shared with such a build
+  /// (`docs/PROTOCOL.md`, section 9).
+  static String summaryKey(String contactId) =>
+      'sotto.chats.summary.$contactId';
 
   /// Most pending controls kept for one contact. Past this, the oldest is
   /// dropped, so a chat that stays offline for long cannot grow without limit.
@@ -536,29 +561,43 @@ class ChatStore {
     return _cachedChats[contactId] = messages;
   }
 
-  /// Saves [list] as the chat with [contactId]. The cache takes the new list
-  /// only once it is stored, so a failed write leaves what is on screen equal
-  /// to what is saved. Callers pass a copy of the cached list.
+  /// Saves [list] as the chat with [contactId], with its summary and the
+  /// contact index, in one write, so they are stored together or not at all.
+  /// The cache takes the new list only once it is stored, so a failed write
+  /// leaves what is on screen equal to what is saved. Callers pass a copy of
+  /// the cached list.
   Future<void> _saveContact(String contactId, List<ChatMessage> list) async {
-    await _store.write(
-      contactKey(contactId),
-      jsonEncode([for (final m in list) m.toJson()]),
+    final index = await _loadIndex();
+    final next = {...index};
+    if (list.isNotEmpty) {
+      next.add(contactId);
+    } else {
+      next.remove(contactId);
+    }
+    final indexChanged = next.length != index.length;
+    await _store.writeAll(
+      {
+        contactKey(contactId): jsonEncode([for (final m in list) m.toJson()]),
+        if (list.isNotEmpty) summaryKey(contactId): _summaryJson(list),
+        if (indexChanged) contactsIndexKey: jsonEncode(next.toList()),
+      },
+      deleted: [if (list.isEmpty) summaryKey(contactId)],
     );
     _cachedChats[contactId] = list;
-    final index = await _loadIndex();
-    var indexChanged = false;
-    if (list.isNotEmpty && index.add(contactId)) {
-      indexChanged = true;
-    } else if (list.isEmpty && index.remove(contactId)) {
-      indexChanged = true;
-    }
-    if (indexChanged) {
-      await _store.write(contactsIndexKey, jsonEncode(index.toList()));
-    }
+    if (indexChanged) _contactIndex = next;
     if (!_changes.isClosed) {
       _changes.add(null);
     }
   }
+
+  /// The summary record of [list]: its last message as stored and its unread
+  /// count.
+  static String _summaryJson(List<ChatMessage> list) =>
+      jsonEncode({'last': list.last.toJson(), 'unread': _unreadIn(list)});
+
+  /// The number of incoming messages in [list] not yet read.
+  static int _unreadIn(Iterable<ChatMessage> list) =>
+      list.where((m) => !m.outgoing && !m.read).length;
 
   /// The messages with [contactId], oldest first.
   /// When [limit] is provided, returns at most [limit] messages ending at [offset]
@@ -775,13 +814,19 @@ class ChatStore {
     final removed = await _inOrder(() async {
       await _checkMigration();
       final messages = [...await _loadContact(contactId)];
-      _cachedChats.remove(contactId);
-      await _store.delete(contactKey(contactId));
-      await _store.delete(pendingKey(contactId));
       final index = await _loadIndex();
-      if (index.remove(contactId)) {
-        await _store.write(contactsIndexKey, jsonEncode(index.toList()));
-      }
+      final next = {...index}..remove(contactId);
+      final indexChanged = next.length != index.length;
+      await _store.writeAll(
+        {if (indexChanged) contactsIndexKey: jsonEncode(next.toList())},
+        deleted: [
+          summaryKey(contactId),
+          pendingKey(contactId),
+          contactKey(contactId),
+        ],
+      );
+      _cachedChats.remove(contactId);
+      if (indexChanged) _contactIndex = next;
       if (!_changes.isClosed) {
         _changes.add(null);
       }
@@ -937,12 +982,15 @@ class ChatStore {
 
   /// Drops a chat that has no messages left.
   Future<void> _forgetEmptyChat(String contactId) async {
-    await _store.delete(contactKey(contactId));
     final index = await _loadIndex();
-    if (index.remove(contactId)) {
-      await _store.write(contactsIndexKey, jsonEncode(index.toList()));
-    }
+    final next = {...index}..remove(contactId);
+    final indexChanged = next.length != index.length;
+    await _store.writeAll(
+      {if (indexChanged) contactsIndexKey: jsonEncode(next.toList())},
+      deleted: [summaryKey(contactId), contactKey(contactId)],
+    );
     _cachedChats[contactId] = [];
+    if (indexChanged) _contactIndex = next;
     if (!_changes.isClosed) {
       _changes.add(null);
     }
@@ -1073,50 +1121,108 @@ class ChatStore {
     }
   }
 
-  /// The number of unread incoming messages across all chats.
+  /// The summary of the chat with [contactId]: its last message as stored and
+  /// its unread count. Null when the chat has no messages.
+  ///
+  /// A chat with no summary record (one from an earlier vault) is rebuilt from
+  /// its messages once, and the record is written. A record that cannot be
+  /// read throws [ChatStoreException], and is not overwritten here.
+  Future<ChatThreadSummary?> threadSummary(String contactId) async {
+    final raw = await _store.read(summaryKey(contactId));
+    if (raw != null) return _readSummary(contactId, raw);
+    return _inOrder<ChatThreadSummary?>(() async {
+      // A change that ran first may have written the record meanwhile.
+      final again = await _store.read(summaryKey(contactId));
+      if (again != null) return _readSummary(contactId, again);
+      final list = await _loadContact(contactId);
+      if (list.isEmpty) return null;
+      try {
+        await _store.write(summaryKey(contactId), _summaryJson(list));
+      } catch (_) {
+        // The chat is listed from its messages all the same, and the record
+        // is written again the next time it is read.
+        _report(contactId, 'chat summary cannot be saved');
+      }
+      return ChatThreadSummary(
+        contactId: contactId,
+        lastMessage: list.last,
+        unreadCount: _unreadIn(list),
+      );
+    });
+  }
+
+  /// The summary held in [raw] for [contactId]. Throws [ChatStoreException]
+  /// when [raw] is not a summary, and reports it, since nothing else shows it:
+  /// the chat's messages still read fine.
+  ChatThreadSummary _readSummary(String contactId, String raw) {
+    try {
+      return _summaryFrom(contactId, raw);
+    } on ChatStoreException {
+      _report(contactId, 'chat summary cannot be read');
+      rethrow;
+    }
+  }
+
+  /// The summary held in [raw] for [contactId]. Throws [ChatStoreException]
+  /// when [raw] is not a summary.
+  static ChatThreadSummary _summaryFrom(String contactId, String raw) {
+    final Object? json;
+    try {
+      json = jsonDecode(raw);
+    } on FormatException {
+      throw const ChatStoreException('unreadable');
+    }
+    if (json is! Map<String, dynamic>) {
+      throw const ChatStoreException('unreadable');
+    }
+    final last = json['last'];
+    final unread = json['unread'];
+    if (last is! Map<String, dynamic> || unread is! int || unread < 0) {
+      throw const ChatStoreException('unreadable');
+    }
+    return ChatThreadSummary(
+      contactId: contactId,
+      lastMessage: ChatMessage.fromJson(contactId, last),
+      unreadCount: unread,
+    );
+  }
+
+  /// [threadSummary], or null when the chat's record cannot be read. Lists over
+  /// all chats skip such a chat, as [_tryLoad] does.
+  Future<ChatThreadSummary?> _tryLoadSummary(String contactId) async {
+    try {
+      return await threadSummary(contactId);
+    } on ChatStoreException {
+      return null;
+    }
+  }
+
+  /// The number of unread incoming messages across all chats. Reads the
+  /// summary records, not the messages.
   Future<int> totalUnreadCount() async {
     final ids = await _loadIndex();
     var count = 0;
     for (final id in ids) {
-      final list = await _tryLoad(id);
-      if (list == null) continue;
-      for (final message in list) {
-        if (!message.outgoing && !message.read) count++;
-      }
+      count += (await _tryLoadSummary(id))?.unreadCount ?? 0;
     }
     return count;
   }
 
-  /// The number of unread incoming messages with [contactId].
-  Future<int> unreadCount(String contactId) async {
-    final list = [...await _loadContact(contactId)];
-    var count = 0;
-    for (final message in list) {
-      if (!message.outgoing && !message.read) count++;
-    }
-    return count;
-  }
+  /// The number of unread incoming messages with [contactId]. Reads the
+  /// summary record, not the messages: the contacts list asks for it on every
+  /// change.
+  Future<int> unreadCount(String contactId) async =>
+      (await _tryLoadSummary(contactId))?.unreadCount ?? 0;
 
-  /// Returns conversation threads that have messages, newest first.
+  /// Returns conversation threads that have messages, newest first. Reads the
+  /// summary records, not the messages.
   Future<List<ChatThreadSummary>> recentChats() async {
     final ids = await _loadIndex();
     final summaries = <ChatThreadSummary>[];
     for (final id in ids) {
-      final list = await _tryLoad(id);
-      if (list == null) continue;
-      if (list.isEmpty) continue;
-      final lastMsg = list.last;
-      var unread = 0;
-      for (final msg in list) {
-        if (!msg.outgoing && !msg.read) unread++;
+      if (await _tryLoadSummary(id) case final summary?) {
+        summaries.add(summary);
       }
-      summaries.add(
-        ChatThreadSummary(
-          contactId: id,
-          lastMessage: lastMsg,
-          unreadCount: unread,
-        ),
-      );
     }
     summaries.sort(
       (a, b) => b.lastMessage.clockMs.compareTo(a.lastMessage.clockMs),

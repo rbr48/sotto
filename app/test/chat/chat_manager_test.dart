@@ -208,6 +208,15 @@ class _SlowSecrets implements SecretStore {
 
   @override
   Future<void> delete(String key) => _inner.delete(key);
+
+  @override
+  Future<void> writeAll(
+    Map<String, String> values, {
+    Iterable<String> deleted = const [],
+  }) async {
+    await Future<void>.delayed(delay);
+    await _inner.writeAll(values, deleted: deleted);
+  }
 }
 
 void main() {

@@ -477,6 +477,7 @@ plaintext = JSON {"v":1, "values": {"<key>": "<string>", …}}
 | `sotto.contacts.v1` | Contacts (keys, name, organisation, verified, auto-answer choices) and the auto-answer switch and delay |
 | `sotto.history.v1` | Call history with notes, and the retention period |
 | `sotto.chats.v1` | Chat history (§5.10), kept until the person deletes a chat. Included in backups |
+| `sotto.chats.summary.<id>` | Each chat's last message and unread count, which the chat list reads in place of the messages. Derived from the chat's messages but trusted as stored, so a build that changes a chat without writing this record leaves the list stale. One vault is not shared with such a build. Included in backups |
 | `sotto.guest_links.v1` | Guest links (§5.7) |
 | `sotto.lock.v1` | App lock: PIN verifier (Argon2id `crypto_pwhash_str` in the apps; keyed BLAKE2b in the browser, §9.1), failed attempts, auto-lock time. Device-only |
 | `sotto.devices.v1` | Chosen camera, microphone and speaker. Device-only |

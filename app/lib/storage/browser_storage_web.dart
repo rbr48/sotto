@@ -108,6 +108,19 @@ class _EncryptedSecrets implements SecretStore {
 
   @override
   Future<void> delete(String key) => _delete(_db, '$_secretPrefix$key');
+
+  @override
+  Future<void> writeAll(
+    Map<String, String> values, {
+    Iterable<String> deleted = const [],
+  }) async {
+    for (final key in deleted) {
+      await delete(key);
+    }
+    for (final entry in values.entries) {
+      await write(entry.key, entry.value);
+    }
+  }
 }
 
 class _VaultRecord implements VaultFile {
