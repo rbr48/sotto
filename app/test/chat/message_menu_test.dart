@@ -121,6 +121,24 @@ void main() {
       expect(canDeleteForEveryone(theirs, now), isFalse);
     });
 
+    test('the other person\'s text is refused at each window time too', () {
+      final theirs = _text(outgoing: false);
+      for (final elapsed in const [
+        Duration(minutes: 14, seconds: 59),
+        Duration(minutes: 15, seconds: 1),
+        Duration(minutes: 59, seconds: 59),
+        Duration(hours: 1, seconds: 1),
+      ]) {
+        final now = _after(elapsed);
+        expect(canEdit(theirs, now), isFalse, reason: 'edit at $elapsed');
+        expect(
+          canDeleteForEveryone(theirs, now),
+          isFalse,
+          reason: 'delete at $elapsed',
+        );
+      }
+    });
+
     test('a deleted message cannot be edited or deleted again', () {
       final gone = _text(deleted: true);
       final now = _after(const Duration(minutes: 1));
