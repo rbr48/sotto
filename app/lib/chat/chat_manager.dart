@@ -215,7 +215,16 @@ class ChatManager {
 
   /// Sends a text message to [contact], opening the chat first if needed.
   /// The message is stored at once; it is marked not sent if it can't go.
-  Future<ChatMessage> sendText(String contact, String text) async {
+  ///
+  /// [replyToId] names the message in this chat that the new one answers: a
+  /// copy of its text becomes the quote. [forwarded] marks a text forwarded
+  /// from another chat. Neither goes through the relay (see [_relayable]).
+  Future<ChatMessage> sendText(
+    String contact,
+    String text, {
+    String? replyToId,
+    bool forwarded = false,
+  }) async {
     if (!isContact(contact)) {
       throw ArgumentError.value(contact, 'contact', 'is not a contact');
     }
@@ -227,10 +236,13 @@ class ChatManager {
         'must be 1 to $maxTextChars characters',
       );
     }
+    final replyTo = replyToId == null ? null : await _quote(contact, replyToId);
     _ensureTicker();
     final live = _activeFor(contact);
     final session = live?.session;
-    if (session != null && !session.isEnded) return session.sendText(cleaned);
+    if (session != null && !session.isEnded) {
+      return session.sendText(cleaned, replyTo: replyTo, forwarded: forwarded);
+    }
 
     final message = ChatMessage(
       id: _newId(),
@@ -239,6 +251,8 @@ class ChatManager {
       ts: clock().millisecondsSinceEpoch,
       text: cleaned,
       state: ChatState.sending,
+      replyTo: replyTo,
+      forwarded: forwarded,
     );
     // Queued before the write, so a chat that ends during the write still
     // marks the message not sent (store writes run in the order asked for).
@@ -255,6 +269,158 @@ class ChatManager {
     return message;
   }
 
+  /// The quote for a reply to message [id] in the chat with [contact]. A
+  /// message that is gone, or deleted for everyone, has no text to quote.
+  Future<ChatReply> _quote(String contact, String id) async {
+    final target = await store.find(contact, id);
+    if (target == null || target.deletedForAll) {
+      throw ArgumentError.value(
+        id,
+        'replyToId',
+        'is not a message to reply to',
+      );
+    }
+    return (id: target.id, text: ChatFrames.quoteText(target.text));
+  }
+
+  /// Sets your reaction on message [id] in the chat with [contact]; an empty
+  /// [emoji] removes it. Applied at once. Sent when the contact can take it:
+  /// now if a chat is ready, otherwise with the next chat that lists the
+  /// feature (see [ChatSession.flushControls]). Returns false when the message
+  /// is gone or was deleted for everyone. Throws [ArgumentError] for an emoji
+  /// that is not a reaction (see [ChatFrames.cleanEmoji]).
+  Future<bool> react(String contact, String id, String emoji) async {
+    if (!isContact(contact)) {
+      throw ArgumentError.value(contact, 'contact', 'is not a contact');
+    }
+    final String cleaned;
+    try {
+      cleaned = ChatFrames.cleanEmoji(emoji);
+    } on ChatFrameException {
+      throw ArgumentError.value(emoji, 'emoji', 'is not a reaction');
+    }
+    final message = await store.find(contact, id);
+    if (message == null || message.deletedForAll) return false;
+    final changed = await store.changeMessage(
+      contact,
+      id,
+      (m) => m.deletedForAll ? null : m.withReaction('me', cleaned),
+    );
+    if (!changed) return false;
+    await store.queueControl(
+      contact,
+      ReactFrame(id: id, emoji: cleaned, ts: clock().millisecondsSinceEpoch),
+    );
+    await _flushControls(contact);
+    return true;
+  }
+
+  /// Replaces the text of your own message [id] in the chat with [contact],
+  /// and marks it edited. Allowed for 15 minutes after the message was sent,
+  /// for text messages only. Applied and sent as [react] does. Returns false
+  /// when the edit is not allowed. Throws [ArgumentError] for text that is
+  /// empty or too long.
+  Future<bool> edit(String contact, String id, String text) async {
+    if (!isContact(contact)) {
+      throw ArgumentError.value(contact, 'contact', 'is not a contact');
+    }
+    final cleaned = ChatFrames.cleanText(text);
+    if (cleaned.isEmpty || cleaned.runes.length > maxTextChars) {
+      throw ArgumentError.value(
+        text,
+        'text',
+        'must be 1 to $maxTextChars characters',
+      );
+    }
+    final message = await store.find(contact, id);
+    if (message == null ||
+        !message.outgoing ||
+        message.deletedForAll ||
+        message.isAttachment) {
+      return false;
+    }
+    final now = clock().millisecondsSinceEpoch;
+    if (!ChatFrames.withinWindow(message.ts, now, editWindow)) return false;
+    final changed = await store.changeMessage(
+      contact,
+      id,
+      (m) => m.deletedForAll ? null : m.copyWith(text: cleaned, editedAt: now),
+    );
+    if (!changed) return false;
+    _setQuotes(contact, id, ChatFrames.quoteText(cleaned));
+    await store.queueControl(
+      contact,
+      EditFrame(id: id, ts: now, text: cleaned),
+    );
+    await _flushControls(contact);
+    return true;
+  }
+
+  /// Deletes your own message [id] in the chat with [contact] for everyone,
+  /// within an hour of its being sent. The text is removed here at once, and
+  /// the record stays; so does the text of every quote of it, with none. The
+  /// other device may keep its copy: this is best effort. Text messages only.
+  /// Returns false when the delete is not allowed.
+  Future<bool> deleteForEveryone(String contact, String id) async {
+    if (!isContact(contact)) {
+      throw ArgumentError.value(contact, 'contact', 'is not a contact');
+    }
+    final message = await store.find(contact, id);
+    if (message == null ||
+        !message.outgoing ||
+        message.deletedForAll ||
+        message.isAttachment) {
+      return false;
+    }
+    final now = clock().millisecondsSinceEpoch;
+    if (!ChatFrames.withinWindow(message.ts, now, deleteWindow)) return false;
+    final changed = await store.changeMessage(
+      contact,
+      id,
+      (m) => m.deletedForAll
+          ? null
+          : m.copyWith(text: '', deletedForAll: true, reactions: const {}),
+    );
+    if (!changed) return false;
+    _setQuotes(contact, id, '');
+    // The other side has not stored the text yet: it must not be sent again.
+    final stored =
+        message.state == ChatState.delivered || message.state == ChatState.read;
+    if (!stored) _forget(contact, id);
+    await store.queueControl(contact, DeleteFrame(id: id, ts: now));
+    await _flushControls(contact);
+    return true;
+  }
+
+  /// Gives the quote of message [id] to each reply to it that is still waiting
+  /// to go in the chat with [contact]: empty once the message is deleted for
+  /// everyone, its new text once it is edited. So a reply sent later does not
+  /// carry the text it had before. The store is already changed (see
+  /// [ChatStore.changeMessage]).
+  void _setQuotes(String contact, String id, String quote) {
+    ChatMessage withQuote(ChatMessage m) =>
+        m.replyTo?.id == id ? m.copyWith(replyTo: (id: id, text: quote)) : m;
+    final waiting = _waiting[contact];
+    if (waiting != null) {
+      for (var i = 0; i < waiting.length; i++) {
+        waiting[i] = withQuote(waiting[i]);
+      }
+    }
+    final live = _activeFor(contact);
+    if (live != null) {
+      for (var i = 0; i < live.resend.length; i++) {
+        live.resend[i] = withQuote(live.resend[i]);
+      }
+      live.session?.setQuotesOf(id, quote);
+    }
+  }
+
+  /// Sends the pending controls for [contact] if a chat with it is ready.
+  Future<void> _flushControls(String contact) async {
+    final session = _activeFor(contact)?.session;
+    if (session != null && !session.isEnded) await session.flushControls();
+  }
+
   /// Sends again a message that was not sent. It is the same message (same
   /// id), so the history gains no copy.
   Future<void> retry(String contact, String messageId) async {
@@ -264,6 +430,7 @@ class ChatManager {
     final message = await store.find(contact, messageId);
     if (message == null ||
         !message.outgoing ||
+        message.deletedForAll ||
         (message.state != ChatState.notSent &&
             message.state != ChatState.queued)) {
       return;
@@ -303,6 +470,7 @@ class ChatManager {
     final message = await store.find(contact, messageId);
     if (message == null ||
         !message.outgoing ||
+        message.deletedForAll ||
         message.state != ChatState.notSent) {
       return;
     }
@@ -318,11 +486,16 @@ class ChatManager {
   /// Deletes a message from this device. A message still waiting to go is
   /// taken off the queue first, so it is not sent after it was deleted.
   Future<void> deleteMessage(String contact, String id) async {
+    _forget(contact, id);
+    await store.deleteMessage(contact, id);
+  }
+
+  /// Takes message [id] off every list that would send it.
+  void _forget(String contact, String id) {
     _waiting[contact]?.removeWhere((m) => m.id == id);
     final live = _activeFor(contact);
     live?.resend.removeWhere((m) => m.id == id);
     live?.session?.forget(id);
-    await store.deleteMessage(contact, id);
   }
 
   /// Deletes the whole chat with [contact] from this device, and stops
@@ -360,6 +533,7 @@ class ChatManager {
     if (!isContact(contact) || _disposed) return;
     final queued = (await store.messages(contact))
         .where((m) => m.outgoing && m.state == ChatState.queued)
+        .where((m) => !m.deletedForAll)
         .toList();
     if (queued.isEmpty) return;
     final live = _activeFor(contact);
@@ -379,7 +553,7 @@ class ChatManager {
     }
     // No direct chat is ready: the texts also go through the relay, so they
     // reach a device whose app is in the background.
-    for (final msg in queued.take(maxRelayPerFlush)) {
+    for (final msg in queued.where(_relayable).take(maxRelayPerFlush)) {
       _sendThroughRelay(msg);
     }
     // A chat being opened sends the queue itself once its channel is open.
@@ -387,9 +561,22 @@ class ChatManager {
     _perform(_signalling.open(contact, clock()));
   }
 
-  /// Sends a text message through the relay. Files need the direct chat.
+  /// Whether [message] can go through the relay: an outgoing plain text that
+  /// is not deleted. Files need the direct chat. So do replies and forwarded
+  /// texts: the relay has not heard the other side's `hello`, so it cannot
+  /// know whether the other side reads the reply quote or the forwarded mark.
+  /// Sent that way, the message would be stored there without them, and the
+  /// direct chat would then find it already stored.
+  static bool _relayable(ChatMessage message) =>
+      message.outgoing &&
+      !message.isAttachment &&
+      !message.deletedForAll &&
+      message.replyTo == null &&
+      !message.forwarded;
+
+  /// Sends a text message through the relay (see [_relayable]).
   void _sendThroughRelay(ChatMessage message) {
-    if (_disposed || message.isAttachment || !message.outgoing) return;
+    if (_disposed || !_relayable(message)) return;
     send(message.contactId, relayText, {
       'id': message.id,
       'ts': message.ts,
@@ -418,15 +605,16 @@ class ChatManager {
     }
     final messageId = id as String;
     if (!await store.contains(from, messageId)) {
+      final arrived = clock().millisecondsSinceEpoch;
       final message = ChatMessage(
         id: messageId,
         contactId: from,
         outgoing: false,
-        ts: ts,
+        ts: ChatFrames.receivedTs(ts, arrived),
         text: text,
         state: ChatState.received,
         read: false,
-        arrivedAt: clock().millisecondsSinceEpoch,
+        arrivedAt: arrived,
       );
       await store.add(message);
       _emit(ChatUpdate(from, MessageReceived(message)));
@@ -455,6 +643,8 @@ class ChatManager {
     }
     await store.setState(from, messageId, ChatState.delivered);
     _emit(ChatUpdate(from, MessageDelivered(messageId)));
+    // A reaction or edit that waited for this message can go now.
+    await _flushControls(from);
     _log('chat: relay text acknowledged');
   }
 
@@ -679,7 +869,7 @@ class ChatManager {
       if (session != null && !session.isEnded && session.isReady) continue;
       for (final m in await store.messages(contact)) {
         if (budget <= 0) return;
-        if (!m.outgoing || m.isAttachment || m.ts < since) continue;
+        if (!_relayable(m) || m.ts < since) continue;
         final pending =
             m.state == ChatState.sending ||
             (m.state == ChatState.notSent && m.reason != 'cancelled');

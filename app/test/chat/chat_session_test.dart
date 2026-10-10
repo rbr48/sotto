@@ -1488,6 +1488,749 @@ void main() {
       );
     });
   });
+
+  group('replies, forwards, reactions, edits and deletes', () {
+    const minute = 60 * 1000;
+
+    /// A hello from a contact that lists every feature this app has.
+    const helloAll =
+        '{"t":"hello","v":1,"features":["reply","fwd","react","edit","delete"]}';
+
+    test(
+      'both sides list the features, so a reply and a forward arrive',
+      () async {
+        final (a, b) = _pair();
+        final alice = _Side('alice', 'bob', a, clock: clock)..start();
+        final bob = _Side('bob', 'alice', b, clock: clock)..start();
+        await _settle();
+
+        final first = await alice.session.sendText('Are you free?');
+        await _settle();
+        final reply = await alice.session.sendText(
+          'Yes',
+          replyTo: (id: first.id, text: 'Are you free?'),
+          forwarded: true,
+        );
+        await _settle();
+
+        final hello = ChatFrames.decode(a.sentFrames.first) as HelloFrame;
+        expect(hello.features, unorderedEquals(ChatFrames.features));
+        final received = (await bob.store.find('alice', reply.id))!;
+        expect(received.replyTo, (id: first.id, text: 'Are you free?'));
+        expect(received.forwarded, isTrue);
+        expect(received.outgoing, isFalse);
+      },
+    );
+
+    test(
+      'a contact whose hello lists no features gets a plain message',
+      () async {
+        final (a, b) = _pair();
+        final alice = _Side('alice', 'bob', a, clock: clock)..start();
+        await _settle();
+        final heard = <String>[];
+        b.frames.listen(heard.add);
+        b.send('{"t":"hello","v":1}');
+        await _settle();
+
+        await alice.session.sendText(
+          'Yes',
+          replyTo: (id: _id(9), text: 'Are you free?'),
+          forwarded: true,
+        );
+        await _settle();
+
+        final sent = heard.singleWhere((f) => f.contains('"t":"msg"'));
+        expect(sent, isNot(contains('"reply"')));
+        expect(sent, isNot(contains('"fwd"')));
+        final message = ChatFrames.decode(sent) as MessageFrame;
+        expect(message.text, 'Yes');
+        expect(message.reply, isNull);
+        expect(message.forwarded, isFalse);
+      },
+    );
+
+    test(
+      'a contact that lists only forwards gets the mark, not the quote',
+      () async {
+        final (a, b) = _pair();
+        final alice = _Side('alice', 'bob', a, clock: clock)..start();
+        await _settle();
+        final heard = <String>[];
+        b.frames.listen(heard.add);
+        b.send('{"t":"hello","v":1,"features":["fwd"]}');
+        await _settle();
+
+        await alice.session.sendText(
+          'Yes',
+          replyTo: (id: _id(9), text: 'Are you free?'),
+          forwarded: true,
+        );
+        await _settle();
+
+        final message = ChatFrames.decode(
+          heard.singleWhere((f) => f.contains('"t":"msg"')),
+        ) as MessageFrame;
+        expect(message.reply, isNull);
+        expect(message.forwarded, isTrue);
+      },
+    );
+
+    test('an edit from the contact applies up to 15 minutes after the message, and not after', () async {
+      final (a, b) = _pair();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      a.send(helloAll);
+      final sentAt = now.millisecondsSinceEpoch;
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(id: _id(1), ts: sentAt, text: 'first try'),
+        ),
+      );
+      await _settle();
+
+      // Each edit is made, and arrives, at the time it names: this device's
+      // clock is set to that time first.
+      void at(int ms) =>
+          now = DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
+
+      at(sentAt + 10 * minute);
+      a.send(
+        ChatFrames.encode(
+          EditFrame(id: _id(1), ts: sentAt + 10 * minute, text: 'fixed'),
+        ),
+      );
+      await _settle();
+      var stored = (await bob.store.find('alice', _id(1)))!;
+      expect(stored.text, 'fixed');
+      expect(stored.editedAt, sentAt + 10 * minute);
+      expect(stored.outgoing, isFalse);
+
+      // Exactly 15 minutes after the message is still inside the window.
+      at(sentAt + 15 * minute);
+      a.send(
+        ChatFrames.encode(
+          EditFrame(id: _id(1), ts: sentAt + 15 * minute, text: 'at the limit'),
+        ),
+      );
+      await _settle();
+      expect((await bob.store.find('alice', _id(1)))!.text, 'at the limit');
+
+      // Sixteen minutes after the message: refused, and nothing changes.
+      at(sentAt + 16 * minute);
+      a.send(
+        ChatFrames.encode(
+          EditFrame(id: _id(1), ts: sentAt + 16 * minute, text: 'too late'),
+        ),
+      );
+      await _settle();
+      stored = (await bob.store.find('alice', _id(1)))!;
+      expect(stored.text, 'at the limit');
+      expect(stored.editedAt, sentAt + 15 * minute);
+
+      // An edit dated before the message is refused too.
+      a.send(
+        ChatFrames.encode(
+          EditFrame(id: _id(1), ts: sentAt - 1, text: 'before'),
+        ),
+      );
+      await _settle();
+      expect((await bob.store.find('alice', _id(1)))!.text, 'at the limit');
+      expect(bob.session.isEnded, isFalse);
+    });
+
+    test('an edit or delete of the contact\'s own message is ignored; a reaction on it is kept', () async {
+      final (a, b) = _pair();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      a.send(helloAll);
+      await _settle();
+      final mine = await bob.session.sendText('mine');
+      await _settle();
+
+      final sentAt = now.millisecondsSinceEpoch;
+      a.send(
+        ChatFrames.encode(EditFrame(id: mine.id, ts: sentAt, text: 'changed')),
+      );
+      a.send(ChatFrames.encode(DeleteFrame(id: mine.id, ts: sentAt)));
+      a.send(
+        ChatFrames.encode(
+          ReactFrame(id: mine.id, emoji: '\u{1F44D}', ts: sentAt),
+        ),
+      );
+      await _settle();
+
+      final stored = (await bob.store.find('alice', mine.id))!;
+      expect(stored.text, 'mine');
+      expect(stored.editedAt, isNull);
+      expect(stored.deletedForAll, isFalse);
+      expect(stored.reactions, {'peer': '\u{1F44D}'});
+    });
+
+    test('a delete from the contact applies up to an hour after the message and keeps the record', () async {
+      final (a, b) = _pair();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      a.send(helloAll);
+      final sentAt = now.millisecondsSinceEpoch;
+      a.send(
+        ChatFrames.encode(MessageFrame(id: _id(1), ts: sentAt, text: 'secret')),
+      );
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(id: _id(2), ts: sentAt, text: 'too late to delete'),
+        ),
+      );
+      a.send(
+        ChatFrames.encode(
+          ReactFrame(id: _id(1), emoji: '\u{1F44D}', ts: sentAt),
+        ),
+      );
+      await _settle();
+      expect((await bob.store.find('alice', _id(1)))!.reactions, {
+        'peer': '\u{1F44D}',
+      });
+
+      now = DateTime.fromMillisecondsSinceEpoch(
+        sentAt + 59 * minute,
+        isUtc: true,
+      );
+      a.send(
+        ChatFrames.encode(DeleteFrame(id: _id(1), ts: sentAt + 59 * minute)),
+      );
+      await _settle();
+      now = DateTime.fromMillisecondsSinceEpoch(
+        sentAt + 61 * minute,
+        isUtc: true,
+      );
+      a.send(
+        ChatFrames.encode(DeleteFrame(id: _id(2), ts: sentAt + 61 * minute)),
+      );
+      await _settle();
+
+      final deleted = (await bob.store.find('alice', _id(1)))!;
+      expect(deleted.deletedForAll, isTrue);
+      expect(deleted.text, isEmpty);
+      expect(deleted.reactions, isEmpty);
+      final kept = (await bob.store.find('alice', _id(2)))!;
+      expect(kept.deletedForAll, isFalse);
+      expect(kept.text, 'too late to delete');
+
+      // A deleted message takes no more reactions.
+      now = DateTime.fromMillisecondsSinceEpoch(
+        sentAt + 60 * minute,
+        isUtc: true,
+      );
+      a.send(
+        ChatFrames.encode(
+          ReactFrame(id: _id(1), emoji: '\u{2764}', ts: sentAt + 60 * minute),
+        ),
+      );
+      await _settle();
+      expect((await bob.store.find('alice', _id(1)))!.reactions, isEmpty);
+    });
+
+    test('a reaction replaces the one before it, an empty one removes it, and one on an unknown message is ignored', () async {
+      final (a, b) = _pair();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      a.send(helloAll);
+      final sentAt = now.millisecondsSinceEpoch;
+      a.send(
+        ChatFrames.encode(MessageFrame(id: _id(1), ts: sentAt, text: 'hi')),
+      );
+      await _settle();
+
+      Future<void> react(String id, String emoji) async {
+        a.send(ChatFrames.encode(ReactFrame(id: id, emoji: emoji, ts: sentAt)));
+        await _settle();
+      }
+
+      await react(_id(1), '\u{1F44D}');
+      expect((await bob.store.find('alice', _id(1)))!.reactions, {
+        'peer': '\u{1F44D}',
+      });
+      await react(_id(1), '\u{2764}️');
+      expect((await bob.store.find('alice', _id(1)))!.reactions, {
+        'peer': '\u{2764}️',
+      });
+      await react(_id(1), '');
+      expect((await bob.store.find('alice', _id(1)))!.reactions, isEmpty);
+
+      await react(_id(99), '\u{1F602}');
+      expect(bob.session.isEnded, isFalse);
+      expect(await bob.store.messages('alice'), hasLength(1));
+      expect(await bob.store.contains('alice', _id(99)), isFalse);
+    });
+
+    test(
+      'a pending reaction waits while the contact does not list it',
+      () async {
+        final (a, b) = _pair();
+        final alice = _Side('alice', 'bob', a, clock: clock)..start();
+        await _settle();
+        final heard = <String>[];
+        b.frames.listen(heard.add);
+        b.send('{"t":"hello","v":1,"features":["reply"]}');
+        await _settle();
+
+        await alice.store.add(
+          ChatMessage(
+            id: _id(1),
+            contactId: 'bob',
+            outgoing: false,
+            ts: now.millisecondsSinceEpoch,
+            text: 'hi',
+            state: ChatState.received,
+            read: false,
+          ),
+        );
+        await alice.store.queueControl(
+          'bob',
+          ReactFrame(
+            id: _id(1),
+            emoji: '\u{1F44D}',
+            ts: now.millisecondsSinceEpoch,
+          ),
+        );
+        await alice.session.flushControls();
+        await _settle();
+
+        expect(heard.where((f) => f.contains('"t":"react"')), isEmpty);
+        expect(await alice.store.pendingControls('bob'), hasLength(1));
+      },
+    );
+
+    test(
+      'a pending reaction is sent once the contact lists the feature',
+      () async {
+        final (a, b) = _pair();
+        final alice = _Side('alice', 'bob', a, clock: clock)..start();
+        final bob = _Side('bob', 'alice', b, clock: clock)..start();
+        await _settle();
+        // Bob's message, as each device keeps it.
+        await bob.store.add(
+          ChatMessage(
+            id: _id(1),
+            contactId: 'alice',
+            outgoing: true,
+            ts: now.millisecondsSinceEpoch,
+            text: 'Lunch?',
+            state: ChatState.read,
+          ),
+        );
+        await alice.store.add(
+          ChatMessage(
+            id: _id(1),
+            contactId: 'bob',
+            outgoing: false,
+            ts: now.millisecondsSinceEpoch,
+            text: 'Lunch?',
+            state: ChatState.received,
+            read: false,
+          ),
+        );
+
+        await alice.store.queueControl(
+          'bob',
+          ReactFrame(
+            id: _id(1),
+            emoji: '\u{1F44D}',
+            ts: now.millisecondsSinceEpoch,
+          ),
+        );
+        await alice.session.flushControls();
+        await _settle();
+
+        expect((await bob.store.find('alice', _id(1)))!.reactions, {
+          'peer': '\u{1F44D}',
+        });
+        expect(await alice.store.pendingControls('bob'), isEmpty);
+      },
+    );
+
+    test('an edit or delete dated more than five minutes ahead of this clock is refused', () async {
+      final (a, b) = _pair();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      a.send(helloAll);
+      final sentAt = now.millisecondsSinceEpoch;
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(id: _id(1), ts: sentAt, text: 'first try'),
+        ),
+      );
+      await _settle();
+
+      a.send(
+        ChatFrames.encode(
+          EditFrame(id: _id(1), ts: sentAt + 6 * minute, text: 'from ahead'),
+        ),
+      );
+      a.send(
+        ChatFrames.encode(DeleteFrame(id: _id(1), ts: sentAt + 6 * minute)),
+      );
+      await _settle();
+      final kept = (await bob.store.find('alice', _id(1)))!;
+      expect(kept.text, 'first try');
+      expect(kept.editedAt, isNull);
+      expect(kept.deletedForAll, isFalse);
+      expect(bob.session.isEnded, isFalse);
+
+      // Five minutes ahead is still within the allowance for two clocks that
+      // differ.
+      a.send(
+        ChatFrames.encode(
+          EditFrame(
+            id: _id(1),
+            ts: sentAt + 5 * minute,
+            text: 'a little ahead',
+          ),
+        ),
+      );
+      await _settle();
+      expect((await bob.store.find('alice', _id(1)))!.text, 'a little ahead');
+    });
+
+    test('an edit or delete more than seven days old by this clock is refused, though it is within its message\'s window', () async {
+      final (a, b) = _pair();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      a.send(helloAll);
+      final sentAt = now.millisecondsSinceEpoch;
+      const week = 7 * 24 * 60 * minute;
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(id: _id(1), ts: sentAt, text: 'a week old'),
+        ),
+      );
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(id: _id(2), ts: sentAt, text: 'also a week old'),
+        ),
+      );
+      await _settle();
+
+      // Seven days and five minutes after the message: a control dated at the
+      // message's own time is the oldest still accepted.
+      now = DateTime.fromMillisecondsSinceEpoch(
+        sentAt + week + 5 * minute,
+        isUtc: true,
+      );
+      a.send(
+        ChatFrames.encode(
+          EditFrame(id: _id(1), ts: sentAt, text: 'at the limit'),
+        ),
+      );
+      await _settle();
+      expect((await bob.store.find('alice', _id(1)))!.text, 'at the limit');
+
+      // One millisecond later it is refused, as a replayed edit or delete would
+      // be. Both are inside the window of their message, which is not enough.
+      now = DateTime.fromMillisecondsSinceEpoch(
+        sentAt + week + 5 * minute + 1,
+        isUtc: true,
+      );
+      a.send(
+        ChatFrames.encode(EditFrame(id: _id(1), ts: sentAt, text: 'replayed')),
+      );
+      a.send(ChatFrames.encode(DeleteFrame(id: _id(2), ts: sentAt)));
+      await _settle();
+      expect((await bob.store.find('alice', _id(1)))!.text, 'at the limit');
+      final kept = (await bob.store.find('alice', _id(2)))!;
+      expect(kept.deletedForAll, isFalse);
+      expect(kept.text, 'also a week old');
+      expect(bob.session.isEnded, isFalse);
+    });
+
+    test('a message dated far ahead of this clock keeps the arrival time; one a little ahead keeps its own', () async {
+      final (a, b) = _pair();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      a.send(helloAll);
+      final arrived = now.millisecondsSinceEpoch;
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(
+            id: _id(1),
+            ts: arrived + 60 * minute,
+            text: 'from the future',
+          ),
+        ),
+      );
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(
+            id: _id(2),
+            ts: arrived + 4 * minute,
+            text: 'a little ahead',
+          ),
+        ),
+      );
+      await _settle();
+
+      final far = (await bob.store.find('alice', _id(1)))!;
+      expect(far.ts, arrived);
+      expect(far.arrivedAt, arrived);
+      expect((await bob.store.find('alice', _id(2)))!.ts, arrived + 4 * minute);
+    });
+
+    test('a deleted message\'s text is taken out of its quotes here, stored and still in the outbox', () async {
+      final (a, b) = _pair();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      a.send(helloAll);
+      final sentAt = now.millisecondsSinceEpoch;
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(id: _id(1), ts: sentAt, text: 'the door code is 4471'),
+        ),
+      );
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(
+            id: _id(2),
+            ts: sentAt,
+            text: 'got it',
+            reply: (id: _id(1), text: 'the door code is 4471'),
+          ),
+        ),
+      );
+      await _settle();
+      // Bob's own reply to the same message is not acknowledged, so it waits
+      // in his outbox.
+      final mine = await bob.session.sendText(
+        'the code, again',
+        replyTo: (id: _id(1), text: 'the door code is 4471'),
+      );
+      await _settle();
+
+      a.send(ChatFrames.encode(DeleteFrame(id: _id(1), ts: sentAt)));
+      await _settle();
+      expect((await bob.store.find('alice', _id(1)))!.deletedForAll, isTrue);
+      expect((await bob.store.find('alice', _id(2)))!.replyTo, (
+        id: _id(1),
+        text: '',
+      ));
+
+      // The contact says hello again, so the outbox goes out once more: the
+      // reply goes with its quote emptied.
+      a.send(helloAll);
+      await _settle();
+      final again = b.sentFrames
+          .map(ChatFrames.decode)
+          .whereType<MessageFrame>()
+          .where((f) => f.id == mine.id)
+          .last;
+      expect(again.text, 'the code, again');
+      expect(again.reply, (id: _id(1), text: ''));
+      expect((await bob.store.find('alice', mine.id))!.replyTo, (
+        id: _id(1),
+        text: '',
+      ));
+    });
+
+    test('a peer\'s edit gives the stored replies to the edited message the new text', () async {
+      final (a, b) = _pair();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      a.send(helloAll);
+      final sentAt = now.millisecondsSinceEpoch;
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(id: _id(1), ts: sentAt, text: 'the door code is 4471'),
+        ),
+      );
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(
+            id: _id(2),
+            ts: sentAt,
+            text: 'got it',
+            reply: (id: _id(1), text: 'the door code is 4471'),
+          ),
+        ),
+      );
+      await _settle();
+
+      a.send(
+        ChatFrames.encode(
+          EditFrame(id: _id(1), ts: sentAt, text: 'the door code is 4472'),
+        ),
+      );
+      await _settle();
+
+      expect(
+        (await bob.store.find('alice', _id(1)))!.text,
+        'the door code is 4472',
+      );
+      final reply = (await bob.store.find('alice', _id(2)))!;
+      expect(reply.text, 'got it');
+      expect(reply.replyTo, (id: _id(1), text: 'the door code is 4472'));
+      expect(
+        await bob.secrets.read(ChatStore.contactKey('alice')),
+        isNot(contains('4471')),
+      );
+    });
+
+    test('a peer\'s edit gives the unsent replies to the edited message the new text in the outbox', () async {
+      final (a, b) = _pair();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      a.send(helloAll);
+      await _settle();
+      final sentAt = now.millisecondsSinceEpoch;
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(id: _id(1), ts: sentAt, text: 'the door code is 4471'),
+        ),
+      );
+      await _settle();
+      // Bob's reply to the same message is not acknowledged, so it waits in his
+      // outbox.
+      final mine = await bob.session.sendText(
+        'the code, again',
+        replyTo: (id: _id(1), text: 'the door code is 4471'),
+      );
+      await _settle();
+
+      a.send(
+        ChatFrames.encode(
+          EditFrame(id: _id(1), ts: sentAt, text: 'the door code is 4472'),
+        ),
+      );
+      await _settle();
+
+      // The contact says hello again, so the outbox goes out once more: the
+      // reply goes with the edited text in its quote.
+      a.send(helloAll);
+      await _settle();
+      final again = b.sentFrames
+          .map(ChatFrames.decode)
+          .whereType<MessageFrame>()
+          .where((f) => f.id == mine.id)
+          .last;
+      expect(again.text, 'the code, again');
+      expect(again.reply, (id: _id(1), text: 'the door code is 4472'));
+      expect((await bob.store.find('alice', mine.id))!.replyTo, (
+        id: _id(1),
+        text: 'the door code is 4472',
+      ));
+    });
+
+    test('a reply that arrives after its message was edited here quotes the new text, stored and in the event', () async {
+      final (a, b) = _pair();
+      final alice = _Side('alice', 'bob', a, clock: clock)..start();
+      await _settle();
+      b.send(helloAll);
+      final sentAt = now.millisecondsSinceEpoch;
+      await alice.store.add(
+        ChatMessage(
+          id: _id(1),
+          contactId: 'bob',
+          outgoing: true,
+          ts: sentAt,
+          text: 'the door code is 4471',
+          state: ChatState.delivered,
+        ),
+      );
+      // Alice edits her message here. Bob's reply, written before he had the
+      // edit, still quotes the old text when it arrives.
+      await alice.store.changeMessage(
+        'bob',
+        _id(1),
+        (m) => m.copyWith(
+          text: 'the door code is 4472',
+          editedAt: sentAt + minute,
+        ),
+      );
+      b.send(
+        ChatFrames.encode(
+          MessageFrame(
+            id: _id(2),
+            ts: sentAt,
+            text: 'got it',
+            reply: (id: _id(1), text: 'the door code is 4471'),
+          ),
+        ),
+      );
+      await _settle();
+
+      final reply = (await alice.store.find('bob', _id(2)))!;
+      expect(reply.text, 'got it');
+      expect(reply.replyTo, (id: _id(1), text: 'the door code is 4472'));
+      expect(alice.ofType<MessageReceived>().single.message.replyTo, (
+        id: _id(1),
+        text: 'the door code is 4472',
+      ));
+      expect(
+        await alice.secrets.read(ChatStore.contactKey('bob')),
+        isNot(contains('4471')),
+      );
+    });
+
+    test('a reply that arrives after its message was deleted here quotes no text, and a quote of a message not held here keeps its text', () async {
+      final (a, b) = _pair();
+      final alice = _Side('alice', 'bob', a, clock: clock)..start();
+      await _settle();
+      b.send(helloAll);
+      final sentAt = now.millisecondsSinceEpoch;
+      await alice.store.add(
+        ChatMessage(
+          id: _id(1),
+          contactId: 'bob',
+          outgoing: true,
+          ts: sentAt,
+          text: 'the door code is 4471',
+          state: ChatState.delivered,
+        ),
+      );
+      // Alice deletes her message for everyone while Bob is offline. His reply
+      // is sent later with the old text in its quote.
+      await alice.store.changeMessage(
+        'bob',
+        _id(1),
+        (m) => m.copyWith(text: '', deletedForAll: true, reactions: const {}),
+      );
+      b.send(
+        ChatFrames.encode(
+          MessageFrame(
+            id: _id(2),
+            ts: sentAt,
+            text: 'got it',
+            reply: (id: _id(1), text: 'the door code is 4471'),
+          ),
+        ),
+      );
+      b.send(
+        ChatFrames.encode(
+          MessageFrame(
+            id: _id(3),
+            ts: sentAt,
+            text: 'and that one',
+            reply: (id: _id(9), text: 'a message not held here'),
+          ),
+        ),
+      );
+      await _settle();
+
+      final reply = (await alice.store.find('bob', _id(2)))!;
+      expect(reply.text, 'got it');
+      expect(reply.replyTo, (id: _id(1), text: ''));
+      expect(alice.ofType<MessageReceived>().first.message.replyTo, (
+        id: _id(1),
+        text: '',
+      ));
+      expect((await alice.store.find('bob', _id(3)))!.replyTo, (
+        id: _id(9),
+        text: 'a message not held here',
+      ));
+      expect(
+        await alice.secrets.read(ChatStore.contactKey('bob')),
+        isNot(contains('4471')),
+      );
+    });
+  });
 }
 
 /// A JPEG segment: its marker, its length, then its payload.

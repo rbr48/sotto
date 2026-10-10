@@ -280,7 +280,10 @@ Envelope types. `callId` is the session id: 16 random bytes.
   answers each copy with `chat.text.ack`, which marks it delivered. A message
   that still waits is sent again on the next check (every 30 seconds) while the
   sender's app runs, up to 20 per check. Files and voice notes need the direct
-  chat. Texts from anyone who is not a contact are dropped without an answer.
+  chat, and so do replies and forwarded texts: their fields are negotiated in
+  `hello` (see "Features" below), which the relay never sees. Reactions, edits
+  and deletes never go this way. Texts from anyone who is not a contact are
+  dropped without an answer.
 
 Data-channel frames: UTF-8 JSON, at most 16 KiB each. Text is at most 4,000
 characters after cleaning: control characters (except line breaks and tabs)
@@ -289,8 +292,11 @@ and the ends are trimmed.
 
 | Frame | Meaning |
 |---|---|
-| `{"t":"hello","v":1}` | First frame from each side. Another version ends the session. |
-| `{"t":"msg","id","ts","text"}` | A message. `id`: 16 random bytes. `ts`: sender's clock, ms. |
+| `{"t":"hello","v":1,"features":[…]}` | First frame from each side. Another version ends the session. `features` lists the optional features this side supports (below), and is left out when there are none. |
+| `{"t":"msg","id","ts","text","reply"?,"fwd"?}` | A message. `id`: 16 random bytes. `ts`: sender's clock, ms (see "Clocks" below). `reply`: `{"id","text"}`, the message replied to and a copy of its text. `fwd`: `true` for a forwarded text. |
+| `{"t":"react","id","emoji","ts"}` | The sender's reaction on message `id`. An empty `emoji` removes it. |
+| `{"t":"edit","id","ts","text"}` | New text for the sender's own message `id`, made at `ts`. |
+| `{"t":"delete","id","ts"}` | The sender's own message `id` is deleted for everyone, at `ts`. |
 | `{"t":"ack","id"}` | The message is stored on the receiving device. Sent for every copy received. |
 | `{"t":"bye"}` | The session is ending. |
 
@@ -299,6 +305,114 @@ again (same `id`) is acknowledged but stored once. A session that ends before
 an acknowledgement marks the message not sent; it is sent again in the next
 session. A session with no activity for five minutes closes, unless the chat
 is open on screen or messages are waiting.
+
+### Features
+
+`hello` lists the optional features a side supports, in `features`. The
+version stays 1, and the version check is unchanged.
+
+| Feature | Adds |
+|---|---|
+| `reply` | the `reply` field of `msg` |
+| `fwd` | the `fwd` field of `msg` |
+| `react` | the `react` frame |
+| `edit` | the `edit` frame |
+| `delete` | the `delete` frame |
+
+A side sends a field or frame only when the other side's `hello` lists its
+feature. A `hello` with no `features`, or with a `features` value that is not
+a list, lists none. A name this app does not know is ignored, and a list item
+that is not a string is skipped. Older versions ignore the new fields and
+frames, so text and files work unchanged between old and new versions.
+
+### Replies, forwards, reactions, edits and deletes
+
+- **Reply.** `reply` is `{"id", "text"}`: the id of the message replied to,
+  and a copy of its text. The sender cuts the copy to 200 characters and
+  cleans it as messages are cleaned. The receiver refuses a quote over 200
+  characters (`too-long`) or with a malformed id. If the quote would take the
+  frame past 16 KiB, the message is sent without it, so the message itself
+  still goes. On arrival the receiver sets the quote from its own copy of the
+  message replied to, as that copy is at the time: its text cut to 200
+  characters, or empty if it is deleted for everyone. The quote the sender sent
+  is kept only when the receiver does not hold that message.
+- **Forward.** A forwarded text is an ordinary message with `"fwd": true`. It
+  keeps no reference to the original, and only text is forwarded.
+- **Reaction** (`react`). `emoji` is trimmed. An empty one removes the
+  sender's reaction. Otherwise it must be 1 to 16 UTF-16 code units, with no
+  control characters (U+0000 to U+001F and U+007F), no direction controls
+  (U+202A to U+202E and U+2066 to U+2069) and no lone surrogates. Anything
+  else is refused. Each person has at most one reaction per message, and a new
+  `react` replaces the old one. A reaction may be on any message in the chat.
+  One on an unknown message, or on a message deleted for everyone, is ignored.
+- **Edit** (`edit`). Only the contact's own text messages can be edited. The
+  receiver applies it only if the message is stored, not deleted, `ts` is no
+  earlier than the message's `ts` and at most 15 minutes after it, and the edit
+  is current (below). `text` is cleaned and limited like a message, and it may
+  not be empty. The receiver replaces the text and sets `editedAt` to `ts`. No
+  earlier text is kept.
+- **Delete** (`delete`). Only the contact's own text messages can be deleted
+  for everyone. The receiver applies it only if the message is stored, not
+  already deleted, `ts` is no earlier than the message's `ts` and at most one
+  hour after it, and the delete is current (below). The message stays on record
+  with no text and no reactions, and `deletedForAll` is set. Deleting for
+  everyone is best effort: another device may keep its copy.
+- **Current.** An edit or delete is refused when its `ts` is more than five
+  minutes ahead of the receiver's clock, or more than seven days plus five
+  minutes behind it. The windows above are measured on the control's `ts`; this
+  check keeps that `ts` near the receiver's own clock, so a control cannot
+  rewrite a message long after it was sent, whatever `ts` it carries. A control
+  that waited in the sender's pending list applies when it arrives, as long as
+  it is less than seven days old.
+- **Quotes of a deleted message.** A delete takes the text out of quotes. The
+  deleted message keeps no quote of its own, and each reply to it keeps its
+  `id` with an empty quote text. This happens on the device that deletes and on
+  the contact's device when the delete arrives. A reply still waiting in the
+  outbox is sent with its quote emptied.
+- **Quotes of an edited message.** An edit gives each reply to the message the
+  new text, cut to 200 characters as a quote is, so no quote keeps the earlier
+  text. This happens on the device that edits and on the contact's device when
+  the edit arrives. A reply still waiting in the outbox is sent with the new
+  quote, and a reply that arrives after the edit takes its quote from the
+  receiver's copy (see Reply), so it shows the new text too.
+- Files and voice notes are never edited or deleted for everyone: an edit or
+  delete of one is ignored.
+- A control frame is checked against the owner of its message, and the checks
+  above. One that fails is ignored: no exception, no `ack`, no change.
+- **Clocks.** A message whose `ts` is more than five minutes ahead of the
+  receiver's clock keeps the arrival time as its `ts`. The chat list and search
+  are ordered by each message's time on the device that holds it: the arrival
+  time for an incoming message, its own `ts` for an outgoing one. So a peer
+  cannot pin a chat to the top. `editedAt` is the edit's `ts`, which the
+  current check keeps within seven days of the receiver's clock.
+
+On the sending side, a reaction, edit or delete is applied to this device's
+copy at once. It is sent to the contact over the chat, never through the relay:
+
+- A reaction or an edit on one of this device's messages waits until the
+  contact has stored that message (its state is delivered or read). Otherwise
+  the contact would receive it first and ignore it. A delete does not wait:
+  the message's text is taken off the outbox at once, so it is not sent after
+  the delete, and an unknown id is ignored.
+- A control that cannot be sent (no ready chat, or the contact does not list
+  its feature, or the message has not been stored yet) is kept in the vault
+  under `sotto.chats.pending.<contact id>`, as a list of the frames above in
+  the order made. The list is included in backups, like the chat history. At
+  most one reaction and one edit per message are kept, and a newer one of
+  either kind replaces the older. A delete replaces both. At most 100 controls
+  are kept per contact; past that, the oldest is dropped.
+- A ready chat sends the pending controls after its messages, when the
+  contact's `hello` lists the feature. This is at the `hello`, when a
+  message is acknowledged, and when a control is made. Opening a chat only for
+  pending controls does not happen. A control is dropped without being sent
+  when its message is gone, when a reaction or edit is on a message deleted
+  for everyone, or when an edit or delete is more than seven days old by its
+  own `ts` on the sender's clock, since the contact would refuse it (see
+  "Current" above). The windows are not checked again when the control is
+  sent: an edit or delete made within its window is sent when a chat opens,
+  even after the window has closed, because the contact checks the control's
+  `ts`, not the time it arrives. A contact offline for longer than seven days
+  does not get an edit or delete made in that time; its copy stays as it was.
 
 ## 6. Test vectors
 
