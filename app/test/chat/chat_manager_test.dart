@@ -1518,6 +1518,41 @@ void main() {
       expect(kept.text, 'Lunch?');
     });
 
+    test('a queued message deleted for everyone is never sent; its delete goes with the next chat, and a peer that lacks the message ignores it', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      // Bob has no device yet, so the text cannot go and is queued.
+      final secret = await alice.sendText('bob', 'top secret');
+      await _settle();
+      now = now.add(const Duration(seconds: 21));
+      await alice.tick();
+      await _settle();
+      await alice.queue('bob', secret.id);
+      expect(
+        (await aliceStore.find('bob', secret.id))!.state,
+        ChatState.queued,
+      );
+
+      expect(await alice.deleteForEveryone('bob', secret.id), isTrue);
+      final gone = (await aliceStore.find('bob', secret.id))!;
+      expect(gone.deletedForAll, isTrue);
+      expect(gone.text, isEmpty);
+      // The delete waits with the other controls. The queue no longer holds
+      // the text, so flushing the outbox has nothing to send.
+      expect(await aliceStore.pendingControls('bob'), hasLength(1));
+
+      // Bob comes online. The next chat carries the delete, and Bob has no
+      // such message, so he ignores it. The text never reaches him.
+      final bobStore = ChatStore(MemorySecretStore());
+      device('bob', contacts: {'alice'}, store: bobStore);
+      await alice.sendText('bob', 'hello');
+      await _settle();
+
+      expect(await aliceStore.pendingControls('bob'), isEmpty);
+      expect(await bobStore.find('alice', secret.id), isNull);
+      expect((await bobStore.messages('alice')).map((m) => m.text), ['hello']);
+    });
+
     test('a delete for everyone takes the text out of the replies to it, on both devices', () async {
       final aliceStore = ChatStore(MemorySecretStore());
       final bobStore = ChatStore(MemorySecretStore());
