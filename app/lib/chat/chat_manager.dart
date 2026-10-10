@@ -642,7 +642,12 @@ class ChatManager {
         message.state == ChatState.read) {
       return;
     }
-    await store.setState(from, messageId, ChatState.delivered);
+    await store.setStateAt(
+      from,
+      messageId,
+      ChatState.delivered,
+      at: clock().millisecondsSinceEpoch,
+    );
     _emit(ChatUpdate(from, MessageDelivered(messageId)));
     // A reaction or edit that waited for this message can go now.
     await _flushControls(from);

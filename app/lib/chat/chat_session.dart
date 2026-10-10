@@ -967,7 +967,12 @@ class ChatSession {
         if (!_peerHello) return;
         if (_outbox.remove(id) != null) {
           _unsent.remove(id);
-          await store.setState(contactId, id, ChatState.delivered);
+          await store.setStateAt(
+            contactId,
+            id,
+            ChatState.delivered,
+            at: clock().millisecondsSinceEpoch,
+          );
           _events.add(MessageDelivered(id));
           // A reaction or edit that waited for this message can go now.
           await flushControls();
@@ -977,8 +982,9 @@ class ChatSession {
         _events.add(PeerTyping(typing));
       case ReadFrame(:final ids):
         if (!_peerHello) return;
+        final at = clock().millisecondsSinceEpoch;
         for (final id in ids) {
-          await store.setState(contactId, id, ChatState.read);
+          await store.setStateAt(contactId, id, ChatState.read, at: at);
         }
         _events.add(MessagesRead(ids));
       case FileOfferFrame(

@@ -1755,4 +1755,85 @@ void main() {
       },
     );
   });
+
+  group('starred messages and delivery times', () {
+    test('starred and the times are kept across a reload', () async {
+      await store.add(_message(1));
+      await store.changeMessage(
+        'bob',
+        _id(1),
+        (m) => m.copyWith(starred: true, deliveredAt: 1000, readAt: 2000),
+      );
+
+      final reloaded = await ChatStore(secrets).find('bob', _id(1));
+      expect(reloaded!.starred, isTrue);
+      expect(reloaded.deliveredAt, 1000);
+      expect(reloaded.readAt, 2000);
+    });
+
+    test('a message stored before these fields existed loads with the defaults', () async {
+      await secrets.write(
+        ChatStore.contactKey('bob'),
+        '[{"id":"${_id(1)}","out":true,"ts":1,"text":"old","state":"delivered"}]',
+      );
+
+      final message = (await store.messages('bob')).single;
+      expect(message.starred, isFalse);
+      expect(message.deliveredAt, isNull);
+      expect(message.readAt, isNull);
+    });
+
+    test('a flag or time of the wrong type is reported, not guessed at', () async {
+      for (final field in [
+        '"starred":"yes"',
+        '"deliveredAt":"now"',
+        '"readAt":1.5',
+      ]) {
+        final raw =
+            '[{"id":"${_id(1)}","out":true,"ts":1,"text":"x","state":"delivered",$field}]';
+        await secrets.write(ChatStore.contactKey('bob'), raw);
+
+        await expectLater(
+          ChatStore(secrets).messages('bob'),
+          throwsA(isA<ChatStoreException>()),
+          reason: field,
+        );
+        expect(await secrets.read(ChatStore.contactKey('bob')), raw);
+      }
+    });
+
+    test(
+      'setStateAt sets the state and the time, and keeps the first time',
+      () async {
+        await store.add(_message(1, state: ChatState.sending));
+
+        await store.setStateAt('bob', _id(1), ChatState.delivered, at: 1000);
+        await _expectSummaryInStep(secrets, 'bob');
+        var message = (await store.find('bob', _id(1)))!;
+        expect(message.state, ChatState.delivered);
+        expect(message.deliveredAt, 1000);
+        expect(message.readAt, isNull);
+
+        await store.setStateAt('bob', _id(1), ChatState.delivered, at: 2000);
+        await store.setStateAt('bob', _id(1), ChatState.read, at: 3000);
+        await store.setStateAt('bob', _id(1), ChatState.read, at: 4000);
+        message = (await ChatStore(secrets).find('bob', _id(1)))!;
+        expect(message.state, ChatState.read);
+        expect(message.deliveredAt, 1000);
+        expect(message.readAt, 3000);
+        await _expectSummaryInStep(secrets, 'bob');
+      },
+    );
+
+    test(
+      'setStateAt for a message that is not stored writes nothing',
+      () async {
+        await store.add(_message(1));
+        final before = await secrets.read(ChatStore.contactKey('bob'));
+
+        await store.setStateAt('bob', _id(9), ChatState.read, at: 5);
+        expect(await secrets.read(ChatStore.contactKey('bob')), before);
+      },
+    );
+  });
 }

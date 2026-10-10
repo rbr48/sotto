@@ -40,6 +40,9 @@ class ChatMessage {
     this.editedAt,
     this.deletedForAll = false,
     this.forwarded = false,
+    this.starred = false,
+    this.deliveredAt,
+    this.readAt,
   });
 
   /// 16 random bytes, unpadded base64url. The same on both devices.
@@ -109,6 +112,17 @@ class ChatMessage {
   /// Whether the text was forwarded from another chat.
   final bool forwarded;
 
+  /// Whether this device's owner starred the message. Local only: never sent.
+  final bool starred;
+
+  /// When the other device first acknowledged the message, in milliseconds
+  /// since the epoch. Null until then. Local only: never sent.
+  final int? deliveredAt;
+
+  /// When the contact first read the message, in milliseconds since the
+  /// epoch. Null until then. Local only: never sent.
+  final int? readAt;
+
   bool get isAttachment => fileName != null;
 
   /// This message's time on this device: [ts] for outgoing messages, and
@@ -141,6 +155,9 @@ class ChatMessage {
     editedAt: editedAt,
     deletedForAll: deletedForAll,
     forwarded: forwarded,
+    starred: starred,
+    deliveredAt: deliveredAt,
+    readAt: readAt,
   );
 
   /// The same message with [who]'s reaction set to [emoji]. [who] is "me" or
@@ -179,6 +196,9 @@ class ChatMessage {
     int? editedAt,
     bool? deletedForAll,
     bool? forwarded,
+    bool? starred,
+    int? deliveredAt,
+    int? readAt,
     bool clearReplyTo = false,
   }) => ChatMessage(
     id: id ?? this.id,
@@ -204,6 +224,9 @@ class ChatMessage {
     editedAt: editedAt ?? this.editedAt,
     deletedForAll: deletedForAll ?? this.deletedForAll,
     forwarded: forwarded ?? this.forwarded,
+    starred: starred ?? this.starred,
+    deliveredAt: deliveredAt ?? this.deliveredAt,
+    readAt: readAt ?? this.readAt,
   );
 
   Map<String, Object?> toJson() => {
@@ -230,6 +253,9 @@ class ChatMessage {
     if (editedAt != null) 'editedAt': editedAt,
     if (deletedForAll) 'deletedForAll': true,
     if (forwarded) 'forwarded': true,
+    if (starred) 'starred': true,
+    if (deliveredAt != null) 'deliveredAt': deliveredAt,
+    if (readAt != null) 'readAt': readAt,
   };
 
   static ChatMessage fromJson(String contactId, Map<String, dynamic> json) {
@@ -255,6 +281,9 @@ class ChatMessage {
     final editedAt = json['editedAt'];
     final deletedForAll = json['deletedForAll'];
     final forwarded = json['forwarded'];
+    final starred = json['starred'];
+    final deliveredAt = json['deliveredAt'];
+    final readAt = json['readAt'];
     if (id is! String ||
         outgoing is! bool ||
         ts is! int ||
@@ -276,7 +305,10 @@ class ChatMessage {
         reactions == null ||
         (editedAt != null && editedAt is! int) ||
         (deletedForAll != null && deletedForAll is! bool) ||
-        (forwarded != null && forwarded is! bool)) {
+        (forwarded != null && forwarded is! bool) ||
+        (starred != null && starred is! bool) ||
+        (deliveredAt != null && deliveredAt is! int) ||
+        (readAt != null && readAt is! int)) {
       throw const ChatStoreException('unreadable');
     }
     return ChatMessage(
@@ -303,6 +335,9 @@ class ChatMessage {
       editedAt: editedAt as int?,
       deletedForAll: deletedForAll == true,
       forwarded: forwarded == true,
+      starred: starred == true,
+      deliveredAt: deliveredAt as int?,
+      readAt: readAt as int?,
     );
   }
 
@@ -687,6 +722,29 @@ class ChatStore {
     list[index] = list[index].withState(state, reason: reason);
     await _saveContact(contactId, list);
   });
+
+  /// Sets the state of message [id] to [state] and records when it happened,
+  /// in one write: [ChatState.delivered] sets [ChatMessage.deliveredAt] and
+  /// [ChatState.read] sets [ChatMessage.readAt], each only the first time.
+  /// [at] is in milliseconds since the epoch.
+  Future<void> setStateAt(
+    String contactId,
+    String id,
+    ChatState state, {
+    required int at,
+  }) {
+    assert(state == ChatState.delivered || state == ChatState.read);
+    return _inOrder(() async {
+      final list = [...await _loadContact(contactId)];
+      final index = list.indexWhere((m) => m.id == id);
+      if (index < 0) return;
+      final message = list[index].withState(state);
+      list[index] = state == ChatState.read
+          ? message.copyWith(readAt: list[index].readAt ?? at)
+          : message.copyWith(deliveredAt: list[index].deliveredAt ?? at);
+      await _saveContact(contactId, list);
+    });
+  }
 
   /// Changes the message [id] in the chat with [contactId]. [change] gets the
   /// stored message and returns its replacement, or null to leave it as it is.

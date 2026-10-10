@@ -823,6 +823,39 @@ void main() {
       },
     );
 
+    test('a relay ack records when it arrived, the first time only', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      // Nobody is set up for Bob here, so nothing acknowledges the text yet.
+      final message = await alice.sendText('bob', 'hello');
+      await _settle();
+
+      now = now.add(const Duration(minutes: 5));
+      final ackedAt = now.millisecondsSinceEpoch;
+      alice.handle(
+        from: 'bob',
+        type: ChatManager.relayTextAck,
+        body: {'id': message.id},
+        callId: null,
+      );
+      await _settle();
+      var stored = (await aliceStore.find('bob', message.id))!;
+      expect(stored.state, ChatState.delivered);
+      expect(stored.deliveredAt, ackedAt);
+      expect(stored.readAt, isNull);
+
+      now = now.add(const Duration(minutes: 5));
+      alice.handle(
+        from: 'bob',
+        type: ChatManager.relayTextAck,
+        body: {'id': message.id},
+        callId: null,
+      );
+      await _settle();
+      stored = (await aliceStore.find('bob', message.id))!;
+      expect(stored.deliveredAt, ackedAt);
+    });
+
     test(
       'a text that arrives twice is stored once and acknowledged each time',
       () async {
