@@ -376,5 +376,29 @@
       "emoji": { "type": "String" },
       "who": { "type": "String" }
     }
-  }
+  },
+  "chatsPinned": "Pinned",
+  "chatsArchivedRow": "Archived ({count})",
+  "@chatsArchivedRow": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "chatsPinLimit": "You can pin up to three chats. Unpin one to pin another.",
+  "chatMuted": "Muted",
+  "chatPin": "Pin to top",
+  "chatUnpin": "Unpin",
+  "chatMute": "Mute",
+  "chatUnmute": "Unmute",
+  "chatArchive": "Archive",
+  "chatUnarchive": "Unarchive",
+  "chatStar": "Star",
+  "chatUnstar": "Unstar",
+  "chatMessageInfo": "Message info",
+  "chatInfoSent": "Sent",
+  "chatStarredMessages": "Starred messages",
+  "chatStarredEmpty": "No starred messages. Star a message to find it here."
 }

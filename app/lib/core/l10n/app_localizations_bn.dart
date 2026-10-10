@@ -643,4 +643,56 @@ class AppLocalizationsBn extends AppLocalizations {
   String chatReactionSemantics(String emoji, String who) {
     return '$emoji, $who';
   }
+
+  @override
+  String get chatsPinned => 'পিন করা';
+
+  @override
+  String chatsArchivedRow(int count) {
+    return 'সংরক্ষিত ($count)';
+  }
+
+  @override
+  String get chatsPinLimit =>
+      'সর্বোচ্চ তিনটি চ্যাট পিন করা যায়। আরেকটি পিন করতে আগে একটির পিন খুলুন।';
+
+  @override
+  String get chatMuted => 'নীরব';
+
+  @override
+  String get chatPin => 'উপরে পিন করুন';
+
+  @override
+  String get chatUnpin => 'পিন খুলুন';
+
+  @override
+  String get chatMute => 'নীরব করুন';
+
+  @override
+  String get chatUnmute => 'নীরবতা বন্ধ করুন';
+
+  @override
+  String get chatArchive => 'সংরক্ষণ করুন';
+
+  @override
+  String get chatUnarchive => 'সংরক্ষণ থেকে সরান';
+
+  @override
+  String get chatStar => 'তারকা দিন';
+
+  @override
+  String get chatUnstar => 'তারকা সরান';
+
+  @override
+  String get chatMessageInfo => 'বার্তার তথ্য';
+
+  @override
+  String get chatInfoSent => 'পাঠানো হয়েছে';
+
+  @override
+  String get chatStarredMessages => 'তারকা দেওয়া বার্তা';
+
+  @override
+  String get chatStarredEmpty =>
+      'কোনো তারকা দেওয়া বার্তা নেই। কোনো বার্তায় তারকা দিলে এখানে পাওয়া যাবে।';
 }

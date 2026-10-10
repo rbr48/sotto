@@ -178,5 +178,21 @@
   "chatSendRefused": "تعذّر إرسال الرسالة.",
   "chatForwardTitle": "إعادة التوجيه إلى",
   "chatYou": "أنت",
-  "chatReactionSemantics": "{emoji}، {who}"
+  "chatReactionSemantics": "{emoji}، {who}",
+  "chatsPinned": "مثبّتة",
+  "chatsArchivedRow": "المؤرشفة ({count})",
+  "chatsPinLimit": "يمكنك تثبيت ثلاث محادثات كحد أقصى. ألغِ تثبيت إحداها لتثبيت أخرى.",
+  "chatMuted": "مكتومة",
+  "chatPin": "تثبيت في الأعلى",
+  "chatUnpin": "إلغاء التثبيت",
+  "chatMute": "كتم",
+  "chatUnmute": "إلغاء الكتم",
+  "chatArchive": "أرشفة",
+  "chatUnarchive": "إلغاء الأرشفة",
+  "chatStar": "تمييز بنجمة",
+  "chatUnstar": "إزالة النجمة",
+  "chatMessageInfo": "معلومات الرسالة",
+  "chatInfoSent": "أُرسلت",
+  "chatStarredMessages": "الرسائل المميزة بنجمة",
+  "chatStarredEmpty": "لا توجد رسائل مميزة بنجمة. مَيِّز رسالة بنجمة لتجدها هنا."
 }

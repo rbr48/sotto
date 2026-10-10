@@ -653,4 +653,56 @@ class AppLocalizationsAr extends AppLocalizations {
   String chatReactionSemantics(String emoji, String who) {
     return '$emoji، $who';
   }
+
+  @override
+  String get chatsPinned => 'مثبّتة';
+
+  @override
+  String chatsArchivedRow(int count) {
+    return 'المؤرشفة ($count)';
+  }
+
+  @override
+  String get chatsPinLimit =>
+      'يمكنك تثبيت ثلاث محادثات كحد أقصى. ألغِ تثبيت إحداها لتثبيت أخرى.';
+
+  @override
+  String get chatMuted => 'مكتومة';
+
+  @override
+  String get chatPin => 'تثبيت في الأعلى';
+
+  @override
+  String get chatUnpin => 'إلغاء التثبيت';
+
+  @override
+  String get chatMute => 'كتم';
+
+  @override
+  String get chatUnmute => 'إلغاء الكتم';
+
+  @override
+  String get chatArchive => 'أرشفة';
+
+  @override
+  String get chatUnarchive => 'إلغاء الأرشفة';
+
+  @override
+  String get chatStar => 'تمييز بنجمة';
+
+  @override
+  String get chatUnstar => 'إزالة النجمة';
+
+  @override
+  String get chatMessageInfo => 'معلومات الرسالة';
+
+  @override
+  String get chatInfoSent => 'أُرسلت';
+
+  @override
+  String get chatStarredMessages => 'الرسائل المميزة بنجمة';
+
+  @override
+  String get chatStarredEmpty =>
+      'لا توجد رسائل مميزة بنجمة. مَيِّز رسالة بنجمة لتجدها هنا.';
 }

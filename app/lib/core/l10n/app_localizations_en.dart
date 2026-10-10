@@ -640,4 +640,56 @@ class AppLocalizationsEn extends AppLocalizations {
   String chatReactionSemantics(String emoji, String who) {
     return '$emoji, $who';
   }
+
+  @override
+  String get chatsPinned => 'Pinned';
+
+  @override
+  String chatsArchivedRow(int count) {
+    return 'Archived ($count)';
+  }
+
+  @override
+  String get chatsPinLimit =>
+      'You can pin up to three chats. Unpin one to pin another.';
+
+  @override
+  String get chatMuted => 'Muted';
+
+  @override
+  String get chatPin => 'Pin to top';
+
+  @override
+  String get chatUnpin => 'Unpin';
+
+  @override
+  String get chatMute => 'Mute';
+
+  @override
+  String get chatUnmute => 'Unmute';
+
+  @override
+  String get chatArchive => 'Archive';
+
+  @override
+  String get chatUnarchive => 'Unarchive';
+
+  @override
+  String get chatStar => 'Star';
+
+  @override
+  String get chatUnstar => 'Unstar';
+
+  @override
+  String get chatMessageInfo => 'Message info';
+
+  @override
+  String get chatInfoSent => 'Sent';
+
+  @override
+  String get chatStarredMessages => 'Starred messages';
+
+  @override
+  String get chatStarredEmpty =>
+      'No starred messages. Star a message to find it here.';
 }

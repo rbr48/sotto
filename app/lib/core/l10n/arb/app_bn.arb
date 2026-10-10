@@ -178,5 +178,21 @@
   "chatSendRefused": "বার্তাটি পাঠানো যায়নি।",
   "chatForwardTitle": "কাকে পাঠাবেন",
   "chatYou": "আপনি",
-  "chatReactionSemantics": "{emoji}, {who}"
+  "chatReactionSemantics": "{emoji}, {who}",
+  "chatsPinned": "পিন করা",
+  "chatsArchivedRow": "সংরক্ষিত ({count})",
+  "chatsPinLimit": "সর্বোচ্চ তিনটি চ্যাট পিন করা যায়। আরেকটি পিন করতে আগে একটির পিন খুলুন।",
+  "chatMuted": "নীরব",
+  "chatPin": "উপরে পিন করুন",
+  "chatUnpin": "পিন খুলুন",
+  "chatMute": "নীরব করুন",
+  "chatUnmute": "নীরবতা বন্ধ করুন",
+  "chatArchive": "সংরক্ষণ করুন",
+  "chatUnarchive": "সংরক্ষণ থেকে সরান",
+  "chatStar": "তারকা দিন",
+  "chatUnstar": "তারকা সরান",
+  "chatMessageInfo": "বার্তার তথ্য",
+  "chatInfoSent": "পাঠানো হয়েছে",
+  "chatStarredMessages": "তারকা দেওয়া বার্তা",
+  "chatStarredEmpty": "কোনো তারকা দেওয়া বার্তা নেই। কোনো বার্তায় তারকা দিলে এখানে পাওয়া যাবে।"
 }
