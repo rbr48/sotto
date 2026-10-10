@@ -437,7 +437,11 @@ class ChatStore {
       'sotto.chats.pending.$contactId';
 
   /// Storage key for a chat's summary: its last message as stored and its
-  /// unread count. Written with every change to the chat's messages.
+  /// unread count. Written with every change to the chat's messages. The chat
+  /// list trusts it without checking the messages, so a build that changes a
+  /// chat without writing its summary leaves the list stale until that chat
+  /// changes again. So one vault must not be shared with such a build
+  /// (`docs/PROTOCOL.md`, section 9).
   static String summaryKey(String contactId) =>
       'sotto.chats.summary.$contactId';
 
