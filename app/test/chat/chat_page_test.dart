@@ -12,6 +12,7 @@ import 'package:sotto/call/screen_awake.dart';
 import 'package:sotto/contacts/contact_book.dart';
 import 'package:sotto/chat/chat_frames.dart';
 import 'package:sotto/chat/chat_manager.dart';
+import 'package:sotto/chat/chat_session.dart';
 import 'package:sotto/chat/chat_store.dart';
 import 'package:sotto/chat/file_storage.dart';
 import 'package:sotto/chat/ui/chat_page.dart';
@@ -1319,6 +1320,59 @@ void main() {
         ))!;
         expect(removed.reactions, isEmpty);
         expect(find.text('👍'), findsNothing);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'the other person\'s reaction, edit and delete show in the open chat when the session reports them',
+      (tester) async {
+        final mine = text('Our plan', outgoing: true);
+        final theirs = text('Old words', outgoing: false);
+        await tester.runAsync(() async {
+          await store.add(mine);
+          await store.add(theirs);
+        });
+        await pumpPage(tester);
+
+        // The contact reacts to my message. The store changes; the session
+        // reports which message changed, and the open chat reloads.
+        await tester.runAsync(
+          () => store.changeMessage(
+            'bob',
+            mine.id,
+            (m) => m.withReaction('peer', '\u{1F44D}'),
+          ),
+        );
+        chat.publishForTest(ChatUpdate('bob', MessageChanged(mine.id)));
+        await settleStore(tester);
+        expect(find.text('\u{1F44D}'), findsOneWidget);
+
+        await tester.runAsync(
+          () => store.changeMessage(
+            'bob',
+            theirs.id,
+            (m) => m.copyWith(text: 'New words', editedAt: nowMs()),
+          ),
+        );
+        chat.publishForTest(ChatUpdate('bob', MessageChanged(theirs.id)));
+        await settleStore(tester);
+        expect(find.text('New words'), findsOneWidget);
+        expect(find.text('Edited'), findsOneWidget);
+        expect(find.text('Old words'), findsNothing);
+
+        await tester.runAsync(
+          () => store.changeMessage(
+            'bob',
+            theirs.id,
+            (m) =>
+                m.copyWith(text: '', deletedForAll: true, reactions: const {}),
+          ),
+        );
+        chat.publishForTest(ChatUpdate('bob', MessageChanged(theirs.id)));
+        await settleStore(tester);
+        expect(find.text('New words'), findsNothing);
+        expect(find.text('Message deleted'), findsOneWidget);
         await leave(tester);
       },
     );
