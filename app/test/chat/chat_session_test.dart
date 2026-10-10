@@ -1488,6 +1488,346 @@ void main() {
       );
     });
   });
+
+  group('replies, forwards, reactions, edits and deletes', () {
+    const minute = 60 * 1000;
+
+    /// A hello from a contact that lists every feature this app has.
+    const helloAll =
+        '{"t":"hello","v":1,"features":["reply","fwd","react","edit","delete"]}';
+
+    test(
+      'both sides list the features, so a reply and a forward arrive',
+      () async {
+        final (a, b) = _pair();
+        final alice = _Side('alice', 'bob', a, clock: clock)..start();
+        final bob = _Side('bob', 'alice', b, clock: clock)..start();
+        await _settle();
+
+        final first = await alice.session.sendText('Are you free?');
+        await _settle();
+        final reply = await alice.session.sendText(
+          'Yes',
+          replyTo: (id: first.id, text: 'Are you free?'),
+          forwarded: true,
+        );
+        await _settle();
+
+        final hello = ChatFrames.decode(a.sentFrames.first) as HelloFrame;
+        expect(hello.features, unorderedEquals(ChatFrames.features));
+        final received = (await bob.store.find('alice', reply.id))!;
+        expect(received.replyTo, (id: first.id, text: 'Are you free?'));
+        expect(received.forwarded, isTrue);
+        expect(received.outgoing, isFalse);
+      },
+    );
+
+    test(
+      'a contact whose hello lists no features gets a plain message',
+      () async {
+        final (a, b) = _pair();
+        final alice = _Side('alice', 'bob', a, clock: clock)..start();
+        await _settle();
+        final heard = <String>[];
+        b.frames.listen(heard.add);
+        b.send('{"t":"hello","v":1}');
+        await _settle();
+
+        await alice.session.sendText(
+          'Yes',
+          replyTo: (id: _id(9), text: 'Are you free?'),
+          forwarded: true,
+        );
+        await _settle();
+
+        final sent = heard.singleWhere((f) => f.contains('"t":"msg"'));
+        expect(sent, isNot(contains('"reply"')));
+        expect(sent, isNot(contains('"fwd"')));
+        final message = ChatFrames.decode(sent) as MessageFrame;
+        expect(message.text, 'Yes');
+        expect(message.reply, isNull);
+        expect(message.forwarded, isFalse);
+      },
+    );
+
+    test(
+      'a contact that lists only forwards gets the mark, not the quote',
+      () async {
+        final (a, b) = _pair();
+        final alice = _Side('alice', 'bob', a, clock: clock)..start();
+        await _settle();
+        final heard = <String>[];
+        b.frames.listen(heard.add);
+        b.send('{"t":"hello","v":1,"features":["fwd"]}');
+        await _settle();
+
+        await alice.session.sendText(
+          'Yes',
+          replyTo: (id: _id(9), text: 'Are you free?'),
+          forwarded: true,
+        );
+        await _settle();
+
+        final message = ChatFrames.decode(
+          heard.singleWhere((f) => f.contains('"t":"msg"')),
+        ) as MessageFrame;
+        expect(message.reply, isNull);
+        expect(message.forwarded, isTrue);
+      },
+    );
+
+    test('an edit from the contact applies up to 15 minutes after the message, and not after', () async {
+      final (a, b) = _pair();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      a.send(helloAll);
+      final sentAt = now.millisecondsSinceEpoch;
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(id: _id(1), ts: sentAt, text: 'first try'),
+        ),
+      );
+      await _settle();
+
+      a.send(
+        ChatFrames.encode(
+          EditFrame(id: _id(1), ts: sentAt + 10 * minute, text: 'fixed'),
+        ),
+      );
+      await _settle();
+      var stored = (await bob.store.find('alice', _id(1)))!;
+      expect(stored.text, 'fixed');
+      expect(stored.editedAt, sentAt + 10 * minute);
+      expect(stored.outgoing, isFalse);
+
+      // Exactly 15 minutes after the message is still inside the window.
+      a.send(
+        ChatFrames.encode(
+          EditFrame(id: _id(1), ts: sentAt + 15 * minute, text: 'at the limit'),
+        ),
+      );
+      await _settle();
+      expect((await bob.store.find('alice', _id(1)))!.text, 'at the limit');
+
+      // Sixteen minutes after the message: refused, and nothing changes.
+      a.send(
+        ChatFrames.encode(
+          EditFrame(id: _id(1), ts: sentAt + 16 * minute, text: 'too late'),
+        ),
+      );
+      await _settle();
+      stored = (await bob.store.find('alice', _id(1)))!;
+      expect(stored.text, 'at the limit');
+      expect(stored.editedAt, sentAt + 15 * minute);
+
+      // An edit dated before the message is refused too.
+      a.send(
+        ChatFrames.encode(
+          EditFrame(id: _id(1), ts: sentAt - 1, text: 'before'),
+        ),
+      );
+      await _settle();
+      expect((await bob.store.find('alice', _id(1)))!.text, 'at the limit');
+      expect(bob.session.isEnded, isFalse);
+    });
+
+    test('an edit or delete of the contact\'s own message is ignored; a reaction on it is kept', () async {
+      final (a, b) = _pair();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      a.send(helloAll);
+      await _settle();
+      final mine = await bob.session.sendText('mine');
+      await _settle();
+
+      final sentAt = now.millisecondsSinceEpoch;
+      a.send(
+        ChatFrames.encode(EditFrame(id: mine.id, ts: sentAt, text: 'changed')),
+      );
+      a.send(ChatFrames.encode(DeleteFrame(id: mine.id, ts: sentAt)));
+      a.send(
+        ChatFrames.encode(
+          ReactFrame(id: mine.id, emoji: '\u{1F44D}', ts: sentAt),
+        ),
+      );
+      await _settle();
+
+      final stored = (await bob.store.find('alice', mine.id))!;
+      expect(stored.text, 'mine');
+      expect(stored.editedAt, isNull);
+      expect(stored.deletedForAll, isFalse);
+      expect(stored.reactions, {'peer': '\u{1F44D}'});
+    });
+
+    test('a delete from the contact applies up to an hour after the message and keeps the record', () async {
+      final (a, b) = _pair();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      a.send(helloAll);
+      final sentAt = now.millisecondsSinceEpoch;
+      a.send(
+        ChatFrames.encode(MessageFrame(id: _id(1), ts: sentAt, text: 'secret')),
+      );
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(id: _id(2), ts: sentAt, text: 'too late to delete'),
+        ),
+      );
+      a.send(
+        ChatFrames.encode(
+          ReactFrame(id: _id(1), emoji: '\u{1F44D}', ts: sentAt),
+        ),
+      );
+      await _settle();
+      expect((await bob.store.find('alice', _id(1)))!.reactions, {
+        'peer': '\u{1F44D}',
+      });
+
+      a.send(
+        ChatFrames.encode(DeleteFrame(id: _id(1), ts: sentAt + 59 * minute)),
+      );
+      a.send(
+        ChatFrames.encode(DeleteFrame(id: _id(2), ts: sentAt + 61 * minute)),
+      );
+      await _settle();
+
+      final deleted = (await bob.store.find('alice', _id(1)))!;
+      expect(deleted.deletedForAll, isTrue);
+      expect(deleted.text, isEmpty);
+      expect(deleted.reactions, isEmpty);
+      final kept = (await bob.store.find('alice', _id(2)))!;
+      expect(kept.deletedForAll, isFalse);
+      expect(kept.text, 'too late to delete');
+
+      // A deleted message takes no more reactions.
+      a.send(
+        ChatFrames.encode(
+          ReactFrame(id: _id(1), emoji: '\u{2764}', ts: sentAt + 60 * minute),
+        ),
+      );
+      await _settle();
+      expect((await bob.store.find('alice', _id(1)))!.reactions, isEmpty);
+    });
+
+    test('a reaction replaces the one before it, an empty one removes it, and one on an unknown message is ignored', () async {
+      final (a, b) = _pair();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      a.send(helloAll);
+      final sentAt = now.millisecondsSinceEpoch;
+      a.send(
+        ChatFrames.encode(MessageFrame(id: _id(1), ts: sentAt, text: 'hi')),
+      );
+      await _settle();
+
+      Future<void> react(String id, String emoji) async {
+        a.send(ChatFrames.encode(ReactFrame(id: id, emoji: emoji, ts: sentAt)));
+        await _settle();
+      }
+
+      await react(_id(1), '\u{1F44D}');
+      expect((await bob.store.find('alice', _id(1)))!.reactions, {
+        'peer': '\u{1F44D}',
+      });
+      await react(_id(1), '\u{2764}️');
+      expect((await bob.store.find('alice', _id(1)))!.reactions, {
+        'peer': '\u{2764}️',
+      });
+      await react(_id(1), '');
+      expect((await bob.store.find('alice', _id(1)))!.reactions, isEmpty);
+
+      await react(_id(99), '\u{1F602}');
+      expect(bob.session.isEnded, isFalse);
+      expect(await bob.store.messages('alice'), hasLength(1));
+      expect(await bob.store.contains('alice', _id(99)), isFalse);
+    });
+
+    test(
+      'a pending reaction waits while the contact does not list it',
+      () async {
+        final (a, b) = _pair();
+        final alice = _Side('alice', 'bob', a, clock: clock)..start();
+        await _settle();
+        final heard = <String>[];
+        b.frames.listen(heard.add);
+        b.send('{"t":"hello","v":1,"features":["reply"]}');
+        await _settle();
+
+        await alice.store.add(
+          ChatMessage(
+            id: _id(1),
+            contactId: 'bob',
+            outgoing: false,
+            ts: now.millisecondsSinceEpoch,
+            text: 'hi',
+            state: ChatState.received,
+            read: false,
+          ),
+        );
+        await alice.store.queueControl(
+          'bob',
+          ReactFrame(
+            id: _id(1),
+            emoji: '\u{1F44D}',
+            ts: now.millisecondsSinceEpoch,
+          ),
+        );
+        await alice.session.flushControls();
+        await _settle();
+
+        expect(heard.where((f) => f.contains('"t":"react"')), isEmpty);
+        expect(await alice.store.pendingControls('bob'), hasLength(1));
+      },
+    );
+
+    test(
+      'a pending reaction is sent once the contact lists the feature',
+      () async {
+        final (a, b) = _pair();
+        final alice = _Side('alice', 'bob', a, clock: clock)..start();
+        final bob = _Side('bob', 'alice', b, clock: clock)..start();
+        await _settle();
+        // Bob's message, as each device keeps it.
+        await bob.store.add(
+          ChatMessage(
+            id: _id(1),
+            contactId: 'alice',
+            outgoing: true,
+            ts: now.millisecondsSinceEpoch,
+            text: 'Lunch?',
+            state: ChatState.read,
+          ),
+        );
+        await alice.store.add(
+          ChatMessage(
+            id: _id(1),
+            contactId: 'bob',
+            outgoing: false,
+            ts: now.millisecondsSinceEpoch,
+            text: 'Lunch?',
+            state: ChatState.received,
+            read: false,
+          ),
+        );
+
+        await alice.store.queueControl(
+          'bob',
+          ReactFrame(
+            id: _id(1),
+            emoji: '\u{1F44D}',
+            ts: now.millisecondsSinceEpoch,
+          ),
+        );
+        await alice.session.flushControls();
+        await _settle();
+
+        expect((await bob.store.find('alice', _id(1)))!.reactions, {
+          'peer': '\u{1F44D}',
+        });
+        expect(await alice.store.pendingControls('bob'), isEmpty);
+      },
+    );
+  });
 }
 
 /// A JPEG segment: its marker, its length, then its payload.

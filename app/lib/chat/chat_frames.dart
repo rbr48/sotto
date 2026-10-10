@@ -29,17 +29,40 @@ const int maxExtensionBytes = 40;
 /// The longest MIME type a file offer may carry (characters).
 const int maxMimeChars = 128;
 
+/// The longest quote a reply carries, in characters.
+const int maxReplyChars = 200;
+
+/// The longest reaction, in UTF-16 code units after trimming.
+const int maxEmojiUnits = 16;
+
+/// How long after a message is sent its sender may edit it, and delete it for
+/// everyone.
+const Duration editWindow = Duration(minutes: 15);
+const Duration deleteWindow = Duration(hours: 1);
+
+/// The message a reply answers: its id, and a copy of its text.
+typedef ChatReply = ({String id, String text});
+
 sealed class ChatFrame {
   const ChatFrame();
 }
 
-/// The first frame from each side. Other versions close the session.
+/// The first frame from each side. Other versions close the session. [features]
+/// are the optional features the sender supports (see [ChatFrames.features]).
 final class HelloFrame extends ChatFrame {
-  const HelloFrame();
+  const HelloFrame({this.features = const <String>{}});
+
+  final Set<String> features;
 }
 
 final class MessageFrame extends ChatFrame {
-  const MessageFrame({required this.id, required this.ts, required this.text});
+  const MessageFrame({
+    required this.id,
+    required this.ts,
+    required this.text,
+    this.reply,
+    this.forwarded = false,
+  });
 
   /// 16 random bytes, unpadded base64url.
   final String id;
@@ -48,6 +71,12 @@ final class MessageFrame extends ChatFrame {
   final int ts;
 
   final String text;
+
+  /// The message this one replies to, if the sender sent the quote.
+  final ChatReply? reply;
+
+  /// Whether the text was forwarded from another chat.
+  final bool forwarded;
 }
 
 /// The receiver has stored the message with this [id] and verified it.
@@ -99,6 +128,55 @@ final class FileOfferFrame extends ChatFrame {
   /// Whether the offer is a voice note (`kind` is `voice` on the wire). An
   /// offer without a kind is a plain file, whatever its MIME type.
   final bool voice;
+}
+
+/// A change to a message, made by the sender of that message, or a reaction on
+/// any message in the chat. [id] names the message; [ts] is when the change
+/// was made.
+sealed class ControlFrame extends ChatFrame {
+  const ControlFrame();
+
+  String get id;
+  int get ts;
+}
+
+/// The sender's reaction on a message. An empty [emoji] removes it.
+final class ReactFrame extends ControlFrame {
+  const ReactFrame({required this.id, required this.emoji, required this.ts});
+
+  @override
+  final String id;
+
+  /// The reaction after trimming: empty, or 1 to [maxEmojiUnits] code units.
+  final String emoji;
+
+  @override
+  final int ts;
+}
+
+/// A new text for the sender's own message.
+final class EditFrame extends ControlFrame {
+  const EditFrame({required this.id, required this.ts, required this.text});
+
+  @override
+  final String id;
+
+  @override
+  final int ts;
+
+  /// The new text after cleaning. Never empty.
+  final String text;
+}
+
+/// The sender deletes its own message for everyone.
+final class DeleteFrame extends ControlFrame {
+  const DeleteFrame({required this.id, required this.ts});
+
+  @override
+  final String id;
+
+  @override
+  final int ts;
 }
 
 /// The receiver accepts the offered file transfer.
@@ -178,16 +256,132 @@ abstract final class ChatFrames {
     return buffer.toString().trim();
   }
 
+  /// The optional features, listed in `hello`. A side sends a feature's frame
+  /// or field only when the other side lists the feature.
+  static const featureReply = 'reply';
+  static const featureForward = 'fwd';
+  static const featureReact = 'react';
+  static const featureEdit = 'edit';
+  static const featureDelete = 'delete';
+
+  /// The features this app supports.
+  static const features = {
+    featureReply,
+    featureForward,
+    featureReact,
+    featureEdit,
+    featureDelete,
+  };
+
+  /// Cleans a reaction. The result is empty (remove the reaction) or 1 to
+  /// [maxEmojiUnits] UTF-16 code units, with no control characters (U+0000 to
+  /// U+001F and U+007F), no direction controls (U+202A to U+202E and U+2066 to
+  /// U+2069) and no lone surrogates. Throws [ChatFrameException] otherwise.
+  static String cleanEmoji(String input) {
+    final emoji = input.trim();
+    if (emoji.isEmpty) return '';
+    if (emoji.length > maxEmojiUnits) {
+      throw const ChatFrameException('too-long');
+    }
+    for (final rune in emoji.runes) {
+      final forbidden =
+          rune < 0x20 ||
+          rune == 0x7F ||
+          (rune >= 0x202A && rune <= 0x202E) ||
+          (rune >= 0x2066 && rune <= 0x2069) ||
+          (rune >= 0xD800 && rune <= 0xDFFF);
+      if (forbidden) throw const ChatFrameException('malformed');
+    }
+    return emoji;
+  }
+
+  /// The quote a reply carries for [text]: its first [maxReplyChars]
+  /// characters, cleaned.
+  static String quoteText(String text) =>
+      cleanText(String.fromCharCodes(text.runes.take(maxReplyChars)));
+
+  /// Whether [changeTs] is at or after [ts], and at most [window] later. Used
+  /// for an edit or delete, measured from the time the message was sent.
+  static bool withinWindow(int ts, int changeTs, Duration window) =>
+      changeTs >= ts && changeTs - ts <= window.inMilliseconds;
+
+  /// Whether [frame] encodes within the frame size limit.
+  static bool fits(ChatFrame frame) {
+    try {
+      encode(frame);
+      return true;
+    } on ChatFrameException {
+      return false;
+    }
+  }
+
+  /// The features a hello lists. Names this app does not know are kept but
+  /// unused; a hello without a list, or with a list that is not of strings,
+  /// supports none.
+  static Set<String> _features(Object? raw) {
+    final listed = <String>{};
+    if (raw is List) {
+      for (final item in raw) {
+        if (item is String) listed.add(item);
+      }
+    }
+    return listed;
+  }
+
+  /// The quote of a reply, or null when the message has none.
+  static ChatReply? _reply(Object? raw) {
+    if (raw == null) return null;
+    if (raw is! Map<String, dynamic>) {
+      throw const ChatFrameException('malformed');
+    }
+    final id = _id(raw['id']);
+    final text = raw['text'];
+    if (text is! String) throw const ChatFrameException('malformed');
+    final quoted = cleanText(text);
+    if (quoted.runes.length > maxReplyChars) {
+      throw const ChatFrameException('too-long');
+    }
+    return (id: id, text: quoted);
+  }
+
   /// Encodes [frame] as the text of one data-channel message.
   static String encode(ChatFrame frame) {
     final json = switch (frame) {
-      HelloFrame() => {'t': 'hello', 'v': chatProtocolVersion},
-      MessageFrame(:final id, :final ts, :final text) => {
-        't': 'msg',
+      HelloFrame(:final features) => {
+        't': 'hello',
+        'v': chatProtocolVersion,
+        // Left out when empty, so a hello without features is as it was.
+        if (features.isNotEmpty) 'features': features.toList(),
+      },
+      MessageFrame(
+        :final id,
+        :final ts,
+        :final text,
+        :final reply,
+        :final forwarded,
+      ) =>
+        {
+          't': 'msg',
+          'id': id,
+          'ts': ts,
+          'text': text,
+          if (reply case final quote?)
+            'reply': {'id': quote.id, 'text': quote.text},
+          if (forwarded) 'fwd': true,
+        },
+      ReactFrame(:final id, :final emoji, :final ts) => {
+        't': 'react',
+        'id': id,
+        'emoji': emoji,
+        'ts': ts,
+      },
+      EditFrame(:final id, :final ts, :final text) => {
+        't': 'edit',
         'id': id,
         'ts': ts,
         'text': text,
       },
+      DeleteFrame(:final id, :final ts) => {'t': 'delete', 'id': id, 'ts': ts},
       AckFrame(:final id) => {'t': 'ack', 'id': id},
       TypingFrame(:final typing) => {'t': 'typing', 'typing': typing},
       ReadFrame(:final ids) => {'t': 'read', 'ids': ids},
@@ -249,7 +443,7 @@ abstract final class ChatFrames {
         if (json['v'] != chatProtocolVersion) {
           throw const ChatFrameException('version');
         }
-        return const HelloFrame();
+        return HelloFrame(features: _features(json['features']));
       case 'msg':
         final id = _id(json['id']);
         final ts = json['ts'];
@@ -261,7 +455,43 @@ abstract final class ChatFrames {
         if (cleaned.runes.length > maxTextChars) {
           throw const ChatFrameException('too-long');
         }
-        return MessageFrame(id: id, ts: ts, text: cleaned);
+        final fwd = json['fwd'];
+        if (fwd != null && fwd is! bool) {
+          throw const ChatFrameException('malformed');
+        }
+        return MessageFrame(
+          id: id,
+          ts: ts,
+          text: cleaned,
+          reply: _reply(json['reply']),
+          forwarded: fwd == true,
+        );
+      case 'react':
+        final id = _id(json['id']);
+        final emoji = json['emoji'];
+        final ts = json['ts'];
+        if (emoji is! String || ts is! int || ts <= 0) {
+          throw const ChatFrameException('malformed');
+        }
+        return ReactFrame(id: id, emoji: cleanEmoji(emoji), ts: ts);
+      case 'edit':
+        final id = _id(json['id']);
+        final ts = json['ts'];
+        final raw = json['text'];
+        if (ts is! int || ts <= 0 || raw is! String) {
+          throw const ChatFrameException('malformed');
+        }
+        final cleaned = cleanText(raw);
+        if (cleaned.isEmpty) throw const ChatFrameException('malformed');
+        if (cleaned.runes.length > maxTextChars) {
+          throw const ChatFrameException('too-long');
+        }
+        return EditFrame(id: id, ts: ts, text: cleaned);
+      case 'delete':
+        final id = _id(json['id']);
+        final ts = json['ts'];
+        if (ts is! int || ts <= 0) throw const ChatFrameException('malformed');
+        return DeleteFrame(id: id, ts: ts);
       case 'ack':
         return AckFrame(id: _id(json['id']));
       case 'typing':

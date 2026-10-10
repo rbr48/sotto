@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../crypto/identity_store.dart';
+import 'chat_frames.dart';
 import 'file_storage.dart';
 
 /// Where a message is. Outgoing: [sending] until stored on the other device
@@ -33,6 +34,11 @@ class ChatMessage {
     this.fileKey,
     this.arrivedAt,
     this.voiceNote = false,
+    this.replyTo,
+    this.reactions = const {},
+    this.editedAt,
+    this.deletedForAll = false,
+    this.forwarded = false,
   });
 
   /// 16 random bytes, unpadded base64url. The same on both devices.
@@ -82,6 +88,26 @@ class ChatMessage {
   /// bubble. A file that is only audio is an ordinary file.
   final bool voiceNote;
 
+  /// The message this one replies to: its id and a copy of its text, so the
+  /// quote still shows when the original is gone. Null for no reply.
+  final ChatReply? replyTo;
+
+  /// Reactions to this message, one emoji per person: "me" for this device's
+  /// owner, "peer" for the contact. A person with no reaction has no key.
+  final Map<String, String> reactions;
+
+  /// When the text was last edited, in milliseconds since the epoch (the
+  /// sender's clock for an edit by the contact). Null if never edited. No
+  /// earlier text is kept.
+  final int? editedAt;
+
+  /// Whether the message was deleted for everyone. Its text is then empty, and
+  /// the record is kept.
+  final bool deletedForAll;
+
+  /// Whether the text was forwarded from another chat.
+  final bool forwarded;
+
   bool get isAttachment => fileName != null;
 
   /// When this message expires from this device, judged by [ts] for outgoing
@@ -108,7 +134,24 @@ class ChatMessage {
     fileKey: fileKey,
     arrivedAt: arrivedAt,
     voiceNote: voiceNote,
+    replyTo: replyTo,
+    reactions: reactions,
+    editedAt: editedAt,
+    deletedForAll: deletedForAll,
+    forwarded: forwarded,
   );
+
+  /// The same message with [who]'s reaction set to [emoji]. [who] is "me" or
+  /// "peer". An empty emoji removes the reaction.
+  ChatMessage withReaction(String who, String emoji) {
+    final next = {...reactions};
+    if (emoji.isEmpty) {
+      next.remove(who);
+    } else {
+      next[who] = emoji;
+    }
+    return copyWith(reactions: next);
+  }
 
   ChatMessage copyWith({
     String? id,
@@ -129,6 +172,11 @@ class ChatMessage {
     String? fileKey,
     int? arrivedAt,
     bool? voiceNote,
+    ChatReply? replyTo,
+    Map<String, String>? reactions,
+    int? editedAt,
+    bool? deletedForAll,
+    bool? forwarded,
   }) => ChatMessage(
     id: id ?? this.id,
     contactId: contactId ?? this.contactId,
@@ -148,6 +196,11 @@ class ChatMessage {
     fileKey: fileKey ?? this.fileKey,
     arrivedAt: arrivedAt ?? this.arrivedAt,
     voiceNote: voiceNote ?? this.voiceNote,
+    replyTo: replyTo ?? this.replyTo,
+    reactions: reactions ?? this.reactions,
+    editedAt: editedAt ?? this.editedAt,
+    deletedForAll: deletedForAll ?? this.deletedForAll,
+    forwarded: forwarded ?? this.forwarded,
   );
 
   Map<String, Object?> toJson() => {
@@ -168,6 +221,12 @@ class ChatMessage {
     if (fileKey != null) 'fileKey': fileKey,
     if (arrivedAt != null) 'arrivedAt': arrivedAt,
     if (voiceNote) 'voiceNote': true,
+    if (replyTo case final quote?)
+      'replyTo': {'id': quote.id, 'text': quote.text},
+    if (reactions.isNotEmpty) 'reactions': reactions,
+    if (editedAt != null) 'editedAt': editedAt,
+    if (deletedForAll) 'deletedForAll': true,
+    if (forwarded) 'forwarded': true,
   };
 
   static ChatMessage fromJson(String contactId, Map<String, dynamic> json) {
@@ -188,6 +247,11 @@ class ChatMessage {
     final fileKey = json['fileKey'];
     final arrivedAt = json['arrivedAt'];
     final voiceNote = json['voiceNote'];
+    final replyTo = _replyFrom(json['replyTo']);
+    final reactions = _reactionsFrom(json['reactions']);
+    final editedAt = json['editedAt'];
+    final deletedForAll = json['deletedForAll'];
+    final forwarded = json['forwarded'];
     if (id is! String ||
         outgoing is! bool ||
         ts is! int ||
@@ -204,7 +268,12 @@ class ChatMessage {
         (filePath != null && filePath is! String) ||
         (fileKey != null && fileKey is! String) ||
         (arrivedAt != null && arrivedAt is! int) ||
-        (voiceNote != null && voiceNote is! bool)) {
+        (voiceNote != null && voiceNote is! bool) ||
+        (json['replyTo'] != null && replyTo == null) ||
+        reactions == null ||
+        (editedAt != null && editedAt is! int) ||
+        (deletedForAll != null && deletedForAll is! bool) ||
+        (forwarded != null && forwarded is! bool)) {
       throw const ChatStoreException('unreadable');
     }
     return ChatMessage(
@@ -226,7 +295,39 @@ class ChatMessage {
       fileKey: fileKey as String?,
       arrivedAt: arrivedAt as int?,
       voiceNote: voiceNote == true,
+      replyTo: replyTo,
+      reactions: reactions,
+      editedAt: editedAt as int?,
+      deletedForAll: deletedForAll == true,
+      forwarded: forwarded == true,
     );
+  }
+
+  /// The quote stored as `replyTo`, or null when it is absent or not a quote.
+  /// A present but malformed quote gives null too, and [fromJson] then refuses
+  /// the record.
+  static ChatReply? _replyFrom(Object? raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    final id = raw['id'];
+    final text = raw['text'];
+    if (id is! String || text is! String) return null;
+    return (id: id, text: text);
+  }
+
+  /// The reactions stored as `reactions`: absent means none. Null when the
+  /// value is not a map of "me" or "peer" to an emoji.
+  static Map<String, String>? _reactionsFrom(Object? raw) {
+    if (raw == null) return const {};
+    if (raw is! Map) return null;
+    final reactions = <String, String>{};
+    for (final entry in raw.entries) {
+      final who = entry.key;
+      final emoji = entry.value;
+      if (who is! String || (who != 'me' && who != 'peer')) return null;
+      if (emoji is! String) return null;
+      reactions[who] = emoji;
+    }
+    return reactions;
   }
 }
 
@@ -311,6 +412,15 @@ class ChatStore {
   /// Storage key for a specific contact's messages.
   static String contactKey(String contactId) =>
       'sotto.chats.contact.$contactId';
+
+  /// Storage key for a contact's pending reactions, edits and deletes (see
+  /// [queueControl]).
+  static String pendingKey(String contactId) =>
+      'sotto.chats.pending.$contactId';
+
+  /// Most pending controls kept for one contact. Past this, the oldest is
+  /// dropped, so a chat that stays offline for long cannot grow without limit.
+  static const maxPendingControls = 100;
 
   final SecretStore _store;
   final _changes = StreamController<void>.broadcast();
@@ -514,6 +624,103 @@ class ChatStore {
     await _saveContact(contactId, list);
   });
 
+  /// Changes the message [id] in the chat with [contactId]. [change] gets the
+  /// stored message and returns its replacement, or null to leave it as it is.
+  /// The read and the write happen in one step, so a change made meanwhile is
+  /// never lost. Returns whether the message was changed.
+  Future<bool> changeMessage(
+    String contactId,
+    String id,
+    ChatMessage? Function(ChatMessage current) change,
+  ) => _inOrder(() async {
+    final list = [...await _loadContact(contactId)];
+    final index = list.indexWhere((m) => m.id == id);
+    if (index < 0) return false;
+    final next = change(list[index]);
+    if (next == null) return false;
+    list[index] = next;
+    await _saveContact(contactId, list);
+    return true;
+  });
+
+  /// The pending reactions, edits and deletes for the contact, oldest first.
+  Future<List<ControlFrame>> pendingControls(String contactId) =>
+      _inOrder(() => _loadPending(contactId));
+
+  /// Keeps [control] until the chat with [contactId] can carry it (see
+  /// `docs/PROTOCOL.md` §5.10). A control replaces the older one of its kind
+  /// on the same message: a reaction replaces a reaction, an edit replaces an
+  /// edit, and a delete replaces both. So a message can have one pending
+  /// reaction and one pending edit at once, never two of the same kind. Past
+  /// [maxPendingControls], the oldest is dropped.
+  Future<void> queueControl(String contactId, ControlFrame control) =>
+      _inOrder(() async {
+        final list = [...await _loadPending(contactId)];
+        list.removeWhere((older) => _supersedes(control, older));
+        list.add(control);
+        while (list.length > maxPendingControls) {
+          list.removeAt(0);
+        }
+        await _savePending(contactId, list);
+      });
+
+  /// Takes [control] off the pending list, once it has been sent. Only the
+  /// same control is removed, so one queued meanwhile is kept.
+  Future<void> removeControl(String contactId, ControlFrame control) =>
+      _inOrder(() async {
+        final sent = ChatFrames.encode(control);
+        final list = [...await _loadPending(contactId)];
+        final before = list.length;
+        list.removeWhere((c) => ChatFrames.encode(c) == sent);
+        if (list.length != before) await _savePending(contactId, list);
+      });
+
+  /// Whether [newer] replaces [older] in the pending list.
+  static bool _supersedes(ControlFrame newer, ControlFrame older) {
+    if (newer.id != older.id) return false;
+    return switch (newer) {
+      DeleteFrame() => true,
+      ReactFrame() => older is ReactFrame,
+      EditFrame() => older is EditFrame,
+    };
+  }
+
+  Future<List<ControlFrame>> _loadPending(String contactId) async {
+    await _checkMigration();
+    final raw = await _store.read(pendingKey(contactId));
+    if (raw == null) return [];
+    final Object? json;
+    try {
+      json = jsonDecode(raw);
+    } on FormatException {
+      throw const ChatStoreException('unreadable');
+    }
+    if (json is! List) throw const ChatStoreException('unreadable');
+    final controls = <ControlFrame>[];
+    for (final item in json) {
+      if (item is! String) throw const ChatStoreException('unreadable');
+      try {
+        final frame = ChatFrames.decode(item);
+        if (frame is! ControlFrame) throw const ChatFrameException('unknown');
+        controls.add(frame);
+      } on ChatFrameException {
+        throw const ChatStoreException('unreadable');
+      }
+    }
+    return controls;
+  }
+
+  Future<void> _savePending(String contactId, List<ControlFrame> list) async {
+    if (list.isEmpty) {
+      await _store.delete(pendingKey(contactId));
+      return;
+    }
+    await _store.write(
+      pendingKey(contactId),
+      jsonEncode([for (final c in list) ChatFrames.encode(c)]),
+    );
+  }
+
   /// Deletes the whole chat with [contactId].
   Future<void> deleteChat(String contactId) async {
     final removed = await _inOrder(() async {
@@ -521,6 +728,7 @@ class ChatStore {
       final messages = [...await _loadContact(contactId)];
       _cachedChats.remove(contactId);
       await _store.delete(contactKey(contactId));
+      await _store.delete(pendingKey(contactId));
       final index = await _loadIndex();
       if (index.remove(contactId)) {
         await _store.write(contactsIndexKey, jsonEncode(index.toList()));

@@ -306,6 +306,13 @@ class ChatSession {
   bool _ended = false;
   late DateTime _lastActivity;
 
+  /// The optional features the other side listed in its hello (see
+  /// [ChatFrames.features]). Empty until its hello arrives.
+  Set<String> _peerFeatures = const <String>{};
+
+  /// The pending controls being sent, one batch after another.
+  Future<void> _controlsChain = Future<void>.value();
+
   /// Outgoing files offered in this session and not yet accepted. An accept
   /// is honoured only for these, and only once.
   final _offered = <String>{};
@@ -334,8 +341,9 @@ class ChatSession {
     _lastActivity = clock();
     for (final message in resend) {
       // A file is never sent as a text: queued files are offered once the
-      // other side is ready (see [offerStoredFile]).
-      if (message.isAttachment) continue;
+      // other side is ready (see [offerStoredFile]). A message deleted for
+      // everyone is not sent again, with its old text.
+      if (message.isAttachment || message.deletedForAll) continue;
       await store.setState(contactId, message.id, ChatState.sending);
       _outbox[message.id] = message.withState(ChatState.sending);
       _unsent.add(message.id);
@@ -350,7 +358,7 @@ class ChatSession {
     _binarySubscription = transport.binaryFrames.listen(
       (bytes) => _enqueue(() => _onBinaryChunk(bytes)),
     );
-    _write(const HelloFrame());
+    _write(const HelloFrame(features: ChatFrames.features));
   }
 
   void _enqueue(Future<void> Function() step) {
@@ -360,7 +368,13 @@ class ChatSession {
   }
 
   /// Sends a message. It is stored at once and sent when the session is ready.
-  Future<ChatMessage> sendText(String text) async {
+  /// A [replyTo] quote and the [forwarded] mark are sent only to a contact
+  /// that lists the feature (see [ChatFrames.features]).
+  Future<ChatMessage> sendText(
+    String text, {
+    ChatReply? replyTo,
+    bool forwarded = false,
+  }) async {
     _ensureOpen();
     final cleaned = ChatFrames.cleanText(text);
     if (cleaned.isEmpty || cleaned.runes.length > maxTextChars) {
@@ -377,6 +391,8 @@ class ChatSession {
       ts: clock().millisecondsSinceEpoch,
       text: cleaned,
       state: ChatState.sending,
+      replyTo: replyTo,
+      forwarded: forwarded,
     );
     // Queued before the write. If the session ends during the write, the end
     // marks the message not sent: store writes run in the order they were
@@ -676,8 +692,9 @@ class ChatSession {
   /// other side stores it once.
   void resend(ChatMessage message) {
     _ensureOpen();
-    // Files are offered, never sent as text (see [offerStoredFile]).
-    if (message.isAttachment) return;
+    // Files are offered, never sent as text (see [offerStoredFile]). A message
+    // deleted for everyone is not sent with its old text.
+    if (message.isAttachment || message.deletedForAll) return;
     _outbox[message.id] = message.withState(ChatState.sending);
     _unsent.add(message.id);
     _sendOutbox();
@@ -726,6 +743,88 @@ class ChatSession {
     _unsent.clear();
   }
 
+  /// Sends the pending controls (reactions, edits and deletes) for this
+  /// contact that can go now. Called when the chat is ready, when a message is
+  /// acknowledged, and when a control is made. Calls run one after another.
+  Future<void> flushControls() {
+    final sent = _controlsChain.then((_) => _flushPending());
+    _controlsChain = sent.catchError((Object _) {
+      // The error can name a message. It is not logged.
+    });
+    return _controlsChain;
+  }
+
+  /// Sends the pending controls that can go now, and drops those that can
+  /// never go:
+  ///
+  /// - a control whose message is gone is dropped, and so is an edit or a
+  ///   delete whose window has closed (15 minutes or an hour after the message
+  ///   was sent);
+  /// - a control the other side does not list as a feature waits;
+  /// - a reaction or an edit on one of this device's messages waits until the
+  ///   other side has stored that message, or the other side would get it
+  ///   first and ignore it. A delete does not wait: its message leaves the
+  ///   outbox when it is deleted, and an unknown id is ignored.
+  Future<void> _flushPending() async {
+    if (!isReady) return;
+    final now = clock().millisecondsSinceEpoch;
+    for (final control in await store.pendingControls(contactId)) {
+      if (!isReady) return;
+      final target = await store.find(contactId, control.id);
+      final window = switch (control) {
+        ReactFrame() => null,
+        EditFrame() => editWindow,
+        DeleteFrame() => deleteWindow,
+      };
+      if (target == null ||
+          (control is! DeleteFrame && target.deletedForAll) ||
+          (window != null && now - target.ts > window.inMilliseconds)) {
+        await store.removeControl(contactId, control);
+        continue;
+      }
+      if (!_peerFeatures.contains(_featureOf(control))) continue;
+      final stored =
+          !target.outgoing ||
+          target.state == ChatState.delivered ||
+          target.state == ChatState.read;
+      if (control is! DeleteFrame && !stored) continue;
+      if (!_write(control)) return;
+      await store.removeControl(contactId, control);
+    }
+  }
+
+  /// The feature a control needs the other side to list.
+  static String _featureOf(ControlFrame control) => switch (control) {
+    ReactFrame() => ChatFrames.featureReact,
+    EditFrame() => ChatFrames.featureEdit,
+    DeleteFrame() => ChatFrames.featureDelete,
+  };
+
+  /// The frame for an outgoing message. Its reply quote and its forwarded mark
+  /// go only when the other side lists the feature. A quote that would take the
+  /// frame past its size limit is left out, so the message itself still goes.
+  MessageFrame _messageFrame(ChatMessage message) {
+    final quote = _peerFeatures.contains(ChatFrames.featureReply)
+        ? message.replyTo
+        : null;
+    final forwarded =
+        message.forwarded && _peerFeatures.contains(ChatFrames.featureForward);
+    final frame = MessageFrame(
+      id: message.id,
+      ts: message.ts,
+      text: message.text,
+      reply: quote,
+      forwarded: forwarded,
+    );
+    if (quote == null || ChatFrames.fits(frame)) return frame;
+    return MessageFrame(
+      id: message.id,
+      ts: message.ts,
+      text: message.text,
+      forwarded: forwarded,
+    );
+  }
+
   /// Ends the session from this side.
   Future<void> close() async {
     if (_ended) return;
@@ -766,10 +865,7 @@ class ChatSession {
     if (!isReady) return;
     while (_unsent.isNotEmpty) {
       final message = _outbox[_unsent.first];
-      if (message != null &&
-          !_write(
-            MessageFrame(id: message.id, ts: message.ts, text: message.text),
-          )) {
+      if (message != null && !_write(_messageFrame(message))) {
         return;
       }
       _unsent.removeAt(0);
@@ -795,20 +891,29 @@ class ChatSession {
       return;
     }
     switch (frame) {
-      case HelloFrame():
+      case HelloFrame(:final features):
         _peerHello = true;
+        _peerFeatures = features;
         // Everything not yet acknowledged goes out again, in order.
         _unsent
           ..clear()
           ..addAll(_outbox.keys);
         _sendOutbox();
+        // Controls follow the messages they refer to, so they go after them.
+        await flushControls();
         // Any queued files waiting for this contact are offered now, once.
         await _offerQueuedFiles();
         if (_pendingReads.isNotEmpty) {
           _writeReads(_pendingReads);
           _pendingReads.clear();
         }
-      case MessageFrame(:final id, :final ts, :final text):
+      case MessageFrame(
+        :final id,
+        :final ts,
+        :final text,
+        :final reply,
+        :final forwarded,
+      ):
         if (!_peerHello) return;
         if (!_contactNow) {
           // Someone removed from the contacts gets no more stored.
@@ -826,6 +931,8 @@ class ChatSession {
             state: ChatState.received,
             read: false,
             arrivedAt: clock().millisecondsSinceEpoch,
+            replyTo: reply,
+            forwarded: forwarded,
           );
           await store.add(message);
           _events.add(MessageReceived(message));
@@ -837,6 +944,8 @@ class ChatSession {
           _unsent.remove(id);
           await store.setState(contactId, id, ChatState.delivered);
           _events.add(MessageDelivered(id));
+          // A reaction or edit that waited for this message can go now.
+          await flushControls();
         }
       case TypingFrame(:final typing):
         if (!_peerHello) return;
@@ -996,6 +1105,32 @@ class ChatSession {
           await store.updateMessage(existing.copyWith(fileStatus: 'cancelled'));
           _events.add(FileTransferFailed(id, reason ?? 'cancelled'));
         }
+      case ReactFrame(:final id, :final emoji):
+        if (!_peerHello) return;
+        // An unknown message, or one deleted for everyone, is ignored. The
+        // reaction can be on either person's message in this chat.
+        await store.changeMessage(
+          contactId,
+          id,
+          (m) => m.deletedForAll ? null : m.withReaction('peer', emoji),
+        );
+      case EditFrame(:final id, :final ts, :final text):
+        if (!_peerHello) return;
+        // Only the contact's own text messages can be edited, and only within
+        // the window measured from when they were sent.
+        await store.changeMessage(contactId, id, (m) {
+          if (m.outgoing || m.deletedForAll || m.isAttachment) return null;
+          if (!ChatFrames.withinWindow(m.ts, ts, editWindow)) return null;
+          return m.copyWith(text: text, editedAt: ts);
+        });
+      case DeleteFrame(:final id, :final ts):
+        if (!_peerHello) return;
+        // The same rules as an edit. A message stays on record, with no text.
+        await store.changeMessage(contactId, id, (m) {
+          if (m.outgoing || m.deletedForAll || m.isAttachment) return null;
+          if (!ChatFrames.withinWindow(m.ts, ts, deleteWindow)) return null;
+          return m.copyWith(text: '', deletedForAll: true, reactions: const {});
+        });
       case ByeFrame():
         await _end('bye');
     }

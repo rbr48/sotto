@@ -817,4 +817,282 @@ void main() {
       );
     });
   });
+
+  group('replies, forwards, reactions, edits and deletes', () {
+    const minute = 60 * 1000;
+
+    test('hello lists the features, and a hello without them lists none', () {
+      expect(
+        ChatFrames.features,
+        unorderedEquals(['reply', 'fwd', 'react', 'edit', 'delete']),
+      );
+      expect(
+        ChatFrames.encode(const HelloFrame(features: ChatFrames.features)),
+        '{"t":"hello","v":1,"features":'
+        '["reply","fwd","react","edit","delete"]}',
+      );
+      final listed = ChatFrames.decode(
+        '{"t":"hello","v":1,"features":["reply","later",7]}',
+      ) as HelloFrame;
+      // A name this app does not know is kept but unused; a non-string is
+      // skipped.
+      expect(listed.features, unorderedEquals(['reply', 'later']));
+      final none = ChatFrames.decode('{"t":"hello","v":1}') as HelloFrame;
+      expect(none.features, isEmpty);
+      expect(ChatFrames.encode(none), '{"t":"hello","v":1}');
+      final notAList = ChatFrames.decode(
+        '{"t":"hello","v":1,"features":"reply"}',
+      ) as HelloFrame;
+      expect(notAList.features, isEmpty);
+    });
+
+    test('a message carries its reply quote and its forwarded mark', () {
+      final raw = ChatFrames.encode(
+        MessageFrame(
+          id: _id(1),
+          ts: 5,
+          text: 'Yes',
+          reply: (id: _id(2), text: 'Are you free?'),
+          forwarded: true,
+        ),
+      );
+      expect(
+        raw,
+        '{"t":"msg","id":"${_id(1)}","ts":5,"text":"Yes",'
+        '"reply":{"id":"${_id(2)}","text":"Are you free?"},"fwd":true}',
+      );
+      final decoded = ChatFrames.decode(raw) as MessageFrame;
+      expect(decoded.reply, (id: _id(2), text: 'Are you free?'));
+      expect(decoded.forwarded, isTrue);
+
+      // A plain message has neither, exactly as before.
+      final plain = ChatFrames.encode(
+        MessageFrame(id: _id(1), ts: 5, text: 'Yes'),
+      );
+      expect(plain, '{"t":"msg","id":"${_id(1)}","ts":5,"text":"Yes"}');
+      final decodedPlain = ChatFrames.decode(plain) as MessageFrame;
+      expect(decodedPlain.reply, isNull);
+      expect(decodedPlain.forwarded, isFalse);
+      final notForwarded = ChatFrames.decode(
+        '{"t":"msg","id":"${_id(1)}","ts":5,"text":"Yes","fwd":false}',
+      ) as MessageFrame;
+      expect(notForwarded.forwarded, isFalse);
+    });
+
+    test(
+      'a reply quote is cleaned, at most 200 characters, and well formed',
+      () {
+        String msg(String reply) =>
+            '{"t":"msg","id":"${_id(1)}","ts":1,"text":"x","reply":$reply}';
+        final quoted = ChatFrames.decode(
+          msg('{"id":"${_id(2)}","text":"a\\u0000b\\u202E c"}'),
+        ) as MessageFrame;
+        expect(quoted.reply, (id: _id(2), text: 'ab c'));
+
+        final longest = 'a' * maxReplyChars;
+        final kept = ChatFrames.decode(
+          msg('{"id":"${_id(2)}","text":"$longest"}'),
+        ) as MessageFrame;
+        expect(kept.reply!.text.length, maxReplyChars);
+        expect(
+          _refusal(
+            msg('{"id":"${_id(2)}","text":"${'a' * (maxReplyChars + 1)}"}'),
+          ),
+          'too-long',
+        );
+        expect(_refusal(msg('"Are you free?"')), 'malformed');
+        expect(_refusal(msg('{"id":"short","text":"x"}')), 'malformed');
+        expect(_refusal(msg('{"id":"${_id(2)}","text":5}')), 'malformed');
+        expect(
+          _refusal(
+            '{"t":"msg","id":"${_id(1)}","ts":1,"text":"x","fwd":"yes"}',
+          ),
+          'malformed',
+        );
+      },
+    );
+
+    test('a quote is the first 200 characters of a text, cleaned', () {
+      expect(ChatFrames.quoteText('  hi\u0007 there  '), 'hi there');
+      final long = List.filled(maxReplyChars + 50, '\u{1F600}').join();
+      expect(ChatFrames.quoteText(long).runes.length, maxReplyChars);
+    });
+
+    test('a reaction is trimmed, and an empty one is a removal', () {
+      final react = ChatFrames.decode(
+        '{"t":"react","id":"${_id(1)}","emoji":"  \u{1F44D} ","ts":9}',
+      ) as ReactFrame;
+      expect(react.id, _id(1));
+      expect(react.emoji, '\u{1F44D}');
+      expect(react.ts, 9);
+
+      final removal = ChatFrames.decode(
+        '{"t":"react","id":"${_id(1)}","emoji":"   ","ts":9}',
+      ) as ReactFrame;
+      expect(removal.emoji, isEmpty);
+      expect(
+        ChatFrames.encode(removal),
+        '{"t":"react","id":"${_id(1)}","emoji":"","ts":9}',
+      );
+    });
+
+    test('a reaction is at most 16 UTF-16 code units', () {
+      String react(String emoji) =>
+          jsonEncode({'t': 'react', 'id': _id(1), 'emoji': emoji, 'ts': 1});
+      // Eight emoji of two code units each is exactly the limit.
+      expect(ChatFrames.decode(react('\u{1F44D}' * 8)), isA<ReactFrame>());
+      expect(_refusal(react('\u{1F44D}' * 9)), 'too-long');
+      expect(_refusal(react('a' * 17)), 'too-long');
+    });
+
+    test(
+      'a reaction with a control, direction or lone surrogate is refused',
+      () {
+        String react(String emoji) =>
+            jsonEncode({'t': 'react', 'id': _id(1), 'emoji': emoji, 'ts': 1});
+        for (final emoji in [
+          'a\u0007b', // a control character
+          'a\u007Fb', // delete
+          'a\nb', // a line break inside
+          'a\u202Eb', // a direction override
+          'a\u2066b', // an isolate
+          'a\uD83Db', // a lone high surrogate
+        ]) {
+          expect(_refusal(react(emoji)), 'malformed', reason: emoji);
+        }
+      },
+    );
+
+    test('a reaction needs text, a message id and a positive time', () {
+      expect(
+        _refusal('{"t":"react","id":"${_id(1)}","emoji":5,"ts":1}'),
+        'malformed',
+      );
+      expect(
+        _refusal('{"t":"react","id":"${_id(1)}","emoji":"\u{1F44D}","ts":0}'),
+        'malformed',
+      );
+      expect(
+        _refusal('{"t":"react","id":"${_id(1)}","emoji":"\u{1F44D}"}'),
+        'malformed',
+      );
+      expect(
+        _refusal('{"t":"react","id":"short","emoji":"\u{1F44D}","ts":1}'),
+        'malformed',
+      );
+    });
+
+    test('an edit is cleaned, never empty, and at most 4000 characters', () {
+      final edit = ChatFrames.decode(
+        '{"t":"edit","id":"${_id(1)}","ts":2,"text":"  new\\u0000 text "}',
+      ) as EditFrame;
+      expect(edit.id, _id(1));
+      expect(edit.ts, 2);
+      expect(edit.text, 'new text');
+      expect(
+        _refusal('{"t":"edit","id":"${_id(1)}","ts":2,"text":" \\u0000 "}'),
+        'malformed',
+      );
+      expect(_refusal('{"t":"edit","id":"${_id(1)}","ts":2}'), 'malformed');
+      expect(
+        _refusal(
+          '{"t":"edit","id":"${_id(1)}","ts":2,"text":"${'a' * (maxTextChars + 1)}"}',
+        ),
+        'too-long',
+      );
+      final exact = List.filled(maxTextChars, '\u{1F600}').join();
+      final decoded = ChatFrames.decode(
+        ChatFrames.encode(EditFrame(id: _id(1), ts: 2, text: exact)),
+      ) as EditFrame;
+      expect(decoded.text.runes.length, maxTextChars);
+    });
+
+    test('a delete needs a message id and a positive time', () {
+      final delete = ChatFrames.decode(
+        '{"t":"delete","id":"${_id(1)}","ts":3}',
+      ) as DeleteFrame;
+      expect(delete.id, _id(1));
+      expect(delete.ts, 3);
+      expect(
+        ChatFrames.encode(DeleteFrame(id: _id(1), ts: 3)),
+        '{"t":"delete","id":"${_id(1)}","ts":3}',
+      );
+      expect(_refusal('{"t":"delete","id":"short","ts":3}'), 'malformed');
+      expect(_refusal('{"t":"delete","id":"${_id(1)}","ts":-1}'), 'malformed');
+      expect(_refusal('{"t":"delete","id":"${_id(1)}"}'), 'malformed');
+    });
+
+    test('truncated or non-object control frames are malformed', () {
+      expect(_refusal('{"t":"react","id":'), 'malformed');
+      expect(
+        _refusal('{"t":"edit","id":"${_id(1)}","ts":2,"text":"x"'),
+        'malformed',
+      );
+      expect(_refusal('{"t":"delete","id":"${_id(1)}","ts":3'), 'malformed');
+      expect(_refusal('["react"]'), 'malformed');
+    });
+
+    test('every new frame round-trips through the codec', () {
+      final frames = <ChatFrame>[
+        const HelloFrame(features: ChatFrames.features),
+        MessageFrame(
+          id: _id(1),
+          ts: 1,
+          text: 'a',
+          reply: (id: _id(2), text: 'b'),
+          forwarded: true,
+        ),
+        ReactFrame(id: _id(1), emoji: '\u{1F44D}', ts: 3),
+        EditFrame(id: _id(1), ts: 4, text: 'c'),
+        DeleteFrame(id: _id(1), ts: 5),
+      ];
+      for (final frame in frames) {
+        final decoded = ChatFrames.decode(ChatFrames.encode(frame));
+        expect(decoded.runtimeType, frame.runtimeType);
+      }
+      final react =
+          ChatFrames.decode(ChatFrames.encode(frames[2])) as ReactFrame;
+      expect(react.emoji, '\u{1F44D}');
+      expect(react.ts, 3);
+    });
+
+    test('a message whose quote would take it past 16 KiB does not fit', () {
+      final text = List.filled(maxTextChars, '\u{1F600}').join();
+      final quote = (
+        id: _id(2),
+        text: List.filled(maxReplyChars, '\u{1F600}').join(),
+      );
+      expect(
+        ChatFrames.fits(MessageFrame(id: _id(1), ts: 1, text: text)),
+        isTrue,
+      );
+      expect(
+        ChatFrames.fits(
+          MessageFrame(id: _id(1), ts: 1, text: text, reply: quote),
+        ),
+        isFalse,
+      );
+    });
+
+    test('an edit or delete is in its window from the message, inclusive', () {
+      expect(ChatFrames.withinWindow(1000, 1000, editWindow), isTrue);
+      expect(
+        ChatFrames.withinWindow(1000, 1000 + 15 * minute, editWindow),
+        isTrue,
+      );
+      expect(
+        ChatFrames.withinWindow(1000, 1000 + 15 * minute + 1, editWindow),
+        isFalse,
+      );
+      expect(ChatFrames.withinWindow(1000, 999, editWindow), isFalse);
+      expect(
+        ChatFrames.withinWindow(1000, 1000 + 60 * minute, deleteWindow),
+        isTrue,
+      );
+      expect(
+        ChatFrames.withinWindow(1000, 1000 + 60 * minute + 1, deleteWindow),
+        isFalse,
+      );
+    });
+  });
 }

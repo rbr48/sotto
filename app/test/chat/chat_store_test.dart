@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sotto/chat/chat_frames.dart';
 import 'package:sotto/chat/chat_store.dart';
 import 'package:sotto/chat/file_storage.dart';
 import 'package:sotto/crypto/encoding.dart';
@@ -587,5 +588,239 @@ void main() {
       expect(held.hasVoice(voice), isTrue);
       expect(held.browserHeldBytes, 6);
     });
+  });
+
+  group('replies, reactions, edits, deletes and pending controls', () {
+    test('a record from before these fields loads with the defaults', () async {
+      // Written by an earlier version: none of the new keys.
+      await secrets.write(
+        ChatStore.contactKey('bob'),
+        '[{"id": "${_id(1)}", "out": true, "ts": 1000, "text": "hi", '
+        '"state": "delivered", "read": true}]',
+      );
+      final message = (await ChatStore(secrets).messages('bob')).single;
+      expect(message.replyTo, isNull);
+      expect(message.reactions, isEmpty);
+      expect(message.editedAt, isNull);
+      expect(message.deletedForAll, isFalse);
+      expect(message.forwarded, isFalse);
+      // A message without the new fields saves without them too.
+      expect(message.toJson().keys, isNot(contains('replyTo')));
+      expect(message.toJson().keys, isNot(contains('reactions')));
+      expect(message.toJson().keys, isNot(contains('editedAt')));
+    });
+
+    test('the new fields are saved and load again unchanged', () async {
+      final first = ChatStore(secrets);
+      await first.add(
+        ChatMessage(
+          id: _id(1),
+          contactId: 'bob',
+          outgoing: false,
+          ts: 1000,
+          text: 'edited text',
+          state: ChatState.received,
+          read: false,
+          replyTo: (id: _id(2), text: 'the quote'),
+          reactions: {'me': '\u{1F44D}', 'peer': '\u{2764}️'},
+          editedAt: 2000,
+          forwarded: true,
+        ),
+      );
+      final loaded = (await ChatStore(secrets).messages('bob')).single;
+      expect(loaded.replyTo, (id: _id(2), text: 'the quote'));
+      expect(loaded.reactions, {'me': '\u{1F44D}', 'peer': '\u{2764}️'});
+      expect(loaded.editedAt, 2000);
+      expect(loaded.forwarded, isTrue);
+      expect(loaded.deletedForAll, isFalse);
+
+      await first.changeMessage(
+        'bob',
+        _id(1),
+        (m) => m.copyWith(text: '', deletedForAll: true),
+      );
+      final deleted = (await ChatStore(secrets).messages('bob')).single;
+      expect(deleted.deletedForAll, isTrue);
+      expect(deleted.text, isEmpty);
+      expect(deleted.replyTo, (id: _id(2), text: 'the quote'));
+    });
+
+    test(
+      'a malformed reply, reaction or edit time is reported, not guessed',
+      () async {
+        for (final field in [
+          '"replyTo": {"id": "${_id(2)}"}',
+          '"reactions": {"someone": "\u{1F44D}"}',
+          '"reactions": {"me": 5}',
+          '"editedAt": "later"',
+          '"deletedForAll": "yes"',
+        ]) {
+          await secrets.write(
+            ChatStore.contactKey('bob'),
+            '[{"id": "${_id(1)}", "out": true, "ts": 1000, "text": "hi", '
+            '"state": "delivered", $field}]',
+          );
+          await expectLater(
+            ChatStore(secrets).messages('bob'),
+            throwsA(isA<ChatStoreException>()),
+            reason: field,
+          );
+        }
+      },
+    );
+
+    test('a reaction is set, replaced, and removed by an empty emoji', () {
+      final base = _message(1, outgoing: false);
+      final reacted = base.withReaction('peer', '\u{1F44D}');
+      expect(reacted.reactions, {'peer': '\u{1F44D}'});
+      expect(reacted.withReaction('peer', '\u{2764}').reactions, {
+        'peer': '\u{2764}',
+      });
+      expect(reacted.withReaction('me', '\u{1F44D}').reactions, {
+        'peer': '\u{1F44D}',
+        'me': '\u{1F44D}',
+      });
+      expect(reacted.withReaction('peer', '').reactions, isEmpty);
+      // The message it came from is not changed.
+      expect(base.reactions, isEmpty);
+    });
+
+    test('changeMessage changes a stored message, or leaves it', () async {
+      await store.add(_message(1, outgoing: false));
+      expect(
+        await store.changeMessage(
+          'bob',
+          _id(1),
+          (m) => m.copyWith(text: 'new'),
+        ),
+        isTrue,
+      );
+      expect((await store.find('bob', _id(1)))!.text, 'new');
+      expect(await store.changeMessage('bob', _id(1), (_) => null), isFalse);
+      expect(
+        await store.changeMessage('bob', _id(9), (m) => m.copyWith(text: 'x')),
+        isFalse,
+      );
+    });
+
+    test(
+      'a reaction replaces the pending reaction on the same message',
+      () async {
+        await store.queueControl(
+          'bob',
+          ReactFrame(id: _id(1), emoji: '\u{1F44D}', ts: 1),
+        );
+        await store.queueControl(
+          'bob',
+          ReactFrame(id: _id(1), emoji: '\u{2764}', ts: 2),
+        );
+        final pending = await store.pendingControls('bob');
+        expect(pending.single, isA<ReactFrame>());
+        expect((pending.single as ReactFrame).emoji, '\u{2764}');
+      },
+    );
+
+    test('an edit and a reaction on one message are both kept, and a delete replaces both', () async {
+      await store.queueControl(
+        'bob',
+        EditFrame(id: _id(1), ts: 1, text: 'new'),
+      );
+      await store.queueControl(
+        'bob',
+        ReactFrame(id: _id(1), emoji: '\u{1F44D}', ts: 2),
+      );
+      expect(await store.pendingControls('bob'), hasLength(2));
+
+      await store.queueControl('bob', DeleteFrame(id: _id(1), ts: 3));
+      final pending = await store.pendingControls('bob');
+      expect(pending.single, isA<DeleteFrame>());
+      expect(pending.single.id, _id(1));
+    });
+
+    test(
+      'pending controls on other messages are kept, in the order made',
+      () async {
+        await store.queueControl(
+          'bob',
+          ReactFrame(id: _id(1), emoji: '\u{1F44D}', ts: 1),
+        );
+        await store.queueControl(
+          'bob',
+          ReactFrame(id: _id(2), emoji: '\u{1F44D}', ts: 2),
+        );
+        await store.queueControl(
+          'bob',
+          EditFrame(id: _id(1), ts: 3, text: 'a'),
+        );
+        final pending = await store.pendingControls('bob');
+        expect(pending.map((c) => c.id), [_id(1), _id(2), _id(1)]);
+      },
+    );
+
+    test('past the limit, the oldest pending control is dropped', () async {
+      const limit = ChatStore.maxPendingControls;
+      for (var i = 1; i <= limit + 5; i++) {
+        await store.queueControl(
+          'bob',
+          ReactFrame(id: _id(i), emoji: '\u{1F44D}', ts: i),
+        );
+      }
+      final pending = await store.pendingControls('bob');
+      expect(pending, hasLength(limit));
+      expect(pending.first.id, _id(6));
+      expect(pending.last.id, _id(limit + 5));
+    });
+
+    test(
+      'a sent control is taken off, but a newer one for the message stays',
+      () async {
+        final sent = ReactFrame(id: _id(1), emoji: '\u{1F44D}', ts: 1);
+        await store.queueControl('bob', sent);
+        final newer = ReactFrame(id: _id(1), emoji: '\u{2764}', ts: 2);
+        await store.queueControl('bob', newer);
+
+        // The older one was replaced before it was sent: nothing is removed.
+        await store.removeControl('bob', sent);
+        expect((await store.pendingControls('bob')).single, isA<ReactFrame>());
+        expect(
+          ((await store.pendingControls('bob')).single as ReactFrame).emoji,
+          '\u{2764}',
+        );
+
+        await store.removeControl('bob', newer);
+        expect(await store.pendingControls('bob'), isEmpty);
+      },
+    );
+
+    test(
+      'pending controls survive a reload, and a deleted chat takes them',
+      () async {
+        await store.queueControl(
+          'bob',
+          EditFrame(id: _id(1), ts: 5, text: 'later'),
+        );
+        final reloaded = ChatStore(secrets);
+        expect(
+          ((await reloaded.pendingControls('bob')).single as EditFrame).text,
+          'later',
+        );
+        await reloaded.deleteChat('bob');
+        expect(await ChatStore(secrets).pendingControls('bob'), isEmpty);
+      },
+    );
+
+    test(
+      'pending controls that cannot be read are reported, not guessed at',
+      () async {
+        await secrets.write(
+          ChatStore.pendingKey('bob'),
+          r'["{\"t\":\"msg\"}"]',
+        );
+        await expectLater(
+          store.pendingControls('bob'),
+          throwsA(isA<ChatStoreException>()),
+        );
+      },
+    );
   });
 }

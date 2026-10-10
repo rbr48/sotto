@@ -145,8 +145,8 @@ Approved with the recommended option for each:
 
 ## Second plan: the first group of messaging features
 
-Status: **proposed, no code yet.** Nothing here is built until the decisions
-below are approved.
+Status: **step 1 is built and tested; steps 2 to 5 are not started.** The
+decisions below are approved.
 
 Adds to the one-to-one chat: replies, forwarding of text, reactions, editing,
 delete for everyone, archive, mute and pin, starred messages, chat export, and

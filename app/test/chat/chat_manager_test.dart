@@ -8,7 +8,10 @@ import 'package:sotto/chat/chat_rtc.dart';
 import 'package:sotto/chat/chat_session.dart';
 import 'package:sotto/chat/chat_store.dart';
 import 'package:sotto/chat/image_metadata.dart';
+import 'package:sotto/crypto/encoding.dart';
 import 'package:sotto/crypto/identity_store.dart';
+
+String _id(int n) => b64Encode(List<int>.filled(16, n));
 
 /// A connection that links to its peer when the answer is applied, the way
 /// a real one connects once the SDP is exchanged.
@@ -1167,6 +1170,302 @@ void main() {
       );
       expect((await bobStore.find('alice', first.id))!.fileStatus, 'offered');
     });
+  });
+
+  group('replies, forwards, reactions, edits and deletes', () {
+    test('a reply carries its quote, and a forwarded text its mark', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final bobStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      device('bob', contacts: {'alice'}, store: bobStore);
+
+      final question = await alice.sendText('bob', 'Are you free?');
+      await _settle();
+      final answer = await alice.sendText(
+        'bob',
+        'Yes',
+        replyToId: question.id,
+        forwarded: true,
+      );
+      await _settle();
+
+      final received = (await bobStore.find('alice', answer.id))!;
+      expect(received.replyTo, (id: question.id, text: 'Are you free?'));
+      expect(received.forwarded, isTrue);
+      expect(
+        (await aliceStore.find('bob', answer.id))!.state,
+        ChatState.delivered,
+      );
+    });
+
+    test('a reply to a message that is not in the chat is refused', () async {
+      final alice = device('alice', contacts: {'bob'});
+      await expectLater(
+        alice.sendText('bob', 'Yes', replyToId: _id(77)),
+        throwsA(isA<ArgumentError>()),
+      );
+      expect(net.sent, isEmpty);
+    });
+
+    test(
+      'a reply or a forwarded text is never sent through the relay',
+      () async {
+        final alice = device(
+          'alice',
+          contacts: {'bob'},
+          store: ChatStore(MemorySecretStore()),
+        );
+        // Bob's device runs, but its connection never opens: only the relay
+        // could carry a text.
+        device('bob', contacts: {'alice'}, neverOpens: true);
+        final question = await alice.sendText('bob', 'Are you free?');
+        await _settle();
+        int relayed() =>
+            net.sent.where((s) => s.type == ChatManager.relayText).length;
+        expect(relayed(), 1, reason: 'a plain text goes through the relay');
+
+        await alice.sendText('bob', 'Yes', replyToId: question.id);
+        await alice.sendText('bob', 'Again', forwarded: true);
+        await _settle();
+        expect(relayed(), 1);
+      },
+    );
+
+    test('a reaction made while the contact is offline is kept and sent when a chat opens', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final bobStore = ChatStore(MemorySecretStore());
+      // Bob's message, as each device keeps it.
+      await bobStore.add(
+        ChatMessage(
+          id: _id(1),
+          contactId: 'alice',
+          outgoing: true,
+          ts: now.millisecondsSinceEpoch,
+          text: 'Lunch?',
+          state: ChatState.read,
+        ),
+      );
+      await aliceStore.add(
+        ChatMessage(
+          id: _id(1),
+          contactId: 'bob',
+          outgoing: false,
+          ts: now.millisecondsSinceEpoch,
+          text: 'Lunch?',
+          state: ChatState.received,
+          read: false,
+        ),
+      );
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+
+      expect(await alice.react('bob', _id(1), '\u{1F44D}'), isTrue);
+      expect((await aliceStore.find('bob', _id(1)))!.reactions, {
+        'me': '\u{1F44D}',
+      });
+      expect(await aliceStore.pendingControls('bob'), hasLength(1));
+      expect(net.sent, isEmpty);
+
+      device('bob', contacts: {'alice'}, store: bobStore);
+      await alice.sendText('bob', 'Ping');
+      await _settle();
+
+      expect((await bobStore.find('alice', _id(1)))!.reactions, {
+        'peer': '\u{1F44D}',
+      });
+      expect(await aliceStore.pendingControls('bob'), isEmpty);
+    });
+
+    test(
+      'a reaction on a message the contact has not stored yet waits for it',
+      () async {
+        final aliceStore = ChatStore(MemorySecretStore());
+        final bobStore = ChatStore(MemorySecretStore());
+        final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+        // Bob is offline, so the text is not stored there.
+        final text = await alice.sendText('bob', 'Are you there?');
+        await _settle();
+        now = now.add(const Duration(seconds: 21));
+        await alice.tick();
+        await _settle();
+        expect(
+          (await aliceStore.find('bob', text.id))!.state,
+          ChatState.notSent,
+        );
+
+        expect(await alice.react('bob', text.id, '\u{1F44D}'), isTrue);
+        expect(await aliceStore.pendingControls('bob'), hasLength(1));
+
+        // Bob comes online. Retrying sends the text first, then the reaction.
+        device('bob', contacts: {'alice'}, store: bobStore);
+        await alice.retry('bob', text.id);
+        await _settle();
+
+        final received = (await bobStore.find('alice', text.id))!;
+        expect(received.text, 'Are you there?');
+        expect(received.reactions, {'peer': '\u{1F44D}'});
+        expect(await aliceStore.pendingControls('bob'), isEmpty);
+      },
+    );
+
+    test('a reaction that is not an emoji is refused, and one on an unknown message is not kept', () async {
+      final alice = device('alice', contacts: {'bob'});
+      await expectLater(
+        alice.react('bob', _id(1), 'a\u0007'),
+        throwsA(isA<ArgumentError>()),
+      );
+      expect(await alice.react('bob', _id(1), '\u{1F44D}'), isFalse);
+      expect(await alice.react('bob', _id(1), ''), isFalse);
+    });
+
+    test('an edit shows at once and reaches the contact; after 15 minutes it is refused', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final bobStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      final bob = device('bob', contacts: {'alice'}, store: bobStore);
+      final first = await alice.sendText('bob', 'first try');
+      final theirs = await bob.sendText('alice', 'their text');
+      await _settle();
+
+      now = now.add(const Duration(minutes: 10));
+      expect(await alice.edit('bob', first.id, 'fixed'), isTrue);
+      final editedAt = now.millisecondsSinceEpoch;
+      expect((await aliceStore.find('bob', first.id))!.text, 'fixed');
+      await _settle();
+      final received = (await bobStore.find('alice', first.id))!;
+      expect(received.text, 'fixed');
+      expect(received.editedAt, editedAt);
+
+      now = now.add(const Duration(minutes: 6));
+      expect(await alice.edit('bob', first.id, 'too late'), isFalse);
+      expect((await aliceStore.find('bob', first.id))!.text, 'fixed');
+      // Only your own text messages can be edited.
+      expect(await alice.edit('bob', theirs.id, 'not mine'), isFalse);
+    });
+
+    test('a delete for everyone applies here at once and reaches the contact, within an hour', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final bobStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      device('bob', contacts: {'alice'}, store: bobStore);
+      final secret = await alice.sendText('bob', 'secret');
+      await _settle();
+
+      expect(await alice.deleteForEveryone('bob', secret.id), isTrue);
+      final here = (await aliceStore.find('bob', secret.id))!;
+      expect(here.deletedForAll, isTrue);
+      expect(here.text, isEmpty);
+      await _settle();
+      final there = (await bobStore.find('alice', secret.id))!;
+      expect(there.deletedForAll, isTrue);
+      expect(there.text, isEmpty);
+
+      final late = await alice.sendText('bob', 'later');
+      await _settle();
+      now = now.add(const Duration(hours: 1, minutes: 1));
+      expect(await alice.deleteForEveryone('bob', late.id), isFalse);
+      expect((await aliceStore.find('bob', late.id))!.text, 'later');
+    });
+
+    test('a delete made while the contact is offline reaches it when a chat opens within the hour', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final bobStore = ChatStore(MemorySecretStore());
+      // Delivered earlier: both devices have the message.
+      final message = ChatMessage(
+        id: _id(1),
+        contactId: 'bob',
+        outgoing: true,
+        ts: now.millisecondsSinceEpoch,
+        text: 'Lunch?',
+        state: ChatState.delivered,
+      );
+      await aliceStore.add(message);
+      await bobStore.add(
+        message.copyWith(
+          contactId: 'alice',
+          outgoing: false,
+          read: false,
+          state: ChatState.received,
+        ),
+      );
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+
+      expect(await alice.deleteForEveryone('bob', _id(1)), isTrue);
+      expect(await aliceStore.pendingControls('bob'), hasLength(1));
+
+      now = now.add(const Duration(minutes: 30));
+      device('bob', contacts: {'alice'}, store: bobStore);
+      await alice.sendText('bob', 'hi');
+      await _settle();
+
+      expect(await aliceStore.pendingControls('bob'), isEmpty);
+      expect((await bobStore.find('alice', _id(1)))!.deletedForAll, isTrue);
+    });
+
+    test('a delete made while the contact is offline is dropped once its hour has passed', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final bobStore = ChatStore(MemorySecretStore());
+      final message = ChatMessage(
+        id: _id(1),
+        contactId: 'bob',
+        outgoing: true,
+        ts: now.millisecondsSinceEpoch,
+        text: 'Lunch?',
+        state: ChatState.delivered,
+      );
+      await aliceStore.add(message);
+      await bobStore.add(
+        message.copyWith(
+          contactId: 'alice',
+          outgoing: false,
+          read: false,
+          state: ChatState.received,
+        ),
+      );
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+
+      expect(await alice.deleteForEveryone('bob', _id(1)), isTrue);
+      expect(await aliceStore.pendingControls('bob'), hasLength(1));
+
+      // Two hours later, the delete is past its window: it is dropped, not
+      // sent.
+      now = now.add(const Duration(hours: 2));
+      device('bob', contacts: {'alice'}, store: bobStore);
+      await alice.sendText('bob', 'hi');
+      await _settle();
+
+      expect(await aliceStore.pendingControls('bob'), isEmpty);
+      final kept = (await bobStore.find('alice', _id(1)))!;
+      expect(kept.deletedForAll, isFalse);
+      expect(kept.text, 'Lunch?');
+    });
+
+    test(
+      'a message deleted before the contact had it is never sent with its text',
+      () async {
+        final aliceStore = ChatStore(MemorySecretStore());
+        final bobStore = ChatStore(MemorySecretStore());
+        final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+        // Bob is offline: the text is never stored there.
+        final secret = await alice.sendText('bob', 'secret');
+        await _settle();
+        now = now.add(const Duration(seconds: 21));
+        await alice.tick();
+        await _settle();
+        expect(
+          (await aliceStore.find('bob', secret.id))!.state,
+          ChatState.notSent,
+        );
+
+        expect(await alice.deleteForEveryone('bob', secret.id), isTrue);
+
+        device('bob', contacts: {'alice'}, store: bobStore);
+        await alice.sendText('bob', 'ping');
+        await _settle();
+
+        expect(await bobStore.find('alice', secret.id), isNull);
+        expect((await bobStore.messages('alice')).map((m) => m.text), ['ping']);
+      },
+    );
   });
 }
 
