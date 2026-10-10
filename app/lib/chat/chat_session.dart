@@ -140,6 +140,13 @@ final class MessagesRead extends ChatSessionEvent {
   final List<String> ids;
 }
 
+/// The other person reacted to, edited or deleted the message [id]. An open
+/// chat shows the change by reloading.
+final class MessageChanged extends ChatSessionEvent {
+  const MessageChanged(this.id);
+  final String id;
+}
+
 /// A file offer was received from the peer.
 final class FileOfferReceived extends ChatSessionEvent {
   const FileOfferReceived(this.message);
@@ -1127,11 +1134,12 @@ class ChatSession {
         if (!_peerHello) return;
         // An unknown message, or one deleted for everyone, is ignored. The
         // reaction can be on either person's message in this chat.
-        await store.changeMessage(
+        final reacted = await store.changeMessage(
           contactId,
           id,
           (m) => m.deletedForAll ? null : m.withReaction('peer', emoji),
         );
+        if (reacted) _events.add(MessageChanged(id));
       case EditFrame(:final id, :final ts, :final text):
         if (!_peerHello) return;
         // A control dated too far from this device's clock is refused (see
@@ -1144,8 +1152,11 @@ class ChatSession {
           if (!ChatFrames.withinWindow(m.ts, ts, editWindow)) return null;
           return m.copyWith(text: text, editedAt: ts);
         });
-        // The replies to it still in the outbox quote the new text.
-        if (edited) setQuotesOf(id, ChatFrames.quoteText(text));
+        if (edited) {
+          // The replies to it still in the outbox quote the new text.
+          setQuotesOf(id, ChatFrames.quoteText(text));
+          _events.add(MessageChanged(id));
+        }
       case DeleteFrame(:final id, :final ts):
         if (!_peerHello) return;
         if (!ChatFrames.isCurrent(ts, clock().millisecondsSinceEpoch)) return;
@@ -1156,7 +1167,10 @@ class ChatSession {
           if (!ChatFrames.withinWindow(m.ts, ts, deleteWindow)) return null;
           return m.copyWith(text: '', deletedForAll: true, reactions: const {});
         });
-        if (deleted) setQuotesOf(id, '');
+        if (deleted) {
+          setQuotesOf(id, '');
+          _events.add(MessageChanged(id));
+        }
       case ByeFrame():
         await _end('bye');
     }

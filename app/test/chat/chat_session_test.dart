@@ -1667,6 +1667,44 @@ void main() {
       expect(stored.reactions, {'peer': '\u{1F44D}'});
     });
 
+    test('a reaction, an edit or a delete from the contact tells the open chat which message changed', () async {
+      final (a, b) = _pair();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      a.send(helloAll);
+      final sentAt = now.millisecondsSinceEpoch;
+      a.send(
+        ChatFrames.encode(MessageFrame(id: _id(1), ts: sentAt, text: 'first')),
+      );
+      await _settle();
+      expect(bob.ofType<MessageChanged>(), isEmpty);
+
+      a.send(
+        ChatFrames.encode(
+          ReactFrame(id: _id(1), emoji: '\u{1F44D}', ts: sentAt),
+        ),
+      );
+      a.send(
+        ChatFrames.encode(
+          ReactFrame(id: _id(9), emoji: '\u{1F44D}', ts: sentAt),
+        ),
+      );
+      await _settle();
+      a.send(
+        ChatFrames.encode(EditFrame(id: _id(1), ts: sentAt, text: 'second')),
+      );
+      await _settle();
+      a.send(ChatFrames.encode(DeleteFrame(id: _id(1), ts: sentAt)));
+      await _settle();
+
+      // The reaction on an unknown message changed nothing, so it tells no one.
+      expect(bob.ofType<MessageChanged>().map((e) => e.id), [
+        _id(1),
+        _id(1),
+        _id(1),
+      ]);
+    });
+
     test('a delete from the contact applies up to an hour after the message and keeps the record', () async {
       final (a, b) = _pair();
       final bob = _Side('bob', 'alice', b, clock: clock)..start();
