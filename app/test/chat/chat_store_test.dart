@@ -48,6 +48,30 @@ Future<void> _expectSummaryInStep(
   );
 }
 
+/// A [SecretStore] that keeps a record of every key read from it.
+class _CountingSecrets implements SecretStore {
+  _CountingSecrets(this._inner);
+
+  final SecretStore _inner;
+  final reads = <String>[];
+
+  @override
+  Future<String?> read(String key) {
+    reads.add(key);
+    return _inner.read(key);
+  }
+
+  @override
+  Future<void> write(String key, String value) => _inner.write(key, value);
+
+  @override
+  Future<void> delete(String key) => _inner.delete(key);
+
+  /// The keys of message records read so far.
+  Iterable<String> get messageReads =>
+      reads.where((key) => key.startsWith(ChatStore.contactKey('')));
+}
+
 void main() {
   late MemorySecretStore secrets;
   late ChatStore store;
@@ -1363,6 +1387,197 @@ void main() {
       await store.deleteChat('bob');
       expect(await secrets.read(ChatStore.summaryKey('bob')), isNull);
       expect(await secrets.read(ChatStore.summaryKey('carol')), isNotNull);
+    });
+  });
+
+  group('the chat list reads summary records', () {
+    test('it reads no message record of a chat that has not changed', () async {
+      await store.add(
+        ChatMessage(
+          id: _id(1),
+          contactId: 'bob',
+          outgoing: false,
+          ts: 1000,
+          text: 'hello',
+          state: ChatState.received,
+          read: false,
+        ),
+      );
+      await store.add(_message(2, contact: 'carol'));
+      final counting = _CountingSecrets(secrets);
+      final list = ChatStore(counting);
+
+      final recent = await list.recentChats();
+      expect(recent.map((c) => c.contactId), ['carol', 'bob']);
+      expect(recent.last.unreadCount, 1);
+      expect(counting.messageReads, isEmpty);
+      expect(
+        counting.reads,
+        containsAll([
+          ChatStore.summaryKey('bob'),
+          ChatStore.summaryKey('carol'),
+        ]),
+      );
+
+      counting.reads.clear();
+      expect(await list.totalUnreadCount(), 1);
+      expect(counting.messageReads, isEmpty);
+    });
+
+    test('an old vault with no summary records gets them once, with the chats and unread counts the new code writes', () async {
+      // The vault as an earlier version left it: message records and the
+      // index, and no summary records.
+      final fixture = <String, List<Map<String, dynamic>>>{
+        'alice': [
+          {
+            'id': _id(1),
+            'out': true,
+            'ts': 1000,
+            'text': 'hello alice',
+            'state': 'delivered',
+          },
+          {
+            'id': _id(2),
+            'out': false,
+            'ts': 2000,
+            'text': 'hi back',
+            'state': 'received',
+            'read': false,
+          },
+        ],
+        'bob': [
+          {
+            'id': _id(3),
+            'out': false,
+            'ts': 3000,
+            'text': 'one',
+            'state': 'received',
+            'read': false,
+          },
+          {
+            'id': _id(4),
+            'out': false,
+            'ts': 4000,
+            'text': 'two',
+            'state': 'received',
+            'read': false,
+          },
+          {
+            'id': _id(5),
+            'out': true,
+            'ts': 3500,
+            'text': 'three',
+            'state': 'delivered',
+          },
+        ],
+        'carol': [
+          {
+            'id': _id(6),
+            'out': true,
+            'ts': 500,
+            'text': 'x',
+            'state': 'read',
+            'read': true,
+          },
+        ],
+      };
+      final old = MemorySecretStore();
+      for (final entry in fixture.entries) {
+        await old.write(
+          ChatStore.contactKey(entry.key),
+          jsonEncode(entry.value),
+        );
+      }
+      await old.write(
+        ChatStore.contactsIndexKey,
+        jsonEncode(fixture.keys.toList()),
+      );
+
+      // The same chats written by the new code.
+      final written = MemorySecretStore();
+      final fresh = ChatStore(written);
+      for (final entry in fixture.entries) {
+        for (final item in entry.value) {
+          await fresh.add(ChatMessage.fromJson(entry.key, item));
+        }
+      }
+
+      final rebuilt = ChatStore(old);
+      final fromOld = await rebuilt.recentChats();
+      // The last message is the last one stored, not the latest by time.
+      expect(
+        [
+          for (final c in fromOld)
+            (c.contactId, c.lastMessage.id, c.unreadCount),
+        ],
+        [('bob', _id(5), 2), ('alice', _id(2), 1), ('carol', _id(6), 0)],
+      );
+      expect(await rebuilt.totalUnreadCount(), 3);
+
+      final fromNew = await ChatStore(written).recentChats();
+      expect(
+        [
+          for (final c in fromNew)
+            (c.contactId, c.lastMessage.id, c.unreadCount),
+        ],
+        [
+          for (final c in fromOld)
+            (c.contactId, c.lastMessage.id, c.unreadCount),
+        ],
+      );
+      for (final contactId in fixture.keys) {
+        expect(
+          await old.read(ChatStore.summaryKey(contactId)),
+          await written.read(ChatStore.summaryKey(contactId)),
+          reason: contactId,
+        );
+      }
+
+      // Rebuilt once: the next lists read no message record.
+      final counting = _CountingSecrets(old);
+      await ChatStore(counting).recentChats();
+      await ChatStore(counting).totalUnreadCount();
+      expect(counting.messageReads, isEmpty);
+    });
+
+    test('a summary record that cannot be read is reported, its chat is skipped, and the other chats still load', () async {
+      await store.add(
+        ChatMessage(
+          id: _id(1),
+          contactId: 'bob',
+          outgoing: false,
+          ts: 1000,
+          text: 'one',
+          state: ChatState.received,
+          read: false,
+        ),
+      );
+      await store.add(_message(2, contact: 'carol'));
+      final valid = jsonEncode(_message(3).toJson());
+      final unreadTooMany = '{"last": $valid, "unread": "1"}';
+      final unknownLast = '{"last": "not a message", "unread": 1}';
+      final negative = '{"last": $valid, "unread": -1}';
+      for (final raw in [
+        'not json',
+        '[]',
+        unknownLast,
+        unreadTooMany,
+        negative,
+      ]) {
+        await secrets.write(ChatStore.summaryKey('bob'), raw);
+        final list = ChatStore(secrets);
+
+        await expectLater(
+          list.threadSummary('bob'),
+          throwsA(isA<ChatStoreException>()),
+          reason: raw,
+        );
+        final recent = await list.recentChats();
+        expect(recent.map((c) => c.contactId), ['carol'], reason: raw);
+        expect(await list.totalUnreadCount(), 0, reason: raw);
+        expect(await secrets.read(ChatStore.summaryKey('bob')), raw);
+        expect((await list.messages('bob')).single.text, 'one', reason: raw);
+      }
     });
   });
 }

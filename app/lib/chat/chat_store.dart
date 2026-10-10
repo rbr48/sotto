@@ -1104,16 +1104,71 @@ class ChatStore {
     }
   }
 
-  /// The number of unread incoming messages across all chats.
+  /// The summary of the chat with [contactId]: its last message as stored and
+  /// its unread count. Null when the chat has no messages.
+  ///
+  /// A chat with no summary record (one from an earlier vault) is rebuilt from
+  /// its messages once, and the record is written. A record that cannot be
+  /// read throws [ChatStoreException], and is not overwritten here.
+  Future<ChatThreadSummary?> threadSummary(String contactId) async {
+    final raw = await _store.read(summaryKey(contactId));
+    if (raw != null) return _summaryFrom(contactId, raw);
+    return _inOrder<ChatThreadSummary?>(() async {
+      // A change that ran first may have written the record meanwhile.
+      final again = await _store.read(summaryKey(contactId));
+      if (again != null) return _summaryFrom(contactId, again);
+      final list = await _loadContact(contactId);
+      if (list.isEmpty) return null;
+      await _writeSummary(contactId, list);
+      return ChatThreadSummary(
+        contactId: contactId,
+        lastMessage: list.last,
+        unreadCount: _unreadIn(list),
+      );
+    });
+  }
+
+  /// The summary held in [raw] for [contactId]. Throws [ChatStoreException]
+  /// when [raw] is not a summary.
+  static ChatThreadSummary _summaryFrom(String contactId, String raw) {
+    final Object? json;
+    try {
+      json = jsonDecode(raw);
+    } on FormatException {
+      throw const ChatStoreException('unreadable');
+    }
+    if (json is! Map<String, dynamic>) {
+      throw const ChatStoreException('unreadable');
+    }
+    final last = json['last'];
+    final unread = json['unread'];
+    if (last is! Map<String, dynamic> || unread is! int || unread < 0) {
+      throw const ChatStoreException('unreadable');
+    }
+    return ChatThreadSummary(
+      contactId: contactId,
+      lastMessage: ChatMessage.fromJson(contactId, last),
+      unreadCount: unread,
+    );
+  }
+
+  /// [threadSummary], or null when the chat's record cannot be read. Lists over
+  /// all chats skip such a chat, as [_tryLoad] does.
+  Future<ChatThreadSummary?> _tryLoadSummary(String contactId) async {
+    try {
+      return await threadSummary(contactId);
+    } on ChatStoreException {
+      return null;
+    }
+  }
+
+  /// The number of unread incoming messages across all chats. Reads the
+  /// summary records, not the messages.
   Future<int> totalUnreadCount() async {
     final ids = await _loadIndex();
     var count = 0;
     for (final id in ids) {
-      final list = await _tryLoad(id);
-      if (list == null) continue;
-      for (final message in list) {
-        if (!message.outgoing && !message.read) count++;
-      }
+      count += (await _tryLoadSummary(id))?.unreadCount ?? 0;
     }
     return count;
   }
@@ -1128,26 +1183,15 @@ class ChatStore {
     return count;
   }
 
-  /// Returns conversation threads that have messages, newest first.
+  /// Returns conversation threads that have messages, newest first. Reads the
+  /// summary records, not the messages.
   Future<List<ChatThreadSummary>> recentChats() async {
     final ids = await _loadIndex();
     final summaries = <ChatThreadSummary>[];
     for (final id in ids) {
-      final list = await _tryLoad(id);
-      if (list == null) continue;
-      if (list.isEmpty) continue;
-      final lastMsg = list.last;
-      var unread = 0;
-      for (final msg in list) {
-        if (!msg.outgoing && !msg.read) unread++;
+      if (await _tryLoadSummary(id) case final summary?) {
+        summaries.add(summary);
       }
-      summaries.add(
-        ChatThreadSummary(
-          contactId: id,
-          lastMessage: lastMsg,
-          unreadCount: unread,
-        ),
-      );
     }
     summaries.sort(
       (a, b) => b.lastMessage.clockMs.compareTo(a.lastMessage.clockMs),
