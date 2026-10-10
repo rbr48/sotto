@@ -37,7 +37,6 @@ String? _dropped({
   int ts = _now,
   String? inviter,
   String? receiver,
-  int nowMs = _now,
 }) => _refusedBy(
   () => ChatGroups.validateInvite(
     group: group ?? _group(40),
@@ -46,7 +45,6 @@ String? _dropped({
     ts: ts,
     inviter: inviter ?? _member(2),
     receiver: receiver ?? _member(1),
-    nowMs: nowMs,
   ),
 );
 
@@ -284,9 +282,11 @@ void main() {
       expect(_dropped(ts: -1), 'malformed');
     });
 
-    test('an invite dated more than the clock skew ahead is dropped', () {
+    test('an invite is judged by its own fields, not the receiver clock, so '
+        'every device keeps or drops it alike (D11)', () {
       expect(_dropped(ts: _now + 5 * _minute), isNull);
-      expect(_dropped(ts: _now + 5 * _minute + 1), 'malformed');
+      expect(_dropped(ts: _now + 5 * _minute + 1), isNull);
+      expect(_dropped(ts: _now + 60 * _minute), isNull);
     });
   });
 
@@ -300,12 +300,8 @@ void main() {
     };
 
     String? refused(String text) => _refusedBy(
-      () => ChatGroups.decodeInvite(
-        text,
-        from: _member(2),
-        receiver: _member(1),
-        nowMs: _now,
-      ),
+      () =>
+          ChatGroups.decodeInvite(text, from: _member(2), receiver: _member(1)),
     );
 
     test('an invite round-trips and is padded to a bucket', () {
@@ -322,7 +318,6 @@ void main() {
         text,
         from: _member(2),
         receiver: _member(1),
-        nowMs: _now,
       );
       expect(read.group, _group(40));
       expect(read.name, 'Trip');
@@ -424,7 +419,6 @@ void main() {
         text,
         from: _member(1),
         receiver: _member(2),
-        nowMs: _now,
       );
       final held = ChatGroups.fromInvite(read, selfId: _member(2));
       expect(held.id, made.id);

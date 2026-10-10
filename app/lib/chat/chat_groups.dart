@@ -85,8 +85,9 @@ abstract final class ChatGroups {
   /// Checks an invite a receiver has read (D24). Throws [ChatFrameException]
   /// for one to drop: a malformed id, name, ts or member list; a member list
   /// without the inviter or the receiver, or with the inviter as the receiver;
-  /// or a group that is not three or four people. [nowMs] is the receiver's
-  /// clock: an invite dated further ahead than [clockSkew] is not trusted.
+  /// or a group that is not three or four people. The rules read only the
+  /// invite's own fields, never the receiver's clock, so every device keeps or
+  /// drops the same invite (D11).
   static GroupInvite validateInvite({
     required String group,
     required String name,
@@ -94,12 +95,9 @@ abstract final class ChatGroups {
     required int ts,
     required String inviter,
     required String receiver,
-    required int nowMs,
   }) {
     if (!ChatFrames.isId(group)) throw const ChatFrameException('malformed');
-    if (ts <= 0 || ts - nowMs > clockSkew.inMilliseconds) {
-      throw const ChatFrameException('malformed');
-    }
+    if (ts <= 0) throw const ChatFrameException('malformed');
     final cleaned = _checkedName(name);
     if (members.toSet().length != members.length ||
         !members.every(isMemberId)) {
@@ -132,13 +130,12 @@ abstract final class ChatGroups {
     'ts': invite.ts,
   });
 
-  /// Reads an invite body that [from] sent to the device [receiver], whose
-  /// clock reads [nowMs]. Throws [ChatFrameException] for one to drop.
+  /// Reads an invite body that [from] sent to the device [receiver]. Throws
+  /// [ChatFrameException] for one to drop.
   static GroupInvite decodeInvite(
     String text, {
     required String from,
     required String receiver,
-    required int nowMs,
   }) {
     if (utf8.encode(text).length > maxFrameBytes) {
       throw const ChatFrameException('too-large');
@@ -172,7 +169,6 @@ abstract final class ChatGroups {
       ts: ts,
       inviter: from,
       receiver: receiver,
-      nowMs: nowMs,
     );
   }
 
