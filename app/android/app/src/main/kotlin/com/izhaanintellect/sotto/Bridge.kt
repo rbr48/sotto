@@ -10,16 +10,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
-import android.media.MediaScannerConnection
-import android.os.Environment
-import android.content.ContentValues
-import android.provider.MediaStore
-import android.webkit.MimeTypeMap
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
-import java.io.File
 
 /**
  * The `sotto/android` channel between the Dart app and Android: the
@@ -44,6 +37,8 @@ object Bridge {
             it.setMethodCallHandler { call, result ->
                 try {
                     result.success(handle(call.method, call.arguments))
+                } catch (e: BridgeException) {
+                    result.error(e.code, e.message, null)
                 } catch (e: Exception) {
                     result.error("failed", e.message, null)
                 }
@@ -128,104 +123,15 @@ object Bridge {
                 (activity as? MainActivity)?.leaveLockScreen()
                 null
             }
+            // See [Files] for the error codes. Any "mime" argument is ignored:
+            // the type comes from the file name.
             "openFile" -> {
-                val path = args["path"] as? String ?: return@handle false
-                var mime = (args["mime"] as? String)?.takeIf { it.isNotBlank() } ?: "*/*"
-                val file = File(path)
-                if (!file.exists()) return@handle false
-                if (mime == "*/*" || mime == "application/octet-stream") {
-                    val ext = file.extension.lowercase()
-                    val inferred = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
-                    if (inferred != null) mime = inferred
-                }
-                val uri = FileProvider.getUriForFile(
-                    app,
-                    "${app.packageName}.fileprovider",
-                    file
-                )
-                val intent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, mime)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                val resInfoList = app.packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
-                for (resolveInfo in resInfoList) {
-                    val packageName = resolveInfo.activityInfo.packageName
-                    app.grantUriPermission(packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                try {
-                    open(intent)
-                    true
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    false
-                }
-            }
-            "saveToDownloads" -> {
-                val bytes = args["bytes"] as? ByteArray
                 val path = args["path"] as? String
-                if (bytes == null && path == null) return@handle null
-                val fileName = (args["name"] as? String)?.takeIf { it.isNotBlank() }
-                    ?: if (path != null) File(path).name else "file"
-                var mime = (args["mime"] as? String)?.takeIf { it.isNotBlank() } ?: "*/*"
-                if (mime == "*/*" || mime == "application/octet-stream") {
-                    val ext = if (fileName.contains(".")) fileName.substringAfterLast(".").lowercase() else ""
-                    val inferred = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
-                    if (inferred != null) mime = inferred
-                }
-
-                val openInput: () -> java.io.InputStream? = {
-                    if (bytes != null) java.io.ByteArrayInputStream(bytes)
-                    else if (path != null && File(path).exists()) File(path).inputStream()
-                    else null
-                }
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    try {
-                        val values = ContentValues().apply {
-                            put(MediaStore.Downloads.DISPLAY_NAME, fileName)
-                            put(MediaStore.Downloads.MIME_TYPE, mime)
-                            put(MediaStore.Downloads.IS_PENDING, 1)
-                        }
-                        val resolver = app.contentResolver
-                        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                        if (uri != null) {
-                            resolver.openOutputStream(uri)?.use { out ->
-                                val input = openInput() ?: return@handle null
-                                input.use { it.copyTo(out) }
-                            }
-                            values.clear()
-                            values.put(MediaStore.Downloads.IS_PENDING, 0)
-                            resolver.update(uri, values, null, null)
-                            return@handle fileName
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-
-                try {
-                    val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                    if (!downloadDir.exists()) downloadDir.mkdirs()
-                    var dest = File(downloadDir, fileName)
-                    var count = 1
-                    val base = fileName.substringBeforeLast(".")
-                    val ext = if (fileName.contains(".")) ".${fileName.substringAfterLast(".")}" else ""
-                    while (dest.exists()) {
-                        dest = File(downloadDir, "$base ($count)$ext")
-                        count++
-                    }
-                    val input = openInput() ?: return@handle null
-                    dest.outputStream().use { out ->
-                        input.use { it.copyTo(out) }
-                    }
-                    MediaScannerConnection.scanFile(app, arrayOf(dest.absolutePath), null, null)
-                    dest.absolutePath
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    null
-                }
+                    ?: throw BridgeException("not_found", "no path")
+                Files.open(app, path) { open(it) }
             }
+            "saveToDownloads" -> Files.saveToDownloads(app, activity,
+                args["bytes"] as? ByteArray, args["path"] as? String, args["name"] as? String)
             else -> throw IllegalArgumentException("unknown method $method")
         }
     }
