@@ -32,6 +32,38 @@ class ChatExportException implements Exception {
   String toString() => 'ChatExportException: ${problem.name}';
 }
 
+/// The words of the plain text export. The English defaults serve tests; the
+/// export screen passes the words of the person's language.
+final class ChatExportLabels {
+  const ChatExportLabels({
+    this.you = 'You',
+    this.exported = 'Exported',
+    this.file = 'File',
+    this.bytes = 'bytes',
+    this.deleted = 'Message deleted',
+    this.replyTo = 'Reply to',
+    this.reactions = 'Reactions',
+    this.edited = 'Edited',
+    this.forwarded = 'Forwarded',
+    this.starred = 'Starred',
+    this.delivered = 'Delivered',
+    this.read = 'Read',
+  });
+
+  final String you;
+  final String exported;
+  final String file;
+  final String bytes;
+  final String deleted;
+  final String replyTo;
+  final String reactions;
+  final String edited;
+  final String forwarded;
+  final String starred;
+  final String delivered;
+  final String read;
+}
+
 /// Exports one chat: its messages, as the person reads them.
 ///
 /// This is not a backup. It holds one chat and nothing else: no master secret,
@@ -280,6 +312,78 @@ abstract final class ChatExport {
     domainLabel(_label),
     utf8.encode(jsonEncode([...header, index, last])),
   ]);
+
+  /// Writes [messages] as plain text, oldest first, one message at a time.
+  /// Nothing is encrypted: whoever has the file can read the chat. The export
+  /// screen warns before it is written.
+  static void writePlain(
+    StringSink out, {
+    required String contactName,
+    required DateTime exportedAt,
+    required Iterable<ChatMessage> messages,
+    ChatExportLabels labels = const ChatExportLabels(),
+  }) {
+    out.write(
+      '$contactName\n${labels.exported} ${_time(exportedAt.millisecondsSinceEpoch)}\n',
+    );
+    for (final message in messages) {
+      final lines = _plainLines(
+        message,
+        contactName: contactName,
+        labels: labels,
+      );
+      out.write('\n${lines.join('\n')}\n');
+    }
+  }
+
+  /// The lines of one message: its time, sender and text, then an indented
+  /// line for each mark or detail it has.
+  static List<String> _plainLines(
+    ChatMessage message, {
+    required String contactName,
+    required ChatExportLabels labels,
+  }) {
+    final sender = message.outgoing ? labels.you : contactName;
+    return [
+      '[${_time(message.ts)}] $sender: ${_plainBody(message, labels)}',
+      if (message.replyTo case final quote?)
+        '    ${labels.replyTo}: "${quote.text}"',
+      if (message.reactions.isNotEmpty)
+        '    ${labels.reactions}: '
+            '${_plainReactions(message, contactName, labels)}',
+      if (message.editedAt case final at?) '    ${labels.edited} ${_time(at)}',
+      if (message.forwarded) '    ${labels.forwarded}',
+      if (message.starred) '    ${labels.starred}',
+      if (message.deliveredAt case final at?)
+        '    ${labels.delivered} ${_time(at)}',
+      if (message.readAt case final at?) '    ${labels.read} ${_time(at)}',
+    ];
+  }
+
+  static String _plainBody(ChatMessage message, ChatExportLabels labels) {
+    if (message.deletedForAll) return labels.deleted;
+    if (!message.isAttachment) return message.text;
+    final size = message.fileSize;
+    final detail = size == null ? '' : ' ($size ${labels.bytes})';
+    return '${labels.file}: ${message.fileName}$detail';
+  }
+
+  static String _plainReactions(
+    ChatMessage message,
+    String contactName,
+    ChatExportLabels labels,
+  ) => [
+    for (final who in const ['me', 'peer'])
+      if (message.reactions[who] case final emoji?)
+        '$emoji (${who == 'me' ? labels.you : contactName})',
+  ].join(', ');
+
+  /// A time in milliseconds since the epoch, as UTC to the second, such as
+  /// 2026-10-10T12:00:00Z.
+  static String _time(int ms) {
+    final utc = DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
+    return '${utc.toIso8601String().split('.').first}Z';
+  }
 
   /// Writes the payload, one message at a time, through [write].
   static void _writePayload(

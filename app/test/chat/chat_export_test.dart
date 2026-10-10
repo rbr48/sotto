@@ -435,4 +435,135 @@ void main() {
       throwsA(_problem(ChatExportProblem.weakPassphrase)),
     );
   });
+
+  group('plain text', () {
+    String plain(
+      List<ChatMessage> messages, {
+      ChatExportLabels labels = const ChatExportLabels(),
+    }) {
+      final buffer = StringBuffer();
+      ChatExport.writePlain(
+        buffer,
+        contactName: 'Bob',
+        exportedAt: _exportedAt,
+        messages: messages,
+        labels: labels,
+      );
+      return buffer.toString();
+    }
+
+    test('reads as the chat does, with each mark on its own line', () {
+      expect(plain(_bobChat()), _bobPlainText);
+    });
+
+    test('has no keys, pending controls, settings or other chats', () async {
+      final master = Uint8List.fromList(
+        List.generate(32, (i) => (i * 37 + 11) & 0xff),
+      );
+      final vaultKey = Uint8List.fromList(List.generate(32, (i) => 255 - i));
+      final secrets = MemorySecretStore();
+      await secrets.write('sotto.identity.master.v1', b64Encode(master));
+      await secrets.write('sotto.vault.key.v1', b64Encode(vaultKey));
+      final store = ChatStore(secrets);
+      for (final message in _bobChat()) {
+        await store.add(message);
+      }
+      await store.add(
+        _message(
+          9,
+          contact: _carolId,
+          outgoing: false,
+          text: 'A message from Carol',
+        ),
+      );
+      await store.queueControl(
+        _bobId,
+        ReactFrame(id: _msgId(1), emoji: '🙈', ts: 1700000000900),
+      );
+      await store.setArchived(_bobId, true);
+      await store.setMuted(_bobId, true);
+      await store.setPinned(_bobId, true, at: 1700000000950);
+
+      final text = plain(await store.messages(_bobId));
+      expect(text, contains('Hello from Bob'));
+      final needles = [
+        b64Encode(master),
+        base64.encode(master),
+        b64Encode(vaultKey),
+        base64.encode(vaultKey),
+        _carolId,
+        _bobId,
+        'A message from Carol',
+        '🙈',
+        'archived',
+        'muted',
+        'pinned',
+      ];
+      for (final needle in needles) {
+        expect(text, isNot(contains(needle)), reason: needle);
+      }
+    });
+
+    test('in pieces is the same text as in one piece', () {
+      final messages = [
+        for (var i = 0; i < 300; i++)
+          _message(i + 1, outgoing: i.isEven, text: 'line $i'),
+      ];
+      final pieces = _PieceSink();
+      ChatExport.writePlain(
+        pieces,
+        contactName: 'Bob',
+        exportedAt: _exportedAt,
+        messages: messages,
+      );
+      expect(pieces.pieces.join(), plain(messages));
+      expect(
+        pieces.pieces,
+        hasLength(messages.length + 1),
+        reason: 'the header, then one write per message',
+      );
+    });
+
+    test('the labels replace the English words', () {
+      final text = plain(
+        _bobChat(),
+        labels: const ChatExportLabels(
+          you: 'Yo',
+          deleted: 'Borrado',
+          starred: 'Destacado',
+        ),
+      );
+      expect(text, contains('[2023-11-14T22:13:20Z] Yo: Hi Bob'));
+      expect(text, contains('Yo: Borrado'));
+      expect(text, contains('    Destacado'));
+    });
+  });
 }
+
+/// The plain text of [_bobChat] with the English labels.
+const _bobPlainText = '''
+Bob
+Exported 2026-10-10T12:00:00Z
+
+[2023-11-14T22:13:20Z] Bob: Hello from Bob
+
+[2023-11-14T22:13:20Z] You: Hi Bob
+    Reactions: 👍 (Bob)
+    Delivered 2023-11-14T22:13:20Z
+    Read 2023-11-14T22:13:21Z
+
+[2023-11-14T22:13:20Z] You: Replying
+    Reply to: "Hello from Bob"
+
+[2023-11-14T22:13:20Z] You: Edited text
+    Edited 2023-11-14T22:13:20Z
+
+[2023-11-14T22:13:20Z] Bob: Forwarded text
+    Reactions: ❤️ (You), 😂 (Bob)
+    Forwarded
+    Starred
+
+[2023-11-14T22:13:20Z] You: File: report.pdf (5120 bytes)
+
+[2023-11-14T22:13:20Z] You: Message deleted
+''';
