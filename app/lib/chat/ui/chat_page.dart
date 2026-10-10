@@ -285,7 +285,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   bool _myTypingSent = false;
   Duration? _retention;
 
-  /// Whether this chat's notifications are muted on this device.
+  /// Whether this chat is muted on this device. Mute only greys the chat's
+  /// unread badge: incoming messages still raise their notices.
   bool _muted = false;
 
   /// Whether the chat has been opened at [ChatPage.focusMessageId] already.
