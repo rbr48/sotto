@@ -15,6 +15,7 @@ import '../../contacts/contact_book.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/test_hooks.dart';
 import '../../core/ui_kit.dart';
+import '../../crypto/sotto_crypto.dart';
 import '../chat_frames.dart';
 import '../chat_manager.dart';
 import '../chat_session.dart';
@@ -26,6 +27,7 @@ import '../voice/voice_recorder.dart';
 import '../web_download.dart';
 import 'chat_tokens.dart';
 import 'emoji_picker_panel.dart';
+import 'export_dialog.dart';
 import 'forward_picker.dart';
 import 'message_info_sheet.dart';
 import 'message_menu.dart';
@@ -1572,6 +1574,26 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     if (mounted) setState(() => _muted = next);
   }
 
+  /// Exports this chat to a file. The dialog writes nothing until it is saved.
+  Future<void> _exportChat() async {
+    final l10n = AppLocalizations.of(context);
+    final sodium = SottoCrypto.passwordHashing(await SottoCrypto.init());
+    final messages = await widget.chat.store.messages(widget.contactId);
+    if (!mounted) return;
+    if (sodium == null) {
+      _showSnack(l10n.chatFileSaveFailed);
+      return;
+    }
+    final saved = await showExportChatDialog(
+      context,
+      sodium: sodium,
+      messages: messages,
+      contactName: widget.name,
+      exportedAt: widget.chat.clock(),
+    );
+    if (saved != null) _showSnack(l10n.chatExportSaved(saved));
+  }
+
   void _openStarred() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -1866,6 +1888,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                     _openStarred();
                   } else if (value == 'mute') {
                     unawaited(_toggleMute());
+                  } else if (value == 'export') {
+                    unawaited(_exportChat());
                   } else if (value == 'delete') {
                     unawaited(_deleteChat(l10n));
                   }
@@ -1908,6 +1932,19 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                       ],
                     ),
                   ),
+                  // Not in the browser: its build has no Argon2id, so it cannot
+                  // make the encrypted export, and backups are native-only too.
+                  if (!kIsWeb)
+                    PopupMenuItem(
+                      value: 'export',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.file_download_outlined, size: 20),
+                          const SizedBox(width: 12),
+                          Flexible(child: Text(l10n.chatExportChat)),
+                        ],
+                      ),
+                    ),
                   PopupMenuItem(
                     value: 'delete',
                     child: Row(
