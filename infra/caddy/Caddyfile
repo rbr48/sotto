@@ -23,7 +23,7 @@
 		X-Frame-Options "DENY"
 		Referrer-Policy "no-referrer"
 		Permissions-Policy "camera=(self), microphone=(self), display-capture=(self)"
-		Content-Security-Policy "default-src 'none'; manifest-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval' https://www.gstatic.com; style-src 'self' 'unsafe-inline'; font-src 'self' data: blob: https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' blob: data: wss: https: https://www.gstatic.com https://fonts.gstatic.com; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
+		Content-Security-Policy "default-src 'none'; manifest-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data: blob:; img-src 'self' data: blob:; connect-src 'self' blob: data: wss: https:; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
 		-Server
 	}
 
