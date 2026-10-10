@@ -1,8 +1,11 @@
+import 'dart:convert';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../android/android_integration.dart';
 import '../../call/call_controller.dart';
+import '../../chat/image_metadata.dart';
 import '../../core/downloads.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/l10n/language.dart';
@@ -913,45 +916,121 @@ class _ProfileFormState extends State<_ProfileForm> {
     super.dispose();
   }
 
+  Future<void> _pickAvatar() async {
+    try {
+      final file = await openFile(
+        acceptedTypeGroups: const [
+          XTypeGroup(
+            label: 'Images',
+            extensions: ['jpg', 'jpeg', 'png', 'webp'],
+            mimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+          ),
+        ],
+      );
+      if (file == null) return;
+      final bytes = await file.readAsBytes();
+      if (bytes.length > 500 * 1024) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Avatar image must be under 500 KB')),
+        );
+        return;
+      }
+      final clean = ImageMetadata.clean(bytes, file.mimeType ?? 'image/jpeg');
+      final b64 = 'data:image/jpeg;base64,${base64Encode(clean)}';
+      await widget.app.updateAvatar(b64);
+      if (mounted) setState(() {});
+    } catch (_) {}
+  }
+
+  Future<void> _removeAvatar() async {
+    await widget.app.updateAvatar(null);
+    if (mounted) setState(() {});
+  }
+
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      TextField(
-        controller: _name,
-        decoration: const InputDecoration(labelText: 'Your name'),
-      ),
-      const SizedBox(height: 12),
-      TextField(
-        controller: _practice,
-        decoration: const InputDecoration(
-          labelText: 'Practice or organisation',
-        ),
-      ),
-      const SizedBox(height: 8),
-      Align(
-        alignment: Alignment.centerLeft,
-        child: FilledButton.tonal(
-          onPressed: () async {
-            if (_name.text.trim().isEmpty) return;
-            final messenger = ScaffoldMessenger.of(context);
-            await widget.app.updateProfile(
-              name: _name.text,
-              practice: _practice.text,
-            );
-            messenger.showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'Saved. Guest links and your contact link now show the new name.',
+  Widget build(BuildContext context) {
+    final avatar = widget.app.profile?.avatar;
+    final name = _name.text.isNotEmpty ? _name.text : (widget.app.profile?.name ?? 'You');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Center(
+          child: Stack(
+            children: [
+              InitialsAvatar(
+                name: name,
+                avatar: avatar,
+                radius: 44,
+              ),
+              Positioned(
+                right: -4,
+                bottom: -4,
+                child: Material(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: _pickAvatar,
+                    child: const Padding(
+                      padding: EdgeInsets.all(8.0),
+                      child: Icon(Icons.photo_camera, size: 20),
+                    ),
+                  ),
                 ),
               ),
-            );
-          },
-          child: const Text('Save profile'),
+            ],
+          ),
         ),
-      ),
-    ],
-  );
+        if (avatar != null) ...[
+          const SizedBox(height: 4),
+          Center(
+            child: TextButton.icon(
+              onPressed: _removeAvatar,
+              icon: const Icon(Icons.delete_outline, size: 16),
+              label: const Text('Remove photo'),
+            ),
+          ),
+        ],
+        const SizedBox(height: 16),
+        TextField(
+          controller: _name,
+          decoration: const InputDecoration(labelText: 'Your name'),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _practice,
+          decoration: const InputDecoration(
+            labelText: 'Practice or organisation',
+          ),
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.tonal(
+            onPressed: () async {
+              if (_name.text.trim().isEmpty) return;
+              final messenger = ScaffoldMessenger.of(context);
+              await widget.app.updateProfile(
+                name: _name.text,
+                practice: _practice.text,
+                avatar: avatar,
+              );
+              messenger.showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Saved. Guest links and your contact link now show the new name.',
+                  ),
+                ),
+              );
+            },
+            child: const Text('Save profile'),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 /// Asks for a server address and checks that a Sotto relay answers there.

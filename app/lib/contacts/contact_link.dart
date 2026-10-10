@@ -10,7 +10,12 @@ import '../crypto/identity.dart';
 /// Someone's contact details from a contact link, QR code or call link.
 @immutable
 class ContactInvite {
-  const ContactInvite({required this.identity, this.name, this.organisation});
+  const ContactInvite({
+    required this.identity,
+    this.name,
+    this.organisation,
+    this.avatar,
+  });
 
   final PublicIdentity identity;
 
@@ -18,6 +23,9 @@ class ContactInvite {
   /// their key, but self-asserted). `null` for plain call links.
   final String? name;
   final String? organisation;
+
+  /// Optional base64 avatar image string.
+  final String? avatar;
 }
 
 /// Contact links let colleagues add each other: `https://<host>/#c=<payload>`

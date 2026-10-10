@@ -1,8 +1,12 @@
+import 'dart:convert';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/app_controller.dart';
 import '../../call/call_controller.dart';
 import '../../call/ui/common.dart';
+import '../../chat/image_metadata.dart';
+import '../../core/ui_kit.dart';
 import '../../crypto/identity.dart';
 import '../../lock/ui/lock_ui.dart';
 import '../contact_book.dart';
@@ -172,6 +176,7 @@ class _AddContactFromLinkDialogState extends State<AddContactFromLinkDialog> {
           name: name.trim().isEmpty ? 'Contact' : name,
           organisation: organisation,
           verified: verified,
+          avatar: invite.avatar,
         ),
       );
     }
@@ -264,13 +269,49 @@ class _ContactDetailsDialogState extends State<ContactDetailsDialog> {
     await widget.calls.callPeer(_contact.identity, video: video);
   }
 
+  Future<void> _pickAvatar() async {
+    try {
+      final file = await openFile(
+        acceptedTypeGroups: const [
+          XTypeGroup(
+            label: 'Images',
+            extensions: ['jpg', 'jpeg', 'png', 'webp'],
+            mimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+          ),
+        ],
+      );
+      if (file == null) return;
+      final bytes = await file.readAsBytes();
+      if (bytes.length > 500 * 1024) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Avatar image must be under 500 KB')),
+        );
+        return;
+      }
+      final clean = ImageMetadata.clean(bytes, file.mimeType ?? 'image/jpeg');
+      final b64 = 'data:image/jpeg;base64,${base64Encode(clean)}';
+      await _book.setAvatar(_contact.identity, b64);
+    } catch (_) {}
+  }
+
+  Future<void> _removeAvatar() async {
+    await _book.setAvatar(_contact.identity, null);
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: _book,
     builder: (context, _) {
       final contact = _contact;
       return AlertDialog(
-        title: Text(contact.label),
+        title: Row(
+          children: [
+            InitialsAvatar(name: contact.name, avatar: contact.avatar, radius: 22),
+            const SizedBox(width: 12),
+            Expanded(child: Text(contact.label)),
+          ],
+        ),
         content: SizedBox(
           width: 440,
           child: SingleChildScrollView(
@@ -278,6 +319,44 @@ class _ContactDetailsDialogState extends State<ContactDetailsDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                Center(
+                  child: Stack(
+                    children: [
+                      InitialsAvatar(
+                        name: contact.name,
+                        avatar: contact.avatar,
+                        radius: 44,
+                      ),
+                      Positioned(
+                        right: -4,
+                        bottom: -4,
+                        child: Material(
+                          color: Theme.of(context).colorScheme.primaryContainer,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: _pickAvatar,
+                            child: const Padding(
+                              padding: EdgeInsets.all(8.0),
+                              child: Icon(Icons.photo_camera, size: 20),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (contact.avatar != null) ...[
+                  const SizedBox(height: 4),
+                  Center(
+                    child: TextButton.icon(
+                      onPressed: _removeAvatar,
+                      icon: const Icon(Icons.delete_outline, size: 16),
+                      label: const Text('Remove photo'),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
                 Wrap(
                   spacing: 12,
                   children: [

@@ -140,7 +140,10 @@ class ChatPage extends StatefulWidget {
     this.sendReadReceipts = true,
     this.verified = false,
     this.calls,
+    this.avatar,
   });
+
+  final String? avatar;
 
   final ChatManager chat;
 
@@ -1261,7 +1264,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                 )
               : Row(
                   children: [
-                    InitialsAvatar(name: widget.name, radius: 18),
+                    InitialsAvatar(
+                      name: widget.name,
+                      avatar: widget.avatar,
+                      radius: 18,
+                    ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Column(

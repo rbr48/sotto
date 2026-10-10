@@ -93,7 +93,7 @@ void main() {
     test('returns the verified identity, name and organisation', () async {
       exchange(
         meera,
-        profile: (name: 'Dr Meera Rao', organisation: 'Rao Physiotherapy'),
+        profile: (name: 'Dr Meera Rao', organisation: 'Rao Physiotherapy', avatar: null),
       );
       final invite = await exchange(visitor)
           .fetch(meera.publicIdentity.signKey);
@@ -104,7 +104,7 @@ void main() {
 
     test('only the request travels unencrypted, and it holds only the '
         "requester's public card", () async {
-      exchange(meera, profile: (name: 'Dr Meera Rao', organisation: ''));
+      exchange(meera, profile: (name: 'Dr Meera Rao', organisation: '', avatar: null));
       await exchange(visitor).fetch(meera.publicIdentity.signKey);
       final request = relay.sent.firstWhere((m) => m.to == meera.id).body;
       expect(request, startsWith(ProfileExchange.requestPrefix));
@@ -114,7 +114,7 @@ void main() {
 
     test('a reply signed by someone else is not accepted', () async {
       final mallory = Identity.generate(sodium);
-      exchange(mallory, profile: (name: 'Dr Meera Rao', organisation: ''));
+      exchange(mallory, profile: (name: 'Dr Meera Rao', organisation: '', avatar: null));
       final visitorSide = exchange(visitor);
       // Mallory answers a lookup for Meera's key: the reply is signed by
       // Mallory, so it can't complete the lookup for Meera.
@@ -143,7 +143,7 @@ void main() {
     test('a request whose card is not the sender is ignored', () {
       final meeraSide = exchange(
         meera,
-        profile: (name: 'Dr Meera Rao', organisation: ''),
+        profile: (name: 'Dr Meera Rao', organisation: '', avatar: null),
       );
       final other = Identity.generate(sodium);
       final request =
@@ -156,7 +156,7 @@ void main() {
     test('answers are rate limited per requester', () {
       final meeraSide = exchange(
         meera,
-        profile: (name: 'Dr Meera Rao', organisation: ''),
+        profile: (name: 'Dr Meera Rao', organisation: '', avatar: null),
       );
       final request =
           '${ProfileExchange.requestPrefix}'

@@ -9,8 +9,8 @@ import '../crypto/envelope.dart';
 import '../crypto/identity.dart';
 import 'contact_link.dart';
 
-/// Name and organisation someone shows to people who open their link.
-typedef PublicProfile = ({String name, String organisation});
+/// Name, organisation, and optional avatar someone shows to people who open their link.
+typedef PublicProfile = ({String name, String organisation, String? avatar});
 
 /// Why a short link could not be looked up.
 class ProfileUnavailableException implements Exception {
@@ -111,6 +111,7 @@ class ProfileExchange {
     if (_lastAnswer.length > 1000) _lastAnswer.clear();
     final name = profile.name.trim();
     final organisation = profile.organisation.trim();
+    final avatar = profile.avatar?.trim();
     _send(
       from,
       _codec.seal(
@@ -122,6 +123,7 @@ class ProfileExchange {
               : name.substring(0, name.length.clamp(0, 80)),
           if (organisation.isNotEmpty)
             'o': organisation.substring(0, organisation.length.clamp(0, 80)),
+          if (avatar != null && avatar.isNotEmpty) 'av': avatar,
         },
       ),
     );
@@ -134,6 +136,7 @@ class ProfileExchange {
     final waiter = _waiting[message.sender.id];
     final name = message.body['n'];
     final organisation = message.body['o'];
+    final avatar = message.body['av'] is String ? message.body['av'] as String : null;
     if (waiter == null ||
         waiter.isCompleted ||
         name is! String ||
@@ -151,6 +154,7 @@ class ProfileExchange {
         organisation: (organisation as String?)?.isEmpty ?? true
             ? null
             : organisation,
+        avatar: avatar,
       ),
     );
     return true;

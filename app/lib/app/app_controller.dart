@@ -47,15 +47,22 @@ enum AppStage {
 /// links. Stored in the vault.
 @immutable
 class Profile {
-  const Profile({required this.name, this.practice = ''});
+  const Profile({required this.name, this.practice = '', this.avatar});
 
   final String name;
   final String practice;
 
+  /// Optional base64 profile picture string.
+  final String? avatar;
+
   /// "Name (Practice)".
   String get label => practice.isEmpty ? name : '$name ($practice)';
 
-  String encode() => jsonEncode({'name': name, 'practice': practice});
+  String encode() => jsonEncode({
+    'name': name,
+    'practice': practice,
+    if (avatar != null && avatar!.isNotEmpty) 'avatar': avatar!,
+  });
 
   static Profile? decode(String? stored) {
     if (stored == null) return null;
@@ -64,6 +71,7 @@ class Profile {
       return Profile(
         name: json['name'] as String,
         practice: json['practice'] as String? ?? '',
+        avatar: json['avatar'] as String?,
       );
     } catch (_) {
       return null;
@@ -503,14 +511,25 @@ class AppController extends ChangeNotifier {
   Future<void> updateProfile({
     required String name,
     String practice = '',
+    String? avatar,
   }) async {
     final profile = _profile = Profile(
       name: name.trim(),
       practice: practice.trim(),
+      avatar: avatar ?? _profile?.avatar,
     );
     await _vault!.write(profileKey, profile.encode());
     _calls?.publishGuestLinks();
     notifyListeners();
+  }
+
+  Future<void> updateAvatar(String? avatar) async {
+    if (_profile == null) return;
+    await updateProfile(
+      name: _profile!.name,
+      practice: _profile!.practice,
+      avatar: avatar,
+    );
   }
 
   Future<void> _startCalls() async {
@@ -535,7 +554,7 @@ class AppController extends ChangeNotifier {
         devices: devices,
         hostName: () => _profile?.label ?? '',
         publicProfile: () => switch (_profile) {
-          final p? => (name: p.name, organisation: p.practice),
+          final p? => (name: p.name, organisation: p.practice, avatar: p.avatar),
           null => null,
         },
         sounds: AudioplayersOutput(),

@@ -18,6 +18,7 @@ class Contact {
     this.verified = false,
     this.autoAnswer = false,
     this.autoAnswerVideo = false,
+    this.avatar,
     required this.addedAt,
   });
 
@@ -34,6 +35,9 @@ class Contact {
 
   /// Answer with the camera on (otherwise voice only).
   final bool autoAnswerVideo;
+
+  /// Optional base64-encoded profile picture data URI or raw base64 JPEG/PNG.
+  final String? avatar;
   final DateTime addedAt;
 
   String get id => identity.id;
@@ -47,6 +51,7 @@ class Contact {
     bool? verified,
     bool? autoAnswer,
     bool? autoAnswerVideo,
+    String? avatar,
   }) => Contact(
     identity: identity,
     name: name ?? this.name,
@@ -54,6 +59,7 @@ class Contact {
     verified: verified ?? this.verified,
     autoAnswer: autoAnswer ?? this.autoAnswer,
     autoAnswerVideo: autoAnswerVideo ?? this.autoAnswerVideo,
+    avatar: avatar ?? this.avatar,
     addedAt: addedAt,
   );
 
@@ -65,6 +71,7 @@ class Contact {
     'verified': verified,
     'auto': autoAnswer,
     'autoVideo': autoAnswerVideo,
+    if (avatar != null && avatar!.isNotEmpty) 'avatar': avatar!,
     'added': addedAt.millisecondsSinceEpoch,
   };
 
@@ -78,6 +85,7 @@ class Contact {
     verified: json['verified'] as bool? ?? false,
     autoAnswer: json['auto'] as bool? ?? false,
     autoAnswerVideo: json['autoVideo'] as bool? ?? false,
+    avatar: json['avatar'] as String?,
     addedAt: DateTime.fromMillisecondsSinceEpoch(
       json['added'] as int? ?? 0,
       isUtc: true,
@@ -211,6 +219,7 @@ class ContactBook extends ChangeNotifier {
     required String name,
     String organisation = '',
     bool verified = false,
+    String? avatar,
   }) async {
     final existing = find(identity);
     final contact =
@@ -218,12 +227,14 @@ class ContactBook extends ChangeNotifier {
           name: name.trim(),
           organisation: organisation.trim(),
           verified: existing.verified || verified,
+          avatar: avatar ?? existing.avatar,
         ) ??
         Contact(
           identity: identity,
           name: name.trim(),
           organisation: organisation.trim(),
           verified: verified,
+          avatar: avatar,
           addedAt: _clock().toUtc(),
         );
     _contacts
@@ -241,6 +252,12 @@ class ContactBook extends ChangeNotifier {
         ? contact
         : contact.copyWith(autoAnswer: false);
     await _save();
+  }
+
+  Future<void> setAvatar(PublicIdentity identity, String? avatar) async {
+    final contact = find(identity);
+    if (contact == null) return;
+    await update(contact.copyWith(avatar: avatar));
   }
 
   Future<void> remove(PublicIdentity identity) async {

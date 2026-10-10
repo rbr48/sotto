@@ -70,7 +70,10 @@ class ContactsTab extends StatelessWidget {
                     for (final (index, contact) in contacts.indexed) ...[
                       if (index > 0) const Divider(indent: 72),
                       ListTile(
-                        leading: InitialsAvatar(name: contact.name),
+                        leading: InitialsAvatar(
+                          name: contact.name,
+                          avatar: contact.avatar,
+                        ),
                         title: Text(contact.name),
                         subtitle: Text(
                           [
@@ -97,6 +100,7 @@ class ContactsTab extends StatelessWidget {
                                 contactName: contact.name,
                                 verified: contact.verified,
                                 calls: calls,
+                                avatar: contact.avatar,
                               ),
                             IconButton(
                               tooltip: 'Voice call ${contact.name}',
@@ -211,6 +215,7 @@ class _ContactChatButton extends StatefulWidget {
     required this.contactName,
     this.verified = false,
     this.calls,
+    this.avatar,
   });
 
   final ChatManager chat;
@@ -218,6 +223,7 @@ class _ContactChatButton extends StatefulWidget {
   final bool verified;
   final String contactName;
   final CallController? calls;
+  final String? avatar;
 
   @override
   State<_ContactChatButton> createState() => _ContactChatButtonState();
@@ -275,6 +281,7 @@ class _ContactChatButtonState extends State<_ContactChatButton> {
             sendReadReceipts: widget.calls?.sendReadReceipts ?? true,
             verified: widget.verified,
             calls: widget.calls,
+            avatar: widget.avatar,
           ),
         ),
       ),

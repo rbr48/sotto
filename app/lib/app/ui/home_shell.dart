@@ -172,17 +172,10 @@ class _HomeShellState extends State<HomeShell> {
                   child: Stack(
                     clipBehavior: Clip.none,
                     children: [
-                      CircleAvatar(
+                      InitialsAvatar(
+                        name: name.isEmpty ? 'Sotto' : name,
+                        avatar: app.profile?.avatar,
                         radius: 20,
-                        backgroundColor: theme.colorScheme.primary,
-                        foregroundColor: theme.colorScheme.onPrimary,
-                        child: Text(
-                          name.isEmpty ? 'S' : InitialsAvatar.initials(name),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                          ),
-                        ),
                       ),
                       Positioned(
                         right: -1,

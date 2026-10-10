@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 /// How much a [NoticeCard] asks for attention.
@@ -177,15 +179,48 @@ class SectionLabel extends StatelessWidget {
 /// A circle with someone's initials, tinted from their name so each
 /// contact keeps the same colour.
 class InitialsAvatar extends StatelessWidget {
-  const InitialsAvatar({super.key, required this.name, this.radius = 20});
+  const InitialsAvatar({
+    super.key,
+    required this.name,
+    this.radius = 20,
+    this.avatar,
+  });
 
   final String name;
   final double radius;
 
+  /// Optional base64-encoded avatar image data or data URL.
+  final String? avatar;
+
   static const _hues = [262.0, 210.0, 170.0, 25.0, 330.0, 140.0, 45.0, 290.0];
+
+  Uint8List? _decodeAvatar() {
+    if (avatar == null || avatar!.isEmpty) return null;
+    try {
+      var raw = avatar!.trim();
+      final comma = raw.indexOf(',');
+      if (raw.startsWith('data:') && comma != -1) {
+        raw = raw.substring(comma + 1);
+      }
+      return base64Decode(raw);
+    } catch (_) {
+      return null;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final imageBytes = _decodeAvatar();
+    if (imageBytes != null && imageBytes.isNotEmpty) {
+      return ExcludeSemantics(
+        child: CircleAvatar(
+          radius: radius,
+          backgroundColor: Colors.transparent,
+          backgroundImage: MemoryImage(imageBytes),
+        ),
+      );
+    }
+
     final dark = Theme.of(context).brightness == Brightness.dark;
     final hue = _hues[name.codeUnits.fold(0, (a, b) => a + b) % _hues.length];
     final background = HSLColor.fromAHSL(

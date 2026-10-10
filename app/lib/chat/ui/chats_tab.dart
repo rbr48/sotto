@@ -136,7 +136,10 @@ class _ChatsTabState extends State<ChatsTab> {
                     itemBuilder: (_, index) {
                       final c = contacts[index];
                       return ListTile(
-                        leading: InitialsAvatar(name: c.name),
+                        leading: InitialsAvatar(
+                          name: c.name,
+                          avatar: c.avatar,
+                        ),
                         title: Text(
                           c.name,
                           style: const TextStyle(fontWeight: FontWeight.w600),
@@ -157,6 +160,7 @@ class _ChatsTabState extends State<ChatsTab> {
                             c.identity.id,
                             c.name,
                             verified: c.verified,
+                            avatar: c.avatar,
                           );
                         },
                       );
@@ -171,7 +175,12 @@ class _ChatsTabState extends State<ChatsTab> {
     );
   }
 
-  void _openChat(String contactId, String name, {bool verified = false}) {
+  void _openChat(
+    String contactId,
+    String name, {
+    bool verified = false,
+    String? avatar,
+  }) {
     final chat = widget.calls.chat;
     if (chat == null) return;
     Navigator.of(context).push(
@@ -184,6 +193,7 @@ class _ChatsTabState extends State<ChatsTab> {
           sendReadReceipts: widget.calls.sendReadReceipts,
           verified: verified,
           calls: widget.calls,
+          avatar: avatar,
         ),
       ),
     );
@@ -359,7 +369,11 @@ class _ChatsTabState extends State<ChatsTab> {
       leading: Stack(
         clipBehavior: Clip.none,
         children: [
-          InitialsAvatar(name: name, radius: 24),
+          InitialsAvatar(
+            name: name,
+            avatar: contact?.avatar,
+            radius: 24,
+          ),
           if (contact?.verified ?? false)
             const Positioned(
               right: -2,
@@ -464,6 +478,7 @@ class _ChatsTabState extends State<ChatsTab> {
         summary.contactId,
         name,
         verified: contact?.verified ?? false,
+        avatar: contact?.avatar,
       ),
     );
   }
