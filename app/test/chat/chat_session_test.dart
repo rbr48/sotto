@@ -1589,6 +1589,12 @@ void main() {
       );
       await _settle();
 
+      // Each edit is made, and arrives, at the time it names: this device's
+      // clock is set to that time first.
+      void at(int ms) =>
+          now = DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
+
+      at(sentAt + 10 * minute);
       a.send(
         ChatFrames.encode(
           EditFrame(id: _id(1), ts: sentAt + 10 * minute, text: 'fixed'),
@@ -1601,6 +1607,7 @@ void main() {
       expect(stored.outgoing, isFalse);
 
       // Exactly 15 minutes after the message is still inside the window.
+      at(sentAt + 15 * minute);
       a.send(
         ChatFrames.encode(
           EditFrame(id: _id(1), ts: sentAt + 15 * minute, text: 'at the limit'),
@@ -1610,6 +1617,7 @@ void main() {
       expect((await bob.store.find('alice', _id(1)))!.text, 'at the limit');
 
       // Sixteen minutes after the message: refused, and nothing changes.
+      at(sentAt + 16 * minute);
       a.send(
         ChatFrames.encode(
           EditFrame(id: _id(1), ts: sentAt + 16 * minute, text: 'too late'),
@@ -1683,8 +1691,17 @@ void main() {
         'peer': '\u{1F44D}',
       });
 
+      now = DateTime.fromMillisecondsSinceEpoch(
+        sentAt + 59 * minute,
+        isUtc: true,
+      );
       a.send(
         ChatFrames.encode(DeleteFrame(id: _id(1), ts: sentAt + 59 * minute)),
+      );
+      await _settle();
+      now = DateTime.fromMillisecondsSinceEpoch(
+        sentAt + 61 * minute,
+        isUtc: true,
       );
       a.send(
         ChatFrames.encode(DeleteFrame(id: _id(2), ts: sentAt + 61 * minute)),
@@ -1700,6 +1717,10 @@ void main() {
       expect(kept.text, 'too late to delete');
 
       // A deleted message takes no more reactions.
+      now = DateTime.fromMillisecondsSinceEpoch(
+        sentAt + 60 * minute,
+        isUtc: true,
+      );
       a.send(
         ChatFrames.encode(
           ReactFrame(id: _id(1), emoji: '\u{2764}', ts: sentAt + 60 * minute),
@@ -1827,6 +1848,187 @@ void main() {
         expect(await alice.store.pendingControls('bob'), isEmpty);
       },
     );
+
+    test('an edit or delete dated more than five minutes ahead of this clock is refused', () async {
+      final (a, b) = _pair();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      a.send(helloAll);
+      final sentAt = now.millisecondsSinceEpoch;
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(id: _id(1), ts: sentAt, text: 'first try'),
+        ),
+      );
+      await _settle();
+
+      a.send(
+        ChatFrames.encode(
+          EditFrame(id: _id(1), ts: sentAt + 6 * minute, text: 'from ahead'),
+        ),
+      );
+      a.send(
+        ChatFrames.encode(DeleteFrame(id: _id(1), ts: sentAt + 6 * minute)),
+      );
+      await _settle();
+      final kept = (await bob.store.find('alice', _id(1)))!;
+      expect(kept.text, 'first try');
+      expect(kept.editedAt, isNull);
+      expect(kept.deletedForAll, isFalse);
+      expect(bob.session.isEnded, isFalse);
+
+      // Five minutes ahead is still within the allowance for two clocks that
+      // differ.
+      a.send(
+        ChatFrames.encode(
+          EditFrame(
+            id: _id(1),
+            ts: sentAt + 5 * minute,
+            text: 'a little ahead',
+          ),
+        ),
+      );
+      await _settle();
+      expect((await bob.store.find('alice', _id(1)))!.text, 'a little ahead');
+    });
+
+    test('an edit or delete more than seven days old by this clock is refused, though it is within its message\'s window', () async {
+      final (a, b) = _pair();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      a.send(helloAll);
+      final sentAt = now.millisecondsSinceEpoch;
+      const week = 7 * 24 * 60 * minute;
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(id: _id(1), ts: sentAt, text: 'a week old'),
+        ),
+      );
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(id: _id(2), ts: sentAt, text: 'also a week old'),
+        ),
+      );
+      await _settle();
+
+      // Seven days and five minutes after the message: a control dated at the
+      // message's own time is the oldest still accepted.
+      now = DateTime.fromMillisecondsSinceEpoch(
+        sentAt + week + 5 * minute,
+        isUtc: true,
+      );
+      a.send(
+        ChatFrames.encode(
+          EditFrame(id: _id(1), ts: sentAt, text: 'at the limit'),
+        ),
+      );
+      await _settle();
+      expect((await bob.store.find('alice', _id(1)))!.text, 'at the limit');
+
+      // One millisecond later it is refused, as a replayed edit or delete would
+      // be. Both are inside the window of their message, which is not enough.
+      now = DateTime.fromMillisecondsSinceEpoch(
+        sentAt + week + 5 * minute + 1,
+        isUtc: true,
+      );
+      a.send(
+        ChatFrames.encode(EditFrame(id: _id(1), ts: sentAt, text: 'replayed')),
+      );
+      a.send(ChatFrames.encode(DeleteFrame(id: _id(2), ts: sentAt)));
+      await _settle();
+      expect((await bob.store.find('alice', _id(1)))!.text, 'at the limit');
+      final kept = (await bob.store.find('alice', _id(2)))!;
+      expect(kept.deletedForAll, isFalse);
+      expect(kept.text, 'also a week old');
+      expect(bob.session.isEnded, isFalse);
+    });
+
+    test('a message dated far ahead of this clock keeps the arrival time; one a little ahead keeps its own', () async {
+      final (a, b) = _pair();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      a.send(helloAll);
+      final arrived = now.millisecondsSinceEpoch;
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(
+            id: _id(1),
+            ts: arrived + 60 * minute,
+            text: 'from the future',
+          ),
+        ),
+      );
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(
+            id: _id(2),
+            ts: arrived + 4 * minute,
+            text: 'a little ahead',
+          ),
+        ),
+      );
+      await _settle();
+
+      final far = (await bob.store.find('alice', _id(1)))!;
+      expect(far.ts, arrived);
+      expect(far.arrivedAt, arrived);
+      expect((await bob.store.find('alice', _id(2)))!.ts, arrived + 4 * minute);
+    });
+
+    test('a deleted message\'s text is taken out of its quotes here, stored and still in the outbox', () async {
+      final (a, b) = _pair();
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+      a.send(helloAll);
+      final sentAt = now.millisecondsSinceEpoch;
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(id: _id(1), ts: sentAt, text: 'the door code is 4471'),
+        ),
+      );
+      a.send(
+        ChatFrames.encode(
+          MessageFrame(
+            id: _id(2),
+            ts: sentAt,
+            text: 'got it',
+            reply: (id: _id(1), text: 'the door code is 4471'),
+          ),
+        ),
+      );
+      await _settle();
+      // Bob's own reply to the same message is not acknowledged, so it waits
+      // in his outbox.
+      final mine = await bob.session.sendText(
+        'the code, again',
+        replyTo: (id: _id(1), text: 'the door code is 4471'),
+      );
+      await _settle();
+
+      a.send(ChatFrames.encode(DeleteFrame(id: _id(1), ts: sentAt)));
+      await _settle();
+      expect((await bob.store.find('alice', _id(1)))!.deletedForAll, isTrue);
+      expect((await bob.store.find('alice', _id(2)))!.replyTo, (
+        id: _id(1),
+        text: '',
+      ));
+
+      // The contact says hello again, so the outbox goes out once more: the
+      // reply goes with its quote emptied.
+      a.send(helloAll);
+      await _settle();
+      final again = b.sentFrames
+          .map(ChatFrames.decode)
+          .whereType<MessageFrame>()
+          .where((f) => f.id == mine.id)
+          .last;
+      expect(again.text, 'the code, again');
+      expect(again.reply, (id: _id(1), text: ''));
+      expect((await bob.store.find('alice', mine.id))!.replyTo, (
+        id: _id(1),
+        text: '',
+      ));
+    });
   });
 }
 

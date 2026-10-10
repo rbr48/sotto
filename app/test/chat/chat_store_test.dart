@@ -642,7 +642,119 @@ void main() {
       final deleted = (await ChatStore(secrets).messages('bob')).single;
       expect(deleted.deletedForAll, isTrue);
       expect(deleted.text, isEmpty);
-      expect(deleted.replyTo, (id: _id(2), text: 'the quote'));
+      // A deleted message keeps no quote of its own: the text it quoted would
+      // otherwise outlive the delete.
+      expect(deleted.replyTo, isNull);
+    });
+
+    test('deleting a message for everyone takes its text out of every quote of it, and keeps the other quotes', () async {
+      const door = 'the door code is 4471';
+      // Message 1 is quoted by 2 and 3. It quotes message 6 itself, and 4
+      // quotes a message that is not deleted.
+      await store.add(
+        ChatMessage(
+          id: _id(1),
+          contactId: 'bob',
+          outgoing: false,
+          ts: 1000,
+          text: door,
+          state: ChatState.received,
+          read: false,
+          replyTo: (id: _id(6), text: 'an old quote'),
+        ),
+      );
+      await store.add(
+        ChatMessage(
+          id: _id(2),
+          contactId: 'bob',
+          outgoing: true,
+          ts: 1001,
+          text: 'got it',
+          state: ChatState.delivered,
+          replyTo: (id: _id(1), text: door),
+        ),
+      );
+      await store.add(
+        ChatMessage(
+          id: _id(3),
+          contactId: 'bob',
+          outgoing: false,
+          ts: 1002,
+          text: 'which door?',
+          state: ChatState.received,
+          read: false,
+          replyTo: (id: _id(1), text: door),
+        ),
+      );
+      await store.add(
+        ChatMessage(
+          id: _id(4),
+          contactId: 'bob',
+          outgoing: false,
+          ts: 1003,
+          text: 'unrelated',
+          state: ChatState.received,
+          read: false,
+          replyTo: (id: _id(9), text: 'other'),
+        ),
+      );
+
+      expect(
+        await store.changeMessage(
+          'bob',
+          _id(1),
+          (m) => m.copyWith(text: '', deletedForAll: true, reactions: const {}),
+        ),
+        isTrue,
+      );
+
+      final reloaded = {
+        for (final m in await ChatStore(secrets).messages('bob')) m.id: m,
+      };
+      expect(reloaded[_id(1)]!.deletedForAll, isTrue);
+      expect(reloaded[_id(1)]!.replyTo, isNull);
+      expect(reloaded[_id(2)]!.replyTo, (id: _id(1), text: ''));
+      expect(reloaded[_id(2)]!.text, 'got it');
+      expect(reloaded[_id(3)]!.replyTo, (id: _id(1), text: ''));
+      expect(reloaded[_id(4)]!.replyTo, (id: _id(9), text: 'other'));
+      expect(
+        reloaded.values.any((m) => (m.replyTo?.text ?? '').contains('door')),
+        isFalse,
+      );
+    });
+
+    test('the chat list and search order by this device\'s clock, so a peer\'s time cannot pin a chat to the top', () async {
+      // Bob's clock is far ahead; his message arrived here a minute after
+      // Carol's, which is dated earlier by her clock.
+      await store.add(
+        ChatMessage(
+          id: _id(1),
+          contactId: 'bob',
+          outgoing: false,
+          ts: 9999999999999,
+          text: 'hello one',
+          state: ChatState.received,
+          read: false,
+          arrivedAt: 1700000060000,
+        ),
+      );
+      await store.add(
+        ChatMessage(
+          id: _id(2),
+          contactId: 'carol',
+          outgoing: false,
+          ts: 1700000030000,
+          text: 'hello two',
+          state: ChatState.received,
+          read: false,
+          arrivedAt: 1700000090000,
+        ),
+      );
+
+      final recent = await store.recentChats();
+      expect(recent.map((c) => c.contactId), ['carol', 'bob']);
+      final found = await store.searchAll('hello');
+      expect(found.map((m) => m.text), ['hello two', 'hello one']);
     });
 
     test(

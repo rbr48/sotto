@@ -40,6 +40,17 @@ const int maxEmojiUnits = 16;
 const Duration editWindow = Duration(minutes: 15);
 const Duration deleteWindow = Duration(hours: 1);
 
+/// How far a peer's clock may run ahead of this device's before its time is not
+/// trusted. A message time that far ahead is replaced by the arrival time, and
+/// an edit or delete dated that far ahead is refused.
+const Duration clockSkew = Duration(minutes: 5);
+
+/// How long an edit or delete may wait to be sent, measured from its own ts. The
+/// sender drops an older one, and the receiver refuses one that its own clock
+/// reads as older than this, plus [clockSkew]. A reaction has no window and is
+/// not bounded this way.
+const Duration controlLifetime = Duration(days: 7);
+
 /// The message a reply answers: its id, and a copy of its text.
 typedef ChatReply = ({String id, String text});
 
@@ -304,6 +315,24 @@ abstract final class ChatFrames {
   /// for an edit or delete, measured from the time the message was sent.
   static bool withinWindow(int ts, int changeTs, Duration window) =>
       changeTs >= ts && changeTs - ts <= window.inMilliseconds;
+
+  /// Whether an edit or delete made at [changeTs] is current for a device whose
+  /// clock reads [nowMs]: not ahead of it by more than [clockSkew], and not
+  /// behind it by more than [controlLifetime] plus [clockSkew]. A control that
+  /// waited in the sender's pending list is current while it is young enough,
+  /// so a late delivery still applies. An old control is refused, so a peer
+  /// cannot rewrite a message long after it was sent.
+  static bool isCurrent(int changeTs, int nowMs) {
+    final skew = clockSkew.inMilliseconds;
+    return changeTs - nowMs <= skew &&
+        nowMs - changeTs <= controlLifetime.inMilliseconds + skew;
+  }
+
+  /// The time a received message keeps: its sender's [ts], unless that is more
+  /// than [clockSkew] ahead of [nowMs], this device's clock. Then the arrival
+  /// time, so no peer can move a message into the future.
+  static int receivedTs(int ts, int nowMs) =>
+      ts - nowMs > clockSkew.inMilliseconds ? nowMs : ts;
 
   /// Whether [frame] encodes within the frame size limit.
   static bool fits(ChatFrame frame) {

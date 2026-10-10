@@ -743,6 +743,18 @@ class ChatSession {
     _unsent.clear();
   }
 
+  /// Takes the text of the deleted message [id] out of the quotes of the
+  /// messages still in the outbox, so a reply sent later does not carry it.
+  /// The store is changed by the caller (see [ChatStore.changeMessage]).
+  void cutQuotesOf(String id) {
+    for (final key in _outbox.keys.toList()) {
+      final message = _outbox[key]!;
+      if (message.replyTo?.id == id) {
+        _outbox[key] = message.copyWith(replyTo: (id: id, text: ''));
+      }
+    }
+  }
+
   /// Sends the pending controls (reactions, edits and deletes) for this
   /// contact that can go now. Called when the chat is ready, when a message is
   /// acknowledged, and when a control is made. Calls run one after another.
@@ -757,9 +769,13 @@ class ChatSession {
   /// Sends the pending controls that can go now, and drops those that can
   /// never go:
   ///
-  /// - a control whose message is gone is dropped, and so is an edit or a
-  ///   delete whose window has closed (15 minutes or an hour after the message
-  ///   was sent);
+  /// - a control whose message is gone is dropped, and so is a reaction or an
+  ///   edit on a message deleted for everyone;
+  /// - an edit or a delete more than [controlLifetime] old by its own `ts` is
+  ///   dropped, since the other side would refuse it. Its window (15 minutes or
+  ///   an hour after the message) was checked when it was made, and it is not
+  ///   checked again here: a delete made while the contact was offline still
+  ///   applies when the chat opens;
   /// - a control the other side does not list as a feature waits;
   /// - a reaction or an edit on one of this device's messages waits until the
   ///   other side has stored that message, or the other side would get it
@@ -771,14 +787,12 @@ class ChatSession {
     for (final control in await store.pendingControls(contactId)) {
       if (!isReady) return;
       final target = await store.find(contactId, control.id);
-      final window = switch (control) {
-        ReactFrame() => null,
-        EditFrame() => editWindow,
-        DeleteFrame() => deleteWindow,
-      };
+      final tooOld =
+          control is! ReactFrame &&
+          now - control.ts > controlLifetime.inMilliseconds;
       if (target == null ||
           (control is! DeleteFrame && target.deletedForAll) ||
-          (window != null && now - target.ts > window.inMilliseconds)) {
+          tooOld) {
         await store.removeControl(contactId, control);
         continue;
       }
@@ -922,15 +936,16 @@ class ChatSession {
           return;
         }
         if (!await store.contains(contactId, id)) {
+          final arrived = clock().millisecondsSinceEpoch;
           final message = ChatMessage(
             id: id,
             contactId: contactId,
             outgoing: false,
-            ts: ts,
+            ts: ChatFrames.receivedTs(ts, arrived),
             text: text,
             state: ChatState.received,
             read: false,
-            arrivedAt: clock().millisecondsSinceEpoch,
+            arrivedAt: arrived,
             replyTo: reply,
             forwarded: forwarded,
           );
@@ -1116,6 +1131,9 @@ class ChatSession {
         );
       case EditFrame(:final id, :final ts, :final text):
         if (!_peerHello) return;
+        // A control dated too far from this device's clock is refused (see
+        // ChatFrames.isCurrent), so an old one cannot rewrite a message.
+        if (!ChatFrames.isCurrent(ts, clock().millisecondsSinceEpoch)) return;
         // Only the contact's own text messages can be edited, and only within
         // the window measured from when they were sent.
         await store.changeMessage(contactId, id, (m) {
@@ -1125,12 +1143,15 @@ class ChatSession {
         });
       case DeleteFrame(:final id, :final ts):
         if (!_peerHello) return;
-        // The same rules as an edit. A message stays on record, with no text.
-        await store.changeMessage(contactId, id, (m) {
+        if (!ChatFrames.isCurrent(ts, clock().millisecondsSinceEpoch)) return;
+        // The same rules as an edit. A message stays on record, with no text,
+        // and no reply to it keeps its text.
+        final deleted = await store.changeMessage(contactId, id, (m) {
           if (m.outgoing || m.deletedForAll || m.isAttachment) return null;
           if (!ChatFrames.withinWindow(m.ts, ts, deleteWindow)) return null;
           return m.copyWith(text: '', deletedForAll: true, reactions: const {});
         });
+        if (deleted) cutQuotesOf(id);
       case ByeFrame():
         await _end('bye');
     }

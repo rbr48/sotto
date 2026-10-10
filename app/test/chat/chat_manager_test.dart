@@ -1401,7 +1401,7 @@ void main() {
       expect((await bobStore.find('alice', _id(1)))!.deletedForAll, isTrue);
     });
 
-    test('a delete made while the contact is offline is dropped once its hour has passed', () async {
+    test('a delete made while the contact is offline still reaches it when a chat opens, after the hour', () async {
       final aliceStore = ChatStore(MemorySecretStore());
       final bobStore = ChatStore(MemorySecretStore());
       final message = ChatMessage(
@@ -1426,9 +1426,88 @@ void main() {
       expect(await alice.deleteForEveryone('bob', _id(1)), isTrue);
       expect(await aliceStore.pendingControls('bob'), hasLength(1));
 
-      // Two hours later, the delete is past its window: it is dropped, not
-      // sent.
+      // Two hours later the delete is still sent: its window was checked when
+      // it was made, and the other side applies it on its own clock.
       now = now.add(const Duration(hours: 2));
+      device('bob', contacts: {'alice'}, store: bobStore);
+      await alice.sendText('bob', 'hi');
+      await _settle();
+
+      expect(await aliceStore.pendingControls('bob'), isEmpty);
+      final gone = (await bobStore.find('alice', _id(1)))!;
+      expect(gone.deletedForAll, isTrue);
+      expect(gone.text, isEmpty);
+    });
+
+    test('an edit made while the contact is offline is applied when a chat opens, even after its window', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final bobStore = ChatStore(MemorySecretStore());
+      final message = ChatMessage(
+        id: _id(1),
+        contactId: 'bob',
+        outgoing: true,
+        ts: now.millisecondsSinceEpoch,
+        text: 'Lunch?',
+        state: ChatState.delivered,
+      );
+      await aliceStore.add(message);
+      await bobStore.add(
+        message.copyWith(
+          contactId: 'alice',
+          outgoing: false,
+          read: false,
+          state: ChatState.received,
+        ),
+      );
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+
+      // Ten minutes after the message, inside its window; Bob is offline.
+      now = now.add(const Duration(minutes: 10));
+      final editedAt = now.millisecondsSinceEpoch;
+      expect(await alice.edit('bob', _id(1), 'Lunch at one?'), isTrue);
+      expect(await aliceStore.pendingControls('bob'), hasLength(1));
+
+      // Thirty minutes later, when Bob's chat opens, the window of the message
+      // has closed. The edit was made in time, so Bob still gets it.
+      now = now.add(const Duration(minutes: 30));
+      device('bob', contacts: {'alice'}, store: bobStore);
+      await alice.sendText('bob', 'hi');
+      await _settle();
+
+      expect(await aliceStore.pendingControls('bob'), isEmpty);
+      final edited = (await bobStore.find('alice', _id(1)))!;
+      expect(edited.text, 'Lunch at one?');
+      expect(edited.editedAt, editedAt);
+    });
+
+    test('a delete made while the contact is offline is dropped once it is more than seven days old', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final bobStore = ChatStore(MemorySecretStore());
+      final message = ChatMessage(
+        id: _id(1),
+        contactId: 'bob',
+        outgoing: true,
+        ts: now.millisecondsSinceEpoch,
+        text: 'Lunch?',
+        state: ChatState.delivered,
+      );
+      await aliceStore.add(message);
+      await bobStore.add(
+        message.copyWith(
+          contactId: 'alice',
+          outgoing: false,
+          read: false,
+          state: ChatState.received,
+        ),
+      );
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+
+      expect(await alice.deleteForEveryone('bob', _id(1)), isTrue);
+      expect(await aliceStore.pendingControls('bob'), hasLength(1));
+
+      // Eight days later the other side would refuse the delete, so it is
+      // dropped, not sent.
+      now = now.add(const Duration(days: 8));
       device('bob', contacts: {'alice'}, store: bobStore);
       await alice.sendText('bob', 'hi');
       await _settle();
@@ -1437,6 +1516,62 @@ void main() {
       final kept = (await bobStore.find('alice', _id(1)))!;
       expect(kept.deletedForAll, isFalse);
       expect(kept.text, 'Lunch?');
+    });
+
+    test('a delete for everyone takes the text out of the replies to it, on both devices', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final bobStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      device('bob', contacts: {'alice'}, store: bobStore);
+
+      final quoted = await alice.sendText('bob', 'the door code is 4471');
+      await _settle();
+      final reply = await alice.sendText('bob', 'got it', replyToId: quoted.id);
+      await _settle();
+      expect((await bobStore.find('alice', reply.id))!.replyTo, (
+        id: quoted.id,
+        text: 'the door code is 4471',
+      ));
+
+      expect(await alice.deleteForEveryone('bob', quoted.id), isTrue);
+      await _settle();
+
+      for (final (store, contact) in [
+        (aliceStore, 'bob'),
+        (bobStore, 'alice'),
+      ]) {
+        final deleted = (await store.find(contact, quoted.id))!;
+        expect(deleted.deletedForAll, isTrue);
+        expect(deleted.text, isEmpty);
+        expect(deleted.replyTo, isNull);
+        final quote = (await store.find(contact, reply.id))!;
+        expect(quote.text, 'got it');
+        expect(quote.replyTo, (id: quoted.id, text: ''));
+      }
+    });
+
+    test('a text that came through the relay keeps the arrival time when its own time is far ahead', () async {
+      final bobStore = ChatStore(MemorySecretStore());
+      final bob = device('bob', contacts: {'alice'}, store: bobStore);
+
+      bob.handle(
+        from: 'alice',
+        type: ChatManager.relayText,
+        body: {
+          'id': _id(1),
+          'ts':
+              now.millisecondsSinceEpoch +
+              const Duration(hours: 1).inMilliseconds,
+          'text': 'hello',
+        },
+        callId: null,
+      );
+      await _settle();
+
+      final received = (await bobStore.find('alice', _id(1)))!;
+      expect(received.text, 'hello');
+      expect(received.ts, now.millisecondsSinceEpoch);
+      expect(received.arrivedAt, now.millisecondsSinceEpoch);
     });
 
     test(

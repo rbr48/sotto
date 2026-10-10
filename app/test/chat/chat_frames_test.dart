@@ -1094,5 +1094,30 @@ void main() {
         isFalse,
       );
     });
+
+    test('an edit or delete is current within five minutes of this clock, and up to seven days plus five minutes old', () {
+      const now = 1700000000000;
+      const skew = 5 * minute;
+      const life = 7 * 24 * 60 * minute;
+      expect(clockSkew, const Duration(minutes: 5));
+      expect(controlLifetime, const Duration(days: 7));
+
+      expect(ChatFrames.isCurrent(now, now), isTrue);
+      expect(ChatFrames.isCurrent(now + skew, now), isTrue);
+      expect(ChatFrames.isCurrent(now + skew + 1, now), isFalse);
+      expect(ChatFrames.isCurrent(now - life, now), isTrue);
+      expect(ChatFrames.isCurrent(now - life - skew, now), isTrue);
+      expect(ChatFrames.isCurrent(now - life - skew - 1, now), isFalse);
+      expect(ChatFrames.isCurrent(1000, now), isFalse);
+    });
+
+    test('a message time is kept within five minutes ahead of this clock, and replaced by the arrival time further ahead', () {
+      const now = 1700000000000;
+      expect(ChatFrames.receivedTs(now, now), now);
+      expect(ChatFrames.receivedTs(1000, now), 1000);
+      expect(ChatFrames.receivedTs(now + 5 * minute, now), now + 5 * minute);
+      expect(ChatFrames.receivedTs(now + 5 * minute + 1, now), now);
+      expect(ChatFrames.receivedTs(9999999999999, now), now);
+    });
   });
 }

@@ -110,8 +110,9 @@ class ChatMessage {
 
   bool get isAttachment => fileName != null;
 
-  /// When this message expires from this device, judged by [ts] for outgoing
-  /// messages and by [arrivedAt] for incoming ones.
+  /// This message's time on this device: [ts] for outgoing messages, and
+  /// [arrivedAt] for incoming ones. It judges when the message expires, and the
+  /// chat list and search order by it, so a peer's clock cannot change either.
   int get clockMs => outgoing ? ts : (arrivedAt ?? ts);
 
   /// The same message in another state. A reason is kept only when given.
@@ -177,6 +178,7 @@ class ChatMessage {
     int? editedAt,
     bool? deletedForAll,
     bool? forwarded,
+    bool clearReplyTo = false,
   }) => ChatMessage(
     id: id ?? this.id,
     contactId: contactId ?? this.contactId,
@@ -196,7 +198,7 @@ class ChatMessage {
     fileKey: fileKey ?? this.fileKey,
     arrivedAt: arrivedAt ?? this.arrivedAt,
     voiceNote: voiceNote ?? this.voiceNote,
-    replyTo: replyTo ?? this.replyTo,
+    replyTo: clearReplyTo ? null : (replyTo ?? this.replyTo),
     reactions: reactions ?? this.reactions,
     editedAt: editedAt ?? this.editedAt,
     deletedForAll: deletedForAll ?? this.deletedForAll,
@@ -628,6 +630,9 @@ class ChatStore {
   /// stored message and returns its replacement, or null to leave it as it is.
   /// The read and the write happen in one step, so a change made meanwhile is
   /// never lost. Returns whether the message was changed.
+  ///
+  /// A message that comes out deleted for everyone also takes its text out of
+  /// the chat's quotes (see [_cutQuotes]).
   Future<bool> changeMessage(
     String contactId,
     String id,
@@ -639,9 +644,24 @@ class ChatStore {
     final next = change(list[index]);
     if (next == null) return false;
     list[index] = next;
+    if (next.deletedForAll) _cutQuotes(list, id);
     await _saveContact(contactId, list);
     return true;
   });
+
+  /// Takes the text of the deleted message [id] out of [list]: the message
+  /// keeps no quote of its own, and each quote of it keeps its id with no text.
+  /// So the deleted text is not kept by the replies to it.
+  static void _cutQuotes(List<ChatMessage> list, String id) {
+    for (var i = 0; i < list.length; i++) {
+      final m = list[i];
+      if (m.id == id) {
+        list[i] = m.copyWith(clearReplyTo: true);
+      } else if (m.replyTo?.id == id) {
+        list[i] = m.copyWith(replyTo: (id: id, text: ''));
+      }
+    }
+  }
 
   /// The pending reactions, edits and deletes for the contact, oldest first.
   Future<List<ControlFrame>> pendingControls(String contactId) =>
@@ -1069,7 +1089,9 @@ class ChatStore {
         ),
       );
     }
-    summaries.sort((a, b) => b.lastMessage.ts.compareTo(a.lastMessage.ts));
+    summaries.sort(
+      (a, b) => b.lastMessage.clockMs.compareTo(a.lastMessage.clockMs),
+    );
     return summaries;
   }
 
@@ -1089,7 +1111,7 @@ class ChatStore {
         }
       }
     }
-    results.sort((a, b) => b.ts.compareTo(a.ts));
+    results.sort((a, b) => b.clockMs.compareTo(a.clockMs));
     return results;
   }
 }

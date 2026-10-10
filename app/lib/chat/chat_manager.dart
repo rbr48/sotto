@@ -357,8 +357,9 @@ class ChatManager {
 
   /// Deletes your own message [id] in the chat with [contact] for everyone,
   /// within an hour of its being sent. The text is removed here at once, and
-  /// the record stays. The other device may keep its copy: this is best
-  /// effort. Text messages only. Returns false when the delete is not allowed.
+  /// the record stays; so does the text of every quote of it, with none. The
+  /// other device may keep its copy: this is best effort. Text messages only.
+  /// Returns false when the delete is not allowed.
   Future<bool> deleteForEveryone(String contact, String id) async {
     if (!isContact(contact)) {
       throw ArgumentError.value(contact, 'contact', 'is not a contact');
@@ -380,6 +381,7 @@ class ChatManager {
           : m.copyWith(text: '', deletedForAll: true, reactions: const {}),
     );
     if (!changed) return false;
+    _cutQuotes(contact, id);
     // The other side has not stored the text yet: it must not be sent again.
     final stored =
         message.state == ChatState.delivered || message.state == ChatState.read;
@@ -387,6 +389,28 @@ class ChatManager {
     await store.queueControl(contact, DeleteFrame(id: id, ts: now));
     await _flushControls(contact);
     return true;
+  }
+
+  /// Takes the text of the deleted message [id] out of the replies to it that
+  /// are still waiting to go in the chat with [contact], so a reply sent later
+  /// does not carry it. The store is already changed (see
+  /// [ChatStore.changeMessage]).
+  void _cutQuotes(String contact, String id) {
+    ChatMessage cut(ChatMessage m) =>
+        m.replyTo?.id == id ? m.copyWith(replyTo: (id: id, text: '')) : m;
+    final waiting = _waiting[contact];
+    if (waiting != null) {
+      for (var i = 0; i < waiting.length; i++) {
+        waiting[i] = cut(waiting[i]);
+      }
+    }
+    final live = _activeFor(contact);
+    if (live != null) {
+      for (var i = 0; i < live.resend.length; i++) {
+        live.resend[i] = cut(live.resend[i]);
+      }
+      live.session?.cutQuotesOf(id);
+    }
   }
 
   /// Sends the pending controls for [contact] if a chat with it is ready.
@@ -579,15 +603,16 @@ class ChatManager {
     }
     final messageId = id as String;
     if (!await store.contains(from, messageId)) {
+      final arrived = clock().millisecondsSinceEpoch;
       final message = ChatMessage(
         id: messageId,
         contactId: from,
         outgoing: false,
-        ts: ts,
+        ts: ChatFrames.receivedTs(ts, arrived),
         text: text,
         state: ChatState.received,
         read: false,
-        arrivedAt: clock().millisecondsSinceEpoch,
+        arrivedAt: arrived,
       );
       await store.add(message);
       _emit(ChatUpdate(from, MessageReceived(message)));

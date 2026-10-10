@@ -293,7 +293,7 @@ and the ends are trimmed.
 | Frame | Meaning |
 |---|---|
 | `{"t":"hello","v":1,"features":[…]}` | First frame from each side. Another version ends the session. `features` lists the optional features this side supports (below), and is left out when there are none. |
-| `{"t":"msg","id","ts","text","reply"?,"fwd"?}` | A message. `id`: 16 random bytes. `ts`: sender's clock, ms. `reply`: `{"id","text"}`, the message replied to and a copy of its text. `fwd`: `true` for a forwarded text. |
+| `{"t":"msg","id","ts","text","reply"?,"fwd"?}` | A message. `id`: 16 random bytes. `ts`: sender's clock, ms (see "Clocks" below). `reply`: `{"id","text"}`, the message replied to and a copy of its text. `fwd`: `true` for a forwarded text. |
 | `{"t":"react","id","emoji","ts"}` | The sender's reaction on message `id`. An empty `emoji` removes it. |
 | `{"t":"edit","id","ts","text"}` | New text for the sender's own message `id`, made at `ts`. |
 | `{"t":"delete","id","ts"}` | The sender's own message `id` is deleted for everyone, at `ts`. |
@@ -343,20 +343,39 @@ frames, so text and files work unchanged between old and new versions.
   `react` replaces the old one. A reaction may be on any message in the chat.
   One on an unknown message, or on a message deleted for everyone, is ignored.
 - **Edit** (`edit`). Only the contact's own text messages can be edited. The
-  receiver applies it only if the message is stored, not deleted, and `ts` is
-  no earlier than the message's `ts` and at most 15 minutes after it. `text` is
-  cleaned and limited like a message, and it may not be empty. The receiver
-  replaces the text and sets `editedAt` to `ts`. No earlier text is kept.
+  receiver applies it only if the message is stored, not deleted, `ts` is no
+  earlier than the message's `ts` and at most 15 minutes after it, and the edit
+  is current (below). `text` is cleaned and limited like a message, and it may
+  not be empty. The receiver replaces the text and sets `editedAt` to `ts`. No
+  earlier text is kept.
 - **Delete** (`delete`). Only the contact's own text messages can be deleted
   for everyone. The receiver applies it only if the message is stored, not
-  already deleted, and `ts` is no earlier than the message's `ts` and at most
-  one hour after it. The message stays on record with no text and no
-  reactions, and `deletedForAll` is set. Deleting for everyone is best effort:
-  another device may keep its copy.
+  already deleted, `ts` is no earlier than the message's `ts` and at most one
+  hour after it, and the delete is current (below). The message stays on record
+  with no text and no reactions, and `deletedForAll` is set. Deleting for
+  everyone is best effort: another device may keep its copy.
+- **Current.** An edit or delete is refused when its `ts` is more than five
+  minutes ahead of the receiver's clock, or more than seven days plus five
+  minutes behind it. The windows above are measured on the control's `ts`; this
+  check keeps that `ts` near the receiver's own clock, so a control cannot
+  rewrite a message long after it was sent, whatever `ts` it carries. A control
+  that waited in the sender's pending list applies when it arrives, as long as
+  it is less than seven days old.
+- **Quotes of a deleted message.** A delete takes the text out of quotes. The
+  deleted message keeps no quote of its own, and each reply to it keeps its
+  `id` with an empty quote text. This happens on the device that deletes and on
+  the contact's device when the delete arrives. A reply still waiting in the
+  outbox is sent with its quote emptied.
 - Files and voice notes are never edited or deleted for everyone: an edit or
   delete of one is ignored.
 - A control frame is checked against the owner of its message, and the checks
   above. One that fails is ignored: no exception, no `ack`, no change.
+- **Clocks.** A message whose `ts` is more than five minutes ahead of the
+  receiver's clock keeps the arrival time as its `ts`. The chat list and search
+  are ordered by each message's time on the device that holds it: the arrival
+  time for an incoming message, its own `ts` for an outgoing one. So a peer
+  cannot pin a chat to the top. `editedAt` is the edit's `ts`, which the
+  current check keeps within seven days of the receiver's clock.
 
 On the sending side, a reaction, edit or delete is applied to this device's
 copy at once. It is sent to the contact over the chat, never through the relay:
@@ -378,9 +397,13 @@ copy at once. It is sent to the contact over the chat, never through the relay:
   message is acknowledged, and when a control is made. Opening a chat only for
   pending controls does not happen. A control is dropped without being sent
   when its message is gone, when a reaction or edit is on a message deleted
-  for everyone, or when its window has closed: an edit after 15 minutes, or a
-  delete after one hour, counted from the message's `ts` on the sender's clock
-  when the control is tried.
+  for everyone, or when an edit or delete is more than seven days old by its
+  own `ts` on the sender's clock, since the contact would refuse it (see
+  "Current" above). The windows are not checked again when the control is
+  sent: an edit or delete made within its window is sent when a chat opens,
+  even after the window has closed, because the contact checks the control's
+  `ts`, not the time it arrives. A contact offline for longer than seven days
+  does not get an edit or delete made in that time; its copy stays as it was.
 
 ## 6. Test vectors
 
