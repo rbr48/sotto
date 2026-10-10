@@ -245,6 +245,9 @@ changed by anyone except the creator. These can wait until there is a reason.
 - End-to-end, two browsers (like `e2e/chat.mjs`): reply, reaction, edit, delete
   for everyone, and forwarding. Three browsers: a group message reaches both
   others, and a member who was offline gets it from the outbox when they return.
+  The export has no end-to-end check. It is native only, because the browser
+  build has no Argon2id, and the browser suite cannot reach it. Widget and unit
+  tests cover it.
 
 ### Steps
 
