@@ -1,0 +1,2 @@
+Fix opening received documents and PDFs in external viewer apps
+Grant read URI permission to document viewers on Android 11+ and MIUI/HyperOS

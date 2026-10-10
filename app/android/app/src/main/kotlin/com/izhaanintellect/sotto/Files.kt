@@ -144,7 +144,7 @@ object Files {
             !OPEN_COPY_FOLDER.matches(folder.name) || !file.isFile) {
             throw BridgeException("not_found", "not an open copy")
         }
-        deleteOldOpenCopies(openRoot, keep = folder)
+        deleteOldOpenCopies(app, openRoot, keep = folder)
 
         val mime = mimeFor(file.name)
         if (isBlocked(file.name, mime)) {
@@ -153,11 +153,30 @@ object Files {
         val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, mime)
-            // The grant lasts only as long as the receiving activity: no
-            // grantUriPermission(), which would persist until revoked.
             clipData = ClipData.newRawUri(file.name, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
+
+        // Grant explicit read URI permission to all applications capable of opening this file.
+        // Required on Android (especially Xiaomi MIUI/HyperOS, Samsung, etc.) where external
+        // document viewers and PDF engines render files using a separate background process or service.
+        val matches = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            app.packageManager.queryIntentActivities(
+                intent,
+                PackageManager.ResolveInfoFlags.of(0L)
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            app.packageManager.queryIntentActivities(intent, 0)
+        }
+        for (info in matches) {
+            app.grantUriPermission(
+                info.activityInfo.packageName,
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+
         try {
             start(intent)
         } catch (e: ActivityNotFoundException) {
@@ -167,12 +186,19 @@ object Files {
     }
 
     /** Removes open copies left from earlier opens (older than an hour). */
-    private fun deleteOldOpenCopies(openRoot: File, keep: File) {
+    private fun deleteOldOpenCopies(app: Context, openRoot: File, keep: File) {
         val cutoff = System.currentTimeMillis() - OPEN_COPY_MAX_AGE_MS
         openRoot.listFiles()?.forEach { dir ->
             if (dir.isDirectory && dir != keep && OPEN_COPY_FOLDER.matches(dir.name) &&
                 dir.lastModified() < cutoff) {
                 try {
+                    dir.listFiles()?.forEach { f ->
+                        try {
+                            val u = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", f)
+                            app.revokeUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        } catch (_: Exception) {
+                        }
+                    }
                     dir.deleteRecursively()
                 } catch (_: Exception) {
                 }
