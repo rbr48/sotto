@@ -79,6 +79,8 @@ class _ChatsTabState extends State<ChatsTab> {
       setState(() {
         _summaries = list;
         _archived = archived;
+        // The row goes when its last chat leaves, so it opens closed next time.
+        if (archived.isEmpty) _archivedOpen = false;
       });
     }
   }

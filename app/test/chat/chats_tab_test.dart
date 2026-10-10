@@ -161,6 +161,25 @@ void main() {
     });
 
     testWidgets(
+      'the Archived row opens closed again once its last chat leaves',
+      (tester) async {
+        await tester.runAsync(() => store.add(_message('bob', ts: 3000)));
+        await pumpTab(tester);
+        await chooseFromMenu(tester, 'bob', 'Archive');
+        await tester.tap(find.text('Archived (1)'));
+        await settle(tester);
+        expect(find.text('bob'), findsOneWidget);
+
+        await chooseFromMenu(tester, 'bob', 'Unarchive');
+        expect(find.text('Archived (1)'), findsNothing);
+
+        await chooseFromMenu(tester, 'bob', 'Archive');
+        expect(find.text('Archived (1)'), findsOneWidget);
+        expect(find.text('bob'), findsNothing);
+      },
+    );
+
+    testWidgets(
       'a long press archives a chat, which then moves under the row',
       (tester) async {
         await tester.runAsync(() => store.add(_message('bob', ts: 3000)));
