@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'chat_frames.dart';
 import 'chat_store.dart';
@@ -23,10 +24,86 @@ abstract interface class ChatTransport {
   /// Incoming binary frames, in order, until the channel closes.
   Stream<Uint8List> get binaryFrames => const Stream.empty();
 
-  /// The amount of bytes buffered in the transport output buffer.
+  /// The amount of bytes buffered in the transport output buffer, as last
+  /// reported. On native platforms this is a cached value that is updated
+  /// asynchronously; use [bufferedAmountNow] before deciding to send.
   int get bufferedAmount => 0;
 
+  /// The amount of bytes buffered in the transport output buffer, asked of
+  /// the channel now.
+  Future<int> bufferedAmountNow() async => bufferedAmount;
+
   Future<void> close();
+}
+
+/// The largest file this platform sends or accepts: the browser holds files
+/// in memory, so its limit is smaller.
+const int platformMaxFileBytes = kIsWeb ? maxFileSizeWeb : maxFileSizeNative;
+
+/// A file checked and made ready to offer (see [prepareOutgoingFile]).
+typedef PreparedFile = ({
+  String name,
+  Uint8List bytes,
+  String mime,
+  String sha256,
+  bool voice,
+});
+
+/// Checks a file before it is offered, sent at once or queued, and returns
+/// what is sent: the cleaned name, and the bytes with an image's metadata
+/// (location, camera details, comments) removed.
+///
+/// A [voice] note must be an audio type with a name to match and be within
+/// that type's cap. Throws [ArgumentError] for a blocked type, a MIME type
+/// that is too long, an empty file, a file over [maxFileBytes], an image that
+/// cannot be read, an image type this app cannot clean, or a voice note that
+/// is refused. Nothing is ever sent unclean: an image that cannot be cleaned
+/// is refused.
+PreparedFile prepareOutgoingFile({
+  required String name,
+  required Uint8List bytes,
+  required String mime,
+  bool voice = false,
+  int maxFileBytes = platformMaxFileBytes,
+}) {
+  final cleanedName = ChatFrames.cleanFileName(name);
+  if (ChatFrames.isBlockedFileType(name) ||
+      ChatFrames.isBlockedFileType(cleanedName)) {
+    throw ArgumentError('Blocked file type: $name');
+  }
+  if (mime.runes.length > maxMimeChars) {
+    throw ArgumentError.value(
+      mime,
+      'mime',
+      'must be at most $maxMimeChars characters',
+    );
+  }
+  final Uint8List clean;
+  try {
+    // Throws ArgumentError for an image type it cannot clean.
+    clean = ImageMetadata.clean(bytes, mime);
+  } on FormatException {
+    throw ArgumentError('Image could not be read');
+  }
+  if (clean.isEmpty) throw ArgumentError('File is empty');
+  if (clean.length > maxFileBytes) {
+    throw ArgumentError('File exceeds max size limit');
+  }
+  if (voice) {
+    if (!voiceNameMatches(mime, cleanedName)) {
+      throw ArgumentError('Voice note has the wrong file name');
+    }
+    if (voiceOfferRefused(mime: mime, size: clean.length)) {
+      throw ArgumentError('Voice note exceeds the size limit');
+    }
+  }
+  return (
+    name: cleanedName,
+    bytes: clean,
+    mime: mime,
+    sha256: sha256.convert(clean).toString(),
+    voice: voice,
+  );
 }
 
 sealed class ChatSessionEvent {
@@ -149,12 +226,43 @@ class ChatSession {
     String Function()? newId,
     this.idleTimeout = const Duration(minutes: 5),
     this.isContact,
-    this.maxFileBytes = maxFileSizeNative,
-    this.autoAcceptFiles = false,
-  }) : _newId = newId ?? ChatFrames.newId;
+    this.maxFileBytes = platformMaxFileBytes,
+    this.autoAcceptFiles = _never,
+    Future<void> Function()? bufferWait,
+  }) : _newId = newId ?? ChatFrames.newId,
+       _bufferWait = bufferWait ?? _waitForBuffer;
 
-  /// Whether to automatically accept and download valid files offered by a contact.
-  final bool autoAcceptFiles;
+  /// Whether files offered by the contact download without asking ("Download
+  /// files automatically" in Settings). Read for each offer, so a change
+  /// applies to the next one. Even then, only files up to
+  /// [autoAcceptMaxBytes] download, at most [autoAcceptMaxConcurrent] at a
+  /// time, and at most [autoAcceptBudgetBytes] in all per session; any other
+  /// offer waits to be accepted by hand. Voice notes always download.
+  final bool Function() autoAcceptFiles;
+
+  static bool _never() => false;
+
+  /// The largest file that downloads without asking.
+  static const autoAcceptMaxBytes = 25 * 1024 * 1024;
+
+  /// At most this many incoming transfers run when a file would download
+  /// without asking.
+  static const autoAcceptMaxConcurrent = 2;
+
+  /// The bytes that may download without asking in one session, in all.
+  static const autoAcceptBudgetBytes = 200 * 1024 * 1024;
+
+  /// Bytes downloaded without asking in this session so far.
+  int _autoAcceptedBytes = 0;
+
+  /// Chunks wait while more than this is buffered in the channel.
+  static const maxBufferedBytes = 256 * 1024;
+
+  /// Waits a little before the buffered amount is asked again.
+  final Future<void> Function() _bufferWait;
+
+  static Future<void> _waitForBuffer() =>
+      Future<void>.delayed(const Duration(milliseconds: 15));
 
   /// The largest file this device accepts (the browser's is smaller).
   final int maxFileBytes;
@@ -198,8 +306,16 @@ class ChatSession {
   bool _ended = false;
   late DateTime _lastActivity;
 
-  /// Outgoing file byte payloads waiting to stream on accept, by fileId.
-  final _outgoingFiles = <String, Uint8List>{};
+  /// Outgoing files offered in this session and not yet accepted. An accept
+  /// is honoured only for these, and only once.
+  final _offered = <String>{};
+
+  /// Outgoing files being sent (accepted, until acknowledged or stopped).
+  final _sending = <String>{};
+
+  /// Queued outgoing files this session has started to offer, so none is
+  /// offered twice.
+  final _offeringQueued = <String>{};
 
   /// Incoming file transfers in progress, by fileId.
   final _incomingFiles = <String, _IncomingFileTransfer>{};
@@ -217,6 +333,9 @@ class ChatSession {
   Future<void> start({List<ChatMessage> resend = const []}) async {
     _lastActivity = clock();
     for (final message in resend) {
+      // A file is never sent as a text: queued files are offered once the
+      // other side is ready (see [offerStoredFile]).
+      if (message.isAttachment) continue;
       await store.setState(contactId, message.id, ChatState.sending);
       _outbox[message.id] = message.withState(ChatState.sending);
       _unsent.add(message.id);
@@ -272,12 +391,8 @@ class ChatSession {
 
   /// Offers to send a file to the contact.
   ///
-  /// An image has its metadata removed first (location, camera details,
-  /// comments), so the contact receives only the picture. A [voice] note is
-  /// offered as one, and must be an audio type with a name to match and be
-  /// within that type's cap. Throws [ArgumentError] for a blocked type, an
-  /// empty file, a file over the size limit, an image that cannot be read, an
-  /// image type this app cannot clean, or a voice note that is refused.
+  /// The file is checked by [prepareOutgoingFile] first (see there for what
+  /// is refused, with [ArgumentError]); an image has its metadata removed.
   Future<ChatMessage> offerFile({
     required String name,
     required Uint8List bytes,
@@ -285,104 +400,116 @@ class ChatSession {
     bool voice = false,
   }) async {
     _ensureOpen();
-    final cleanedName = ChatFrames.cleanFileName(name);
-    if (ChatFrames.isBlockedFileType(name) ||
-        ChatFrames.isBlockedFileType(cleanedName)) {
-      throw ArgumentError('Blocked file type: $name');
-    }
-    if (mime.runes.length > maxMimeChars) {
-      throw ArgumentError.value(
-        mime,
-        'mime',
-        'must be at most $maxMimeChars characters',
-      );
-    }
-    final Uint8List clean;
-    try {
-      clean = ImageMetadata.clean(bytes, mime);
-    } on FormatException {
-      throw ArgumentError('Image could not be read');
-    }
-    if (clean.isEmpty) throw ArgumentError('File is empty');
-    if (clean.length > maxFileSizeNative) {
-      throw ArgumentError('File exceeds max size limit');
-    }
-    if (voice) {
-      if (!voiceNameMatches(mime, cleanedName)) {
-        throw ArgumentError('Voice note has the wrong file name');
-      }
-      if (voiceOfferRefused(mime: mime, size: clean.length)) {
-        throw ArgumentError('Voice note exceeds the size limit');
-      }
-    }
-    final hash = sha256.convert(clean).toString();
-    final chunks = (clean.length / fileChunkSize).ceil();
-    final id = _newId();
-    final files = store.files;
-    final kept = files == null ? null : await files.save(clean);
-    final offered = ChatMessage(
-      id: id,
-      contactId: contactId,
-      outgoing: true,
-      ts: clock().millisecondsSinceEpoch,
-      text: cleanedName,
-      state: ChatState.sending,
-      fileId: id,
-      fileName: cleanedName,
-      fileSize: clean.length,
-      fileMime: mime,
-      fileSha256: hash,
-      fileStatus: 'offered',
-      filePath: kept?.name ?? (files == null ? 'web:$id' : null),
-      fileKey: kept?.key,
-      voiceNote: voice,
+    return offerPrepared(
+      prepareOutgoingFile(
+        name: name,
+        bytes: bytes,
+        mime: mime,
+        voice: voice,
+        maxFileBytes: maxFileBytes,
+      ),
     );
-    _outgoingFiles[id] = clean;
-    if (files == null) {
-      store.rememberFile(id, clean);
-    }
+  }
+
+  /// Offers a file that [prepareOutgoingFile] has checked.
+  Future<ChatMessage> offerPrepared(PreparedFile file) async {
+    _ensureOpen();
+    final id = _newId();
+    final chunks = (file.bytes.length / fileChunkSize).ceil();
+    final offered = await store.keepOutgoingFile(
+      ChatMessage(
+        id: id,
+        contactId: contactId,
+        outgoing: true,
+        ts: clock().millisecondsSinceEpoch,
+        text: file.name,
+        state: ChatState.sending,
+        fileId: id,
+        fileName: file.name,
+        fileSize: file.bytes.length,
+        fileMime: file.mime,
+        fileSha256: file.sha256,
+        fileStatus: 'offered',
+        voiceNote: file.voice,
+      ),
+      file.bytes,
+    );
+    _offered.add(id);
     await store.add(offered);
-    // A voice note keeps its own copy, so the sender can play it back.
-    final message = voice && kept == null
-        ? await store.keepVoice(offered, clean)
-        : offered;
     _write(
       FileOfferFrame(
         id: id,
-        name: cleanedName,
-        size: clean.length,
-        mime: mime,
-        sha256: hash,
+        name: file.name,
+        size: file.bytes.length,
+        mime: file.mime,
+        sha256: file.sha256,
         chunks: chunks == 0 ? 1 : chunks,
-        voice: voice,
+        voice: file.voice,
       ),
     );
-    return message;
+    return offered;
   }
 
-  /// Offers an outgoing file that was already saved and queued.
-  Future<void> offerStoredFile(ChatMessage message) async {
-    _ensureOpen();
-    if (!message.isAttachment || !message.outgoing) return;
+  /// Offers an outgoing file that was saved and queued while the contact was
+  /// offline. It is offered once: its state moves from queued to sending as
+  /// it is offered, and a file that is no longer queued, or whose offer was
+  /// cancelled, is skipped. Returns whether it was offered.
+  Future<bool> offerStoredFile(ChatMessage message) async {
+    if (!isReady) return false;
+    if (!message.isAttachment || !message.outgoing) return false;
+    if (!_offeringQueued.add(message.id)) return false;
+    final current = await store.find(contactId, message.id);
+    if (_ended ||
+        current == null ||
+        current.state != ChatState.queued ||
+        current.fileStatus != 'offered') {
+      _offeringQueued.remove(message.id);
+      return false;
+    }
     Uint8List bytes;
     try {
-      bytes = await store.readFile(message);
+      bytes = await store.readFile(current);
     } catch (_) {
-      return;
+      // Gone from this device (for example, the browser let it go).
+      await store.setState(contactId, current.id, ChatState.sending);
+      await _failFile(current.id, 'unavailable', 'failed');
+      return false;
     }
-    _outgoingFiles[message.id] = bytes;
+    final hash = sha256.convert(bytes).toString();
+    if (bytes.isEmpty ||
+        bytes.length > maxFileBytes ||
+        (current.fileSha256 != null && current.fileSha256 != hash)) {
+      await store.setState(contactId, current.id, ChatState.sending);
+      await _failFile(current.id, 'damaged', 'failed');
+      return false;
+    }
+    if (_ended) return false;
+    await store.setState(contactId, current.id, ChatState.sending);
+    if (_ended) return false;
+    _offered.add(current.id);
     final chunks = (bytes.length / fileChunkSize).ceil();
     _write(
       FileOfferFrame(
-        id: message.id,
-        name: message.fileName ?? 'file',
+        id: current.id,
+        name: current.fileName ?? 'file',
         size: bytes.length,
-        mime: message.fileMime ?? 'application/octet-stream',
-        sha256: message.fileSha256 ?? sha256.convert(bytes).toString(),
+        mime: current.fileMime ?? 'application/octet-stream',
+        sha256: hash,
         chunks: chunks == 0 ? 1 : chunks,
-        voice: message.voiceNote,
+        voice: current.voiceNote,
       ),
     );
+    return true;
+  }
+
+  /// Offers every queued outgoing file of this chat (see [offerStoredFile]).
+  Future<void> _offerQueuedFiles() async {
+    for (final m in await store.messages(contactId)) {
+      if (_ended) return;
+      if (m.outgoing && m.isAttachment && m.state == ChatState.queued) {
+        await offerStoredFile(m);
+      }
+    }
   }
 
   /// Accepts an offered file from the contact.
@@ -391,8 +518,12 @@ class ChatSession {
   /// stored before the type was blocked.
   Future<void> acceptFile(String fileId) async {
     _ensureOpen();
+    if (_incomingFiles.containsKey(fileId)) return;
     final msg = await store.find(contactId, fileId);
     if (msg == null || msg.fileName == null) return;
+    // Only an offer still waiting is accepted, and only once.
+    if (msg.outgoing || msg.fileStatus != 'offered') return;
+    if (_incomingFiles.containsKey(fileId)) return;
     if (ChatFrames.isBlockedFileType(msg.fileName!)) {
       await declineFile(fileId);
       return;
@@ -424,42 +555,88 @@ class ChatSession {
 
   /// Cancels an active file transfer.
   Future<void> cancelFile(String fileId, {String? reason}) async {
-    _outgoingFiles.remove(fileId);
+    _offered.remove(fileId);
+    _sending.remove(fileId);
     final incoming = _incomingFiles.remove(fileId);
     incoming?.completionTimeout?.cancel();
     final msg = await store.find(contactId, fileId);
-    if (msg != null) {
+    if (msg != null && _stillOpen(msg.fileStatus)) {
       await store.updateMessage(msg.copyWith(fileStatus: 'cancelled'));
     }
-    _write(FileCancelFrame(id: fileId, reason: reason));
+    if (!_ended) _write(FileCancelFrame(id: fileId, reason: reason));
   }
 
+  /// Whether a file in [status] is still offered or on its way.
+  static bool _stillOpen(String? status) =>
+      status == 'offered' || status == 'transferring';
+
+  /// Sends the chunks of an accepted file. Before each chunk the channel's
+  /// buffer is asked for its real size, and the chunk waits while it is over
+  /// [maxBufferedBytes]. A chunk the channel refuses stops the transfer.
   Future<void> _streamFileChunks(String fileId, Uint8List bytes) async {
     final totalChunks = (bytes.length / fileChunkSize).ceil();
     final count = totalChunks == 0 ? 1 : totalChunks;
     for (var i = 0; i < count; i++) {
-      if (_ended || !_outgoingFiles.containsKey(fileId)) return;
-
-      while (!_ended && transport.bufferedAmount > 256 * 1024) {
-        await Future<void>.delayed(const Duration(milliseconds: 15));
-      }
-
+      if (!await _waitForRoom(fileId)) return;
       final start = i * fileChunkSize;
       final end = (start + fileChunkSize) > bytes.length
           ? bytes.length
           : start + fileChunkSize;
-      final slice = bytes.sublist(start, end);
       final chunkBytes = ChatFrames.encodeChunk(
         fileId: fileId,
         chunkIndex: i,
-        payload: slice,
+        payload: Uint8List.sublistView(bytes, start, end),
       );
-      transport.sendBinary(chunkBytes);
-      final progress = (i + 1) / count;
-      _events.add(FileTransferProgress(fileId, progress));
+      bool sent;
+      try {
+        sent = transport.sendBinary(chunkBytes);
+      } catch (_) {
+        sent = false;
+      }
+      if (!sent) {
+        await _stopSending(fileId, 'failed');
+        return;
+      }
+      _emit(FileTransferProgress(fileId, (i + 1) / count));
+      // Lets the rest of the app run between chunks.
       await Future<void>.delayed(Duration.zero);
     }
+    if (_ended || !_sending.contains(fileId)) return;
     _write(FileDoneFrame(id: fileId));
+  }
+
+  /// Waits until the channel has room for the next chunk of [fileId]. False
+  /// when the transfer stopped meanwhile, or the buffer did not drain within
+  /// [fileStallTimeout] (the transfer is then stopped).
+  Future<bool> _waitForRoom(String fileId) async {
+    final started = clock();
+    while (true) {
+      if (_ended || !_sending.contains(fileId)) return false;
+      int buffered;
+      try {
+        buffered = await transport.bufferedAmountNow();
+      } catch (_) {
+        buffered = transport.bufferedAmount;
+      }
+      if (_ended || !_sending.contains(fileId)) return false;
+      if (buffered <= maxBufferedBytes) return true;
+      if (clock().difference(started) >= fileStallTimeout) {
+        await _stopSending(fileId, 'stalled');
+        return false;
+      }
+      await _bufferWait();
+    }
+  }
+
+  /// Stops sending [fileId]: the other side is told, and the file failed.
+  Future<void> _stopSending(String fileId, String reason) async {
+    if (!_sending.remove(fileId)) return;
+    if (!_ended) _write(FileCancelFrame(id: fileId, reason: reason));
+    await _failFile(fileId, reason, 'failed');
+  }
+
+  void _emit(ChatSessionEvent event) {
+    if (!_events.isClosed) _events.add(event);
   }
 
   Future<void> _onBinaryChunk(Uint8List bytes) async {
@@ -499,6 +676,8 @@ class ChatSession {
   /// other side stores it once.
   void resend(ChatMessage message) {
     _ensureOpen();
+    // Files are offered, never sent as text (see [offerStoredFile]).
+    if (message.isAttachment) return;
     _outbox[message.id] = message.withState(ChatState.sending);
     _unsent.add(message.id);
     _sendOutbox();
@@ -623,12 +802,8 @@ class ChatSession {
           ..clear()
           ..addAll(_outbox.keys);
         _sendOutbox();
-        // Any queued files waiting for this contact are offered now.
-        for (final m in await store.messages(contactId)) {
-          if (m.outgoing && m.isAttachment && m.state == ChatState.queued) {
-            await offerStoredFile(m);
-          }
-        }
+        // Any queued files waiting for this contact are offered now, once.
+        await _offerQueuedFiles();
         if (_pendingReads.isNotEmpty) {
           _writeReads(_pendingReads);
           _pendingReads.clear();
@@ -719,31 +894,55 @@ class ChatSession {
             _write(FileDeclineFrame(id: id));
           } else {
             _events.add(FileOfferReceived(message));
-            if ((voice || autoAcceptFiles) && !_ended) await acceptFile(id);
+            if (_ended) return;
+            if (voice) {
+              // Voice notes from contacts always download.
+              await acceptFile(id);
+            } else if (_mayAutoAccept(size)) {
+              _autoAcceptedBytes += size;
+              await acceptFile(id);
+            }
           }
         }
       case FileAcceptFrame(:final id):
         if (!_peerHello) return;
-        var bytes = _outgoingFiles[id];
+        // Only a file offered in this session, still offered, and only once:
+        // a late accept after a cancel or decline, or a second accept, sends
+        // nothing.
+        if (!_offered.remove(id)) return;
+        _sending.add(id);
         final existing = await store.find(contactId, id);
-        if (bytes == null && existing != null) {
-          try {
-            bytes = await store.readFile(existing);
-            _outgoingFiles[id] = bytes;
-          } catch (_) {}
+        if (existing == null ||
+            !existing.outgoing ||
+            !existing.isAttachment ||
+            existing.fileStatus != 'offered') {
+          _sending.remove(id);
+          return;
         }
-        if (bytes == null) return;
-        if (existing != null) {
-          await store.updateMessage(
-            existing.copyWith(fileStatus: 'transferring'),
-          );
+        Uint8List bytes;
+        try {
+          bytes = await store.readFile(existing);
+        } catch (_) {
+          await _stopSending(id, 'unavailable');
+          return;
         }
-        unawaited(_streamFileChunks(id, bytes));
+        if (_ended || !_sending.contains(id)) return;
+        await store.updateMessage(
+          existing.copyWith(fileStatus: 'transferring'),
+        );
+        unawaited(
+          _streamFileChunks(id, bytes).catchError((Object _) {
+            // The error can hold a file name. It is not logged.
+          }),
+        );
       case FileDeclineFrame(:final id):
         if (!_peerHello) return;
-        _outgoingFiles.remove(id);
+        _offered.remove(id);
+        _sending.remove(id);
         final existing = await store.find(contactId, id);
-        if (existing != null) {
+        if (existing != null &&
+            existing.outgoing &&
+            _stillOpen(existing.fileStatus)) {
           await store.updateMessage(existing.copyWith(fileStatus: 'declined'));
           _events.add(FileTransferFailed(id, 'declined'));
         }
@@ -781,21 +980,22 @@ class ChatSession {
         }
       case FileAckFrame(:final id):
         if (!_peerHello) return;
-        _outgoingFiles.remove(id);
+        if (!_sending.remove(id)) return;
         final existing = await store.find(contactId, id);
-        if (existing != null) {
+        if (existing != null && existing.outgoing) {
           await store.updateMessage(existing.copyWith(fileStatus: 'completed'));
         }
         _events.add(FileTransferCompleted(id, null));
       case FileCancelFrame(:final id, :final reason):
-        _outgoingFiles.remove(id);
+        _offered.remove(id);
+        _sending.remove(id);
         final incoming = _incomingFiles.remove(id);
         incoming?.completionTimeout?.cancel();
         final existing = await store.find(contactId, id);
-        if (existing != null) {
+        if (existing != null && _stillOpen(existing.fileStatus)) {
           await store.updateMessage(existing.copyWith(fileStatus: 'cancelled'));
+          _events.add(FileTransferFailed(id, reason ?? 'cancelled'));
         }
-        _events.add(FileTransferFailed(id, reason ?? 'cancelled'));
       case ByeFrame():
         await _end('bye');
     }
@@ -837,9 +1037,11 @@ class ChatSession {
     final files = store.files;
     final kept = files == null ? null : await files.save(fullBytes);
     if (kept == null) {
-      store.rememberFile(id, fullBytes);
+      // Held once: a voice note as one, any other file as a file.
       if (transfer.voice) {
         store.rememberVoice(id, fullBytes);
+      } else {
+        store.rememberFile(id, fullBytes);
       }
     }
     _write(FileAckFrame(id: id));
@@ -867,8 +1069,18 @@ class ChatSession {
     if (existing != null) {
       await store.updateMessage(existing.copyWith(fileStatus: status));
     }
-    _events.add(FileTransferFailed(id, reason));
+    _emit(FileTransferFailed(id, reason));
   }
+
+  /// Whether a file offered by the contact downloads without asking: the
+  /// setting is on, the file is small enough, few enough transfers run, and
+  /// this session's budget has room.
+  bool _mayAutoAccept(int size) =>
+      autoAcceptFiles() &&
+      size <= autoAcceptMaxBytes &&
+      size <= maxFileBytes &&
+      _incomingFiles.length < autoAcceptMaxConcurrent &&
+      _autoAcceptedBytes + size <= autoAcceptBudgetBytes;
 
   /// The file messages of this chat that can no longer go on: transfers in
   /// progress and offers nobody answered fail; incoming offers expire, since
@@ -877,6 +1089,8 @@ class ChatSession {
     for (final message in await store.messages(contactId)) {
       final status = message.fileStatus;
       if (status != 'offered' && status != 'transferring') continue;
+      // A queued file was never offered: it waits for the next session.
+      if (message.outgoing && message.state == ChatState.queued) continue;
       if (!message.outgoing && status == 'offered') {
         await _failFile(message.id, reason, 'expired');
       } else {
@@ -895,7 +1109,8 @@ class ChatSession {
     _outbox.clear();
     _unsent.clear();
     await _settleFiles(reason);
-    _outgoingFiles.clear();
+    _offered.clear();
+    _sending.clear();
     for (final transfer in _incomingFiles.values) {
       transfer.completionTimeout?.cancel();
     }
