@@ -596,13 +596,36 @@ class ChatStore {
   Future<bool> contains(String contactId, String id) async =>
       (await find(contactId, id)) != null;
 
-  /// Stores [message]. A message already stored (same id) is not added twice.
-  Future<void> add(ChatMessage message) => _inOrder(() async {
+  /// Stores [message] and returns it as stored. A message already stored (same
+  /// id) is not added twice; the stored one is returned.
+  ///
+  /// A quote of a message in the same chat takes that message's text as it is
+  /// stored when this write runs (see [_withQuoteOf]). The read and the write
+  /// are one step, as in [changeMessage], so a reply written while its message
+  /// is edited or deleted never keeps the text the message had before.
+  Future<ChatMessage> add(ChatMessage message) => _inOrder(() async {
     final list = [...await _loadContact(message.contactId)];
-    if (list.any((m) => m.id == message.id)) return;
-    list.add(message);
+    final index = list.indexWhere((m) => m.id == message.id);
+    if (index >= 0) return list[index];
+    final stored = _withQuoteOf(list, message);
+    list.add(stored);
     await _saveContact(message.contactId, list);
+    return stored;
   });
+
+  /// [message] with its quote given the text of the message it quotes in
+  /// [list], as that message is stored now: empty once it is deleted for
+  /// everyone. A quote of a message that is not in [list] keeps the text it
+  /// came with.
+  static ChatMessage _withQuoteOf(List<ChatMessage> list, ChatMessage message) {
+    final quote = message.replyTo;
+    if (quote == null) return message;
+    final index = list.indexWhere((m) => m.id == quote.id);
+    if (index < 0) return message;
+    final target = list[index];
+    final text = target.deletedForAll ? '' : ChatFrames.quoteText(target.text);
+    return message.copyWith(replyTo: (id: quote.id, text: text));
+  }
 
   /// Updates an existing message in-place.
   Future<void> updateMessage(ChatMessage message) => _inOrder(() async {

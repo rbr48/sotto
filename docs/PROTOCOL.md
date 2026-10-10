@@ -332,7 +332,10 @@ frames, so text and files work unchanged between old and new versions.
   cleans it as messages are cleaned. The receiver refuses a quote over 200
   characters (`too-long`) or with a malformed id. If the quote would take the
   frame past 16 KiB, the message is sent without it, so the message itself
-  still goes.
+  still goes. On arrival the receiver sets the quote from its own copy of the
+  message replied to, as that copy is at the time: its text cut to 200
+  characters, or empty if it is deleted for everyone. The quote the sender sent
+  is kept only when the receiver does not hold that message.
 - **Forward.** A forwarded text is an ordinary message with `"fwd": true`. It
   keeps no reference to the original, and only text is forwarded.
 - **Reaction** (`react`). `emoji` is trimmed. An empty one removes the
@@ -370,7 +373,8 @@ frames, so text and files work unchanged between old and new versions.
   new text, cut to 200 characters as a quote is, so no quote keeps the earlier
   text. This happens on the device that edits and on the contact's device when
   the edit arrives. A reply still waiting in the outbox is sent with the new
-  quote.
+  quote, and a reply that arrives after the edit takes its quote from the
+  receiver's copy (see Reply), so it shows the new text too.
 - Files and voice notes are never edited or deleted for everyone: an edit or
   delete of one is ignored.
 - A control frame is checked against the owner of its message, and the checks

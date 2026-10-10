@@ -950,8 +950,10 @@ class ChatSession {
             replyTo: reply,
             forwarded: forwarded,
           );
-          await store.add(message);
-          _events.add(MessageReceived(message));
+          // The stored message is the one shown: its quote is the text of the
+          // message it quotes here, as the store has it (see [ChatStore.add]).
+          final stored = await store.add(message);
+          _events.add(MessageReceived(stored));
         }
         _write(AckFrame(id: id));
       case AckFrame(:final id):

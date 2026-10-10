@@ -2117,6 +2117,119 @@ void main() {
         text: 'the door code is 4472',
       ));
     });
+
+    test('a reply that arrives after its message was edited here quotes the new text, stored and in the event', () async {
+      final (a, b) = _pair();
+      final alice = _Side('alice', 'bob', a, clock: clock)..start();
+      await _settle();
+      b.send(helloAll);
+      final sentAt = now.millisecondsSinceEpoch;
+      await alice.store.add(
+        ChatMessage(
+          id: _id(1),
+          contactId: 'bob',
+          outgoing: true,
+          ts: sentAt,
+          text: 'the door code is 4471',
+          state: ChatState.delivered,
+        ),
+      );
+      // Alice edits her message here. Bob's reply, written before he had the
+      // edit, still quotes the old text when it arrives.
+      await alice.store.changeMessage(
+        'bob',
+        _id(1),
+        (m) => m.copyWith(
+          text: 'the door code is 4472',
+          editedAt: sentAt + minute,
+        ),
+      );
+      b.send(
+        ChatFrames.encode(
+          MessageFrame(
+            id: _id(2),
+            ts: sentAt,
+            text: 'got it',
+            reply: (id: _id(1), text: 'the door code is 4471'),
+          ),
+        ),
+      );
+      await _settle();
+
+      final reply = (await alice.store.find('bob', _id(2)))!;
+      expect(reply.text, 'got it');
+      expect(reply.replyTo, (id: _id(1), text: 'the door code is 4472'));
+      expect(alice.ofType<MessageReceived>().single.message.replyTo, (
+        id: _id(1),
+        text: 'the door code is 4472',
+      ));
+      expect(
+        await alice.secrets.read(ChatStore.contactKey('bob')),
+        isNot(contains('4471')),
+      );
+    });
+
+    test('a reply that arrives after its message was deleted here quotes no text, and a quote of a message not held here keeps its text', () async {
+      final (a, b) = _pair();
+      final alice = _Side('alice', 'bob', a, clock: clock)..start();
+      await _settle();
+      b.send(helloAll);
+      final sentAt = now.millisecondsSinceEpoch;
+      await alice.store.add(
+        ChatMessage(
+          id: _id(1),
+          contactId: 'bob',
+          outgoing: true,
+          ts: sentAt,
+          text: 'the door code is 4471',
+          state: ChatState.delivered,
+        ),
+      );
+      // Alice deletes her message for everyone while Bob is offline. His reply
+      // is sent later with the old text in its quote.
+      await alice.store.changeMessage(
+        'bob',
+        _id(1),
+        (m) => m.copyWith(text: '', deletedForAll: true, reactions: const {}),
+      );
+      b.send(
+        ChatFrames.encode(
+          MessageFrame(
+            id: _id(2),
+            ts: sentAt,
+            text: 'got it',
+            reply: (id: _id(1), text: 'the door code is 4471'),
+          ),
+        ),
+      );
+      b.send(
+        ChatFrames.encode(
+          MessageFrame(
+            id: _id(3),
+            ts: sentAt,
+            text: 'and that one',
+            reply: (id: _id(9), text: 'a message not held here'),
+          ),
+        ),
+      );
+      await _settle();
+
+      final reply = (await alice.store.find('bob', _id(2)))!;
+      expect(reply.text, 'got it');
+      expect(reply.replyTo, (id: _id(1), text: ''));
+      expect(alice.ofType<MessageReceived>().first.message.replyTo, (
+        id: _id(1),
+        text: '',
+      ));
+      expect((await alice.store.find('bob', _id(3)))!.replyTo, (
+        id: _id(9),
+        text: 'a message not held here',
+      ));
+      expect(
+        await alice.secrets.read(ChatStore.contactKey('bob')),
+        isNot(contains('4471')),
+      );
+    });
   });
 }
 
