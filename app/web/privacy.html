@@ -26,8 +26,8 @@
 <body>
 <main>
 <h1>Privacy policy</h1>
-<p class="muted">This Sotto server is run by the operator of sottocall.com.
-Contact: <a href="mailto:contact@sottocall.com">contact@sottocall.com</a> · Support: <a href="mailto:support@sottocall.com">support@sottocall.com</a> · Live Support: <a href="https://call.sottocall.com/#c=n3qJ6HlYC0WI3DU_ixZTW6VaXCTX04zQTw5FjPj20CQ">Sotto Live Call Center</a>.</p>
+<p class="muted">This Sotto server is run by {{with env "SOTTO_OPERATOR"}}{{html .}}{{else}}the operator of {{env "SOTTO_DOMAIN" | html}}{{end}}.
+Contact: {{with env "SOTTO_CONTACT"}}{{if hasPrefix "https://" .}}<a href="{{html .}}">{{html .}}</a>{{else if contains "@" .}}<a href="mailto:{{html .}}">{{html .}}</a>{{else}}{{html .}}{{end}}{{else}}the person or organisation that gave you this server's address{{end}}.{{with env "SOTTO_SUPPORT_EMAIL"}} Support: <a href="mailto:{{html .}}">{{html .}}</a>.{{end}}{{with env "SOTTO_SUPPORT_LINK"}}{{if hasPrefix "https://" .}} Live support: <a href="{{html .}}">call us in Sotto</a>.{{end}}{{end}}</p>
 
 <p>Sotto is a calling app built to know as little as possible about you. There are no
 accounts, no phone numbers or e-mail addresses, no advertising, no analytics and no

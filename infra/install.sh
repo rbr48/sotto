@@ -20,6 +20,9 @@
 #   --operator NAME        who runs this server (shown in its privacy policy and terms,
 #                          /privacy.html and /terms.html; default: the domain)
 #   --contact ADDRESS      how users reach the operator (an email address or URL)
+#   --support-email ADDR   optional support address, shown on the same pages
+#   --support-link URL     optional https:// link for live support (e.g. a Sotto
+#                          call link), shown on the same pages
 #   --yes                  don't ask; accept the defaults (install Docker, add swap,
 #                          open firewall ports)
 #   --no-firewall          don't touch ufw/firewalld
@@ -47,6 +50,8 @@ TLS_CERT=''
 TLS_KEY=''
 OPERATOR=''
 CONTACT=''
+SUPPORT_EMAIL=''
+SUPPORT_LINK=''
 ASSUME_YES=0
 FIREWALL=1
 DNS_CHECK=1
@@ -112,6 +117,8 @@ parse_args() {
       --tls-key) TLS_KEY=${2:-}; shift 2 ;;
       --operator) OPERATOR=${2:-}; shift 2 ;;
       --contact) CONTACT=${2:-}; shift 2 ;;
+      --support-email) SUPPORT_EMAIL=${2:-}; shift 2 ;;
+      --support-link) SUPPORT_LINK=${2:-}; shift 2 ;;
       --yes | -y) ASSUME_YES=1; shift ;;
       --no-firewall) FIREWALL=0; shift ;;
       --skip-dns-check) DNS_CHECK=0; shift ;;
@@ -129,11 +136,17 @@ parse_args() {
   fi
   # Shown in web pages through Caddy templates: one plain line, no markup.
   local value
-  for value in "$OPERATOR" "$CONTACT"; do
+  for value in "$OPERATOR" "$CONTACT" "$SUPPORT_EMAIL" "$SUPPORT_LINK"; do
     if [[ $value == *$'\n'* || $value == *'{{'* || $value == *'<'* || ${#value} -gt 120 ]]; then
-      die "--operator and --contact take one plain line of at most 120 characters"
+      die "--operator, --contact, --support-email and --support-link take one plain line of at most 120 characters"
     fi
   done
+  if [[ -n $SUPPORT_EMAIL && $SUPPORT_EMAIL != *@* ]]; then
+    die "--support-email needs an email address: $SUPPORT_EMAIL"
+  fi
+  if [[ -n $SUPPORT_LINK && $SUPPORT_LINK != https://* ]]; then
+    die "--support-link needs an https:// link: $SUPPORT_LINK"
+  fi
   case $COMMAND in
     install | update | status | uninstall) ;;
     *) die "unknown command: $COMMAND (install, update, status or uninstall)" ;;
@@ -399,6 +412,8 @@ write_env() {
   if [[ -f $ENV_FILE ]]; then
     [[ -n $OPERATOR ]] || OPERATOR=$(saved SOTTO_OPERATOR)
     [[ -n $CONTACT ]] || CONTACT=$(saved SOTTO_CONTACT)
+    [[ -n $SUPPORT_EMAIL ]] || SUPPORT_EMAIL=$(saved SOTTO_SUPPORT_EMAIL)
+    [[ -n $SUPPORT_LINK ]] || SUPPORT_LINK=$(saved SOTTO_SUPPORT_LINK)
   fi
   local content
   content="# Written by install.sh. The TURN secret is shared by the relay and coturn.
@@ -415,6 +430,14 @@ SOTTO_OPERATOR=$OPERATOR"
   if [[ -n $CONTACT ]]; then
     content+="
 SOTTO_CONTACT=$CONTACT"
+  fi
+  if [[ -n $SUPPORT_EMAIL ]]; then
+    content+="
+SOTTO_SUPPORT_EMAIL=$SUPPORT_EMAIL"
+  fi
+  if [[ -n $SUPPORT_LINK ]]; then
+    content+="
+SOTTO_SUPPORT_LINK=$SUPPORT_LINK"
   fi
   local proxy=''
   if [[ $BEHIND_PROXY == 1 ]]; then

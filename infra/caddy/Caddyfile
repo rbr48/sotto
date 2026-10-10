@@ -62,7 +62,8 @@
 		root * /srv
 		try_files {path} {path}.html /index.html
 		# The privacy policy and terms name the operator (SOTTO_OPERATOR,
-		# SOTTO_CONTACT from .env).
+		# SOTTO_CONTACT and, if set, SOTTO_SUPPORT_EMAIL and SOTTO_SUPPORT_LINK
+		# from .env).
 		@legal path /privacy.html /terms.html
 		templates @legal
 		file_server
