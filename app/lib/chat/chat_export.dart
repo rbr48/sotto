@@ -45,7 +45,6 @@ final class ChatExportLabels {
     this.reactions = 'Reactions',
     this.edited = 'Edited',
     this.forwarded = 'Forwarded',
-    this.starred = 'Starred',
     this.delivered = 'Delivered',
     this.read = 'Read',
   });
@@ -59,7 +58,6 @@ final class ChatExportLabels {
   final String reactions;
   final String edited;
   final String forwarded;
-  final String starred;
   final String delivered;
   final String read;
 }
@@ -68,9 +66,9 @@ final class ChatExportLabels {
 ///
 /// This is not a backup. It holds one chat and nothing else: no master secret,
 /// keystore or vault value, no identity, no other chat, no pending controls and
-/// no chat settings (archived, muted, pinned). A file's contents are never
-/// included, only its name and size. `docs/PROTOCOL.md`, section 8A, has the
-/// format.
+/// no chat settings (archived, muted, pinned) and no stars. A file's contents
+/// are never included, only its name and size. `docs/PROTOCOL.md`, section 8A,
+/// has the format.
 ///
 /// The encrypted file is one line of JSON:
 ///
@@ -353,7 +351,6 @@ abstract final class ChatExport {
             '${_plainReactions(message, contactName, labels)}',
       if (message.editedAt case final at?) '    ${labels.edited} ${_time(at)}',
       if (message.forwarded) '    ${labels.forwarded}',
-      if (message.starred) '    ${labels.starred}',
       if (message.deliveredAt case final at?)
         '    ${labels.delivered} ${_time(at)}',
       if (message.readAt case final at?) '    ${labels.read} ${_time(at)}',
@@ -417,7 +414,6 @@ abstract final class ChatExport {
     'read': ?message.readAt,
     'edited': ?message.editedAt,
     if (message.forwarded) 'forwarded': true,
-    if (message.starred) 'starred': true,
     ..._content(message),
   };
 

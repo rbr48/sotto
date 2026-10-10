@@ -457,7 +457,7 @@ plaintext = JSON {"master": "<32-byte master secret>", "values": {<vault entries
 
 A chat export is a file of one chat's messages, for the person who owns the chat to read or keep. It is not a backup (section 8) and restores nothing. The app does not import exports.
 
-It holds the chat and nothing else. It never contains the master secret, keystore or vault values, the identity, other chats, pending controls (queued reactions, edits and deletes), chat settings (archived, muted, pinned), contact or message ids, or the bytes, keys or paths of files.
+It holds the chat and nothing else. It never contains the master secret, keystore or vault values, the identity, other chats, pending controls (queued reactions, edits and deletes), chat settings (archived, muted, pinned) or stars, contact or message ids, or the bytes, keys or paths of files.
 
 ### Encrypted file (the default)
 
@@ -502,7 +502,6 @@ The messages are the chat's stored messages, oldest first. Each has:
 | `read` | When the contact first read it (`readAt`), when known |
 | `edited` | When the text was last edited (`editedAt`), when edited |
 | `forwarded` | `true` when forwarded from another chat |
-| `starred` | `true` when the owner starred it |
 | `text` | The text, for an ordinary message |
 | `file` | For a file or voice note: `{"name": "<file name>", "size": <bytes>}`, the size when known. No other field |
 | `quote` | For a reply: the quoted text as stored with the reply |
@@ -524,7 +523,6 @@ Exported <UTC time, to the second>
     Reactions: <emoji> (<who>), …
     Edited <time>
     Forwarded
-    Starred
     Delivered <time>
     Read <time>
 ```

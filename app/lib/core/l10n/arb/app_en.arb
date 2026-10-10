@@ -441,6 +441,5 @@
   "chatExportFileLabel": "File",
   "chatExportBytesLabel": "bytes",
   "chatExportReplyLabel": "Reply to",
-  "chatExportReactionsLabel": "Reactions",
-  "chatExportStarredLabel": "Starred"
+  "chatExportReactionsLabel": "Reactions"
 }

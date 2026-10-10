@@ -1371,12 +1371,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Reactions'**
   String get chatExportReactionsLabel;
-
-  /// No description provided for @chatExportStarredLabel.
-  ///
-  /// In en, this message translates to:
-  /// **'Starred'**
-  String get chatExportStarredLabel;
 }
 
 class _AppLocalizationsDelegate

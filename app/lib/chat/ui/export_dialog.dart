@@ -184,7 +184,6 @@ class _ExportChatDialogState extends State<_ExportChatDialog> {
         reactions: l10n.chatExportReactionsLabel,
         edited: l10n.chatEdited,
         forwarded: l10n.chatForwarded,
-        starred: l10n.chatExportStarredLabel,
         delivered: l10n.chatStatusDelivered,
         read: l10n.chatStatusRead,
       ),

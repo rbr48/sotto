@@ -214,6 +214,5 @@
   "chatExportFileLabel": "ملف",
   "chatExportBytesLabel": "بايت",
   "chatExportReplyLabel": "ردًا على",
-  "chatExportReactionsLabel": "التفاعلات",
-  "chatExportStarredLabel": "مميّزة بنجمة"
+  "chatExportReactionsLabel": "التفاعلات"
 }

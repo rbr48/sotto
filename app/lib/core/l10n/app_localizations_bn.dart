@@ -755,7 +755,4 @@ class AppLocalizationsBn extends AppLocalizations {
 
   @override
   String get chatExportReactionsLabel => 'প্রতিক্রিয়া';
-
-  @override
-  String get chatExportStarredLabel => 'তারকাচিহ্নিত';
 }

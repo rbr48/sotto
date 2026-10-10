@@ -214,6 +214,5 @@
   "chatExportFileLabel": "ফাইল",
   "chatExportBytesLabel": "বাইট",
   "chatExportReplyLabel": "উত্তর",
-  "chatExportReactionsLabel": "প্রতিক্রিয়া",
-  "chatExportStarredLabel": "তারকাচিহ্নিত"
+  "chatExportReactionsLabel": "প্রতিক্রিয়া"
 }

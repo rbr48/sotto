@@ -135,7 +135,6 @@ final _bobPayload = {
       'sent': 1700000000005,
       'text': 'Forwarded text',
       'forwarded': true,
-      'starred': true,
       'reactions': [
         {'out': true, 'emoji': '❤️'},
         {'out': false, 'emoji': '😂'},
@@ -291,7 +290,13 @@ void main() {
 
     final dump = jsonEncode(open(encrypt(await store.messages(_bobId))));
     expect(dump, isNot(contains('🙈')), reason: 'a pending reaction');
-    for (final key in ['archived', 'muted', 'pinned', 'pendingControls']) {
+    for (final key in [
+      'archived',
+      'muted',
+      'pinned',
+      'starred',
+      'pendingControls',
+    ]) {
       expect(dump, isNot(contains(key)), reason: key);
     }
     expect(dump, contains('Hi Bob'));
@@ -429,6 +434,27 @@ void main() {
     );
   });
 
+  test('a star stays out of both formats', () {
+    final starred = _message(
+      1,
+      outgoing: false,
+      text: 'Keep this',
+      starred: true,
+    );
+    expect(open(encrypt([starred]))['messages'], [
+      {'out': false, 'sent': 1700000000001, 'text': 'Keep this'},
+    ]);
+
+    final buffer = StringBuffer();
+    ChatExport.writePlain(
+      buffer,
+      contactName: 'Bob',
+      exportedAt: _exportedAt,
+      messages: [starred],
+    );
+    expect(buffer.toString().toLowerCase(), isNot(contains('starred')));
+  });
+
   test('a short passphrase is refused before anything is written', () {
     expect(
       () => encrypt(_bobChat(), passphrase: 'too short'),
@@ -498,6 +524,8 @@ void main() {
         'archived',
         'muted',
         'pinned',
+        'starred',
+        'Starred',
       ];
       for (final needle in needles) {
         expect(text, isNot(contains(needle)), reason: needle);
@@ -530,12 +558,12 @@ void main() {
         labels: const ChatExportLabels(
           you: 'Yo',
           deleted: 'Borrado',
-          starred: 'Destacado',
+          forwarded: 'Reenviado',
         ),
       );
       expect(text, contains('[2023-11-14T22:13:20Z] Yo: Hi Bob'));
       expect(text, contains('Yo: Borrado'));
-      expect(text, contains('    Destacado'));
+      expect(text, contains('    Reenviado'));
     });
   });
 }
@@ -561,7 +589,6 @@ Exported 2026-10-10T12:00:00Z
 [2023-11-14T22:13:20Z] Bob: Forwarded text
     Reactions: ❤️ (You), 😂 (Bob)
     Forwarded
-    Starred
 
 [2023-11-14T22:13:20Z] You: File: report.pdf (5120 bytes)
 

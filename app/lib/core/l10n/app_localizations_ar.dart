@@ -765,7 +765,4 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get chatExportReactionsLabel => 'التفاعلات';
-
-  @override
-  String get chatExportStarredLabel => 'مميّزة بنجمة';
 }

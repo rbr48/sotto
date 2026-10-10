@@ -752,7 +752,4 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get chatExportReactionsLabel => 'Reactions';
-
-  @override
-  String get chatExportStarredLabel => 'Starred';
 }
