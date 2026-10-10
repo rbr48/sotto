@@ -140,11 +140,17 @@ final class MessagesRead extends ChatSessionEvent {
   final List<String> ids;
 }
 
-/// The other person reacted to, edited or deleted the message [id]. An open
-/// chat shows the change by reloading.
+/// The other person reacted to, edited or deleted the message [id], or this
+/// device starred it. An open chat shows the change by reloading.
 final class MessageChanged extends ChatSessionEvent {
   const MessageChanged(this.id);
   final String id;
+}
+
+/// The chat's archived, muted or pinned setting changed on this device. Only
+/// this device learns of it: nothing is sent.
+final class ChatSettingsChanged extends ChatSessionEvent {
+  const ChatSettingsChanged();
 }
 
 /// A file offer was received from the peer.

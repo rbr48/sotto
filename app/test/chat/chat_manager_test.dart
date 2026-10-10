@@ -1708,6 +1708,132 @@ void main() {
       },
     );
   });
+
+  group('archive, mute, pin and star', () {
+    test(
+      'settings are set on this device and announced to its listeners',
+      () async {
+        final aliceStore = ChatStore(MemorySecretStore());
+        final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+        final events = <ChatManagerEvent>[];
+        final sub = alice.events.listen(events.add);
+
+        await alice.setArchived('bob', true);
+        await alice.setMuted('bob', true);
+        expect(await alice.setPinned('bob', true), ChatPinResult.pinned);
+        await _settle();
+
+        expect(
+          await aliceStore.chatMeta('bob'),
+          ChatMeta(
+            archived: true,
+            muted: true,
+            pinnedAt: now.millisecondsSinceEpoch,
+          ),
+        );
+        final updates = events.whereType<ChatUpdate>();
+        expect(updates, hasLength(3));
+        expect(
+          updates.map((u) => u.event),
+          everyElement(isA<ChatSettingsChanged>()),
+        );
+        await sub.cancel();
+      },
+    );
+
+    test('a pin past the limit is refused, and announces nothing', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final alice = device(
+        'alice',
+        contacts: {'bob', 'carol', 'dave', 'erin'},
+        store: aliceStore,
+      );
+      for (final (i, contact) in ['bob', 'carol', 'dave', 'erin'].indexed) {
+        await aliceStore.add(
+          ChatMessage(
+            id: _id(i + 1),
+            contactId: contact,
+            outgoing: false,
+            ts: now.millisecondsSinceEpoch + i,
+            text: 'hi',
+            state: ChatState.received,
+            read: false,
+          ),
+        );
+      }
+      for (final contact in ['bob', 'carol', 'dave']) {
+        now = now.add(const Duration(seconds: 1));
+        expect(await alice.setPinned(contact, true), ChatPinResult.pinned);
+      }
+
+      final events = <ChatManagerEvent>[];
+      final sub = alice.events.listen(events.add);
+      expect(await alice.setPinned('erin', true), ChatPinResult.limitReached);
+      await _settle();
+
+      expect(events, isEmpty);
+      expect((await aliceStore.chatMeta('erin')).pinnedAt, isNull);
+      expect((await aliceStore.recentChats()).map((c) => c.contactId), [
+        'bob',
+        'carol',
+        'dave',
+        'erin',
+      ]);
+      await sub.cancel();
+    });
+
+    test(
+      'a star is kept on this device, announced once, and sends nothing',
+      () async {
+        final aliceStore = ChatStore(MemorySecretStore());
+        final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+        device('bob', contacts: {'alice'});
+        final message = await alice.sendText('bob', 'keep this');
+        await _settle();
+        final sentBefore = net.sent.length;
+
+        final events = <ChatManagerEvent>[];
+        final sub = alice.events.listen(events.add);
+        expect(await alice.setStarred('bob', message.id, true), isTrue);
+        expect(await alice.setStarred('bob', message.id, true), isFalse);
+        expect(await alice.setStarred('bob', _id(99), true), isFalse);
+        await _settle();
+
+        expect((await aliceStore.find('bob', message.id))!.starred, isTrue);
+        expect(events.whereType<ChatUpdate>(), hasLength(1));
+        expect(
+          events.whereType<ChatUpdate>().single.event,
+          isA<MessageChanged>(),
+        );
+        expect(net.sent.length, sentBefore);
+
+        expect(await alice.setStarred('bob', message.id, false), isTrue);
+        expect((await aliceStore.find('bob', message.id))!.starred, isFalse);
+        expect(net.sent.length, sentBefore);
+        await sub.cancel();
+      },
+    );
+
+    test('a message that arrives for an archived chat keeps it archived, with its unread count', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      await alice.setArchived('bob', true);
+
+      net.deliver('bob', 'alice', ChatManager.relayText, {
+        'id': _id(1),
+        'ts': now.millisecondsSinceEpoch,
+        'text': 'still on?',
+      }, null);
+      await _settle();
+
+      expect((await aliceStore.messages('bob')).single.text, 'still on?');
+      expect(await aliceStore.recentChats(), isEmpty);
+      final archived = (await aliceStore.archivedChats()).single;
+      expect(archived.contactId, 'bob');
+      expect(archived.unreadCount, 1);
+      expect(archived.meta.archived, isTrue);
+    });
+  });
 }
 
 /// A JPEG segment: its marker, its length, then its payload.
