@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import '../../core/l10n/app_localizations.dart';
 import 'chat_tokens.dart';
 
-/// The emoji grid shown under the composer. A tap reports the emoji through
-/// [onEmojiSelected]; the backspace key calls [onBackspace].
+/// The emoji grid shown under the composer, or in a reaction sheet. A tap
+/// reports the emoji through [onEmojiSelected]. The backspace key calls
+/// [onBackspace], and is left out when there is nothing to delete.
 class EmojiPickerPanel extends StatefulWidget {
   const EmojiPickerPanel({
     super.key,
@@ -15,7 +16,7 @@ class EmojiPickerPanel extends StatefulWidget {
 
   final ChatTokens tokens;
   final ValueChanged<String> onEmojiSelected;
-  final VoidCallback onBackspace;
+  final VoidCallback? onBackspace;
 
   @override
   State<EmojiPickerPanel> createState() => _EmojiPickerPanelState();
@@ -842,15 +843,16 @@ class _EmojiPickerPanelState extends State<EmojiPickerPanel>
                     ],
                   ),
                 ),
-                IconButton(
-                  tooltip: l10n.chatEmojiBackspace,
-                  icon: Icon(
-                    Icons.backspace_outlined,
-                    color: widget.tokens.attachIcon,
-                    size: 22,
+                if (widget.onBackspace case final onBackspace?)
+                  IconButton(
+                    tooltip: l10n.chatEmojiBackspace,
+                    icon: Icon(
+                      Icons.backspace_outlined,
+                      color: widget.tokens.attachIcon,
+                      size: 22,
+                    ),
+                    onPressed: onBackspace,
                   ),
-                  onPressed: widget.onBackspace,
-                ),
               ],
             ),
           ),
