@@ -28,6 +28,9 @@ class _FakeRtc implements ChatRtc {
   /// Every text frame this connection has sent, in order.
   final sentFrames = <String>[];
 
+  /// Every binary frame (a file chunk) this connection has sent, in order.
+  final sentBinary = <Uint8List>[];
+
   final _frames = StreamController<String>();
   final _binaryFrames = StreamController<Uint8List>();
   final _opened = Completer<void>();
@@ -129,6 +132,7 @@ class _FakeTransport implements ChatTransport {
   bool sendBinary(Uint8List data) {
     final peer = owner.peer;
     if (!owner._open || peer == null || owner.closed) return false;
+    owner.sentBinary.add(data);
     scheduleMicrotask(() {
       if (!peer.closed && !peer._binaryFrames.isClosed) {
         peer._binaryFrames.add(data);
@@ -1880,6 +1884,13 @@ void main() {
       for (final frame in frames) {
         _expectNoLocalSetting(ChatFrames.encode(frame), _frameTypeName(frame));
       }
+      // A file chunk is binary, so its bytes are checked as latin1 text.
+      final chunk = ChatFrames.encodeChunk(
+        fileId: _id(3),
+        chunkIndex: 0,
+        payload: utf8.encode('a short note'),
+      );
+      _expectNoLocalSetting(latin1.decode(chunk), 'a file chunk');
     });
 
     test(
@@ -1901,6 +1912,16 @@ void main() {
         final bobCopy = (await bobStore.messages('alice')).single;
         bob.sendReadReceipts('alice', [bobCopy.id]);
         final relayed = await alice.sendText('dave', 'are you there?');
+        await _settle();
+        // A file, accepted: its chunks are binary frames on the direct chat.
+        final file = await alice.offerFile(
+          contact: 'bob',
+          name: 'note.txt',
+          bytes: Uint8List.fromList(utf8.encode('a short note')),
+          mime: 'text/plain',
+        );
+        await _settle();
+        await bob.acceptFile('alice', file.id);
         await _settle();
 
         // Local settings, and their changes on each device.
@@ -1931,14 +1952,26 @@ void main() {
           for (final rtcs in net.rtcs.values)
             for (final rtc in rtcs) ...rtc.sentFrames,
         ];
+        final chunks = [
+          for (final rtcs in net.rtcs.values)
+            for (final rtc in rtcs) ...rtc.sentBinary,
+        ];
         expect(bodies, isNotEmpty);
         expect(frames.any((f) => f.contains('"t":"msg"')), isTrue);
         expect(frames.any((f) => f.contains('"t":"read"')), isTrue);
+        expect(chunks, isNotEmpty);
+        expect(
+          (await bobStore.find('alice', file.id))!.fileStatus,
+          'completed',
+        );
         for (final body in bodies) {
           _expectNoLocalSetting(jsonEncode(body), 'a relay envelope');
         }
         for (final frame in frames) {
           _expectNoLocalSetting(frame, 'a direct frame');
+        }
+        for (final chunk in chunks) {
+          _expectNoLocalSetting(latin1.decode(chunk), 'a file chunk');
         }
       },
     );
