@@ -138,8 +138,10 @@ void showMessageSheet(
   showModalBottomSheet<void>(
     context: context,
     builder: (sheetContext) => SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      // A sheet that is not full height is short on a small screen, so the
+      // items scroll rather than overflow.
+      child: ListView(
+        shrinkWrap: true,
         children: [
           for (final action in messageActions(message, now))
             _sheetItem(sheetContext, action, l10n, onSelected),

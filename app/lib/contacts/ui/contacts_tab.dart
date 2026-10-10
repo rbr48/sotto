@@ -281,6 +281,7 @@ class _ContactChatButtonState extends State<_ContactChatButton> {
             sendReadReceipts: widget.calls?.sendReadReceipts ?? true,
             verified: widget.verified,
             calls: widget.calls,
+            contacts: widget.calls?.contacts,
             avatar: widget.avatar,
           ),
         ),

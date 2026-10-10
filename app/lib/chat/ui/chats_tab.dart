@@ -148,6 +148,7 @@ class _ChatsTabState extends State<ChatsTab> {
           sendReadReceipts: widget.calls.sendReadReceipts,
           verified: verified,
           calls: widget.calls,
+          contacts: widget.app.contacts,
           avatar: avatar,
         ),
       ),

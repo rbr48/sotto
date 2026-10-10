@@ -542,6 +542,7 @@ class _CallControls extends StatelessWidget {
                                         controller.peerContact?.verified ??
                                         false,
                                     calls: controller,
+                                    contacts: controller.contacts,
                                   ),
                                 ),
                               ),
