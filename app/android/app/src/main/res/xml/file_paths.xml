@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Only the decrypted "open" copies can be shared: ReceivedFileStore.writeOpenCopy
+     writes them to getTemporaryDirectory()/received_open/<random>/<name>, and
+     getTemporaryDirectory() is Context.getCacheDir() on Android. Bridge.openFile
+     also refuses anything outside such a <random> folder (e.g. recordings in rec/). -->
 <paths>
-    <cache-path name="cache" path="." />
-    <external-cache-path name="external_cache" path="." />
-    <files-path name="files" path="." />
-    <external-files-path name="external_files" path="." />
-    <external-path name="external" path="." />
+    <cache-path name="open" path="received_open/" />
 </paths>
