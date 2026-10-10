@@ -380,6 +380,71 @@ class ChatStoreException implements Exception {
   String toString() => 'ChatStoreException: $reason';
 }
 
+/// What this device keeps about a chat: whether it is archived, muted and
+/// pinned. Local only: never sent to the contact or the relay.
+class ChatMeta {
+  const ChatMeta({this.archived = false, this.muted = false, this.pinnedAt});
+
+  /// The settings of a chat with no record: not archived, not muted, not
+  /// pinned.
+  static const defaults = ChatMeta();
+
+  final bool archived;
+  final bool muted;
+
+  /// When the chat was pinned, in milliseconds since the epoch. Null when it
+  /// is not pinned.
+  final int? pinnedAt;
+
+  bool get isDefault => !archived && !muted && pinnedAt == null;
+
+  ChatMeta copyWith({
+    bool? archived,
+    bool? muted,
+    int? pinnedAt,
+    bool clearPinnedAt = false,
+  }) => ChatMeta(
+    archived: archived ?? this.archived,
+    muted: muted ?? this.muted,
+    pinnedAt: clearPinnedAt ? null : (pinnedAt ?? this.pinnedAt),
+  );
+
+  Map<String, Object?> toJson() => {
+    'archived': archived,
+    'muted': muted,
+    'pinnedAt': pinnedAt,
+  };
+
+  /// The settings held as [raw]. A key that is absent takes its default. Null
+  /// when a value has the wrong type.
+  static ChatMeta? fromJson(Object? raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    final archived = raw['archived'] ?? false;
+    final muted = raw['muted'] ?? false;
+    final pinnedAt = raw['pinnedAt'];
+    if (archived is! bool || muted is! bool) return null;
+    if (pinnedAt != null && pinnedAt is! int) return null;
+    return ChatMeta(
+      archived: archived,
+      muted: muted,
+      pinnedAt: pinnedAt as int?,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is ChatMeta &&
+      other.archived == archived &&
+      other.muted == muted &&
+      other.pinnedAt == pinnedAt;
+
+  @override
+  int get hashCode => Object.hash(archived, muted, pinnedAt);
+}
+
+/// The result of pinning a chat (see [ChatStore.setPinned]).
+enum ChatPinResult { pinned, unpinned, limitReached }
+
 /// The history of each chat, kept in the encrypted vault.
 /// Conversations are stored per contact under separate keys (`sotto.chats.contact.<id>`),
 /// with a directory index under `sotto.chats.contacts.v1`. Each chat also has a
@@ -480,6 +545,14 @@ class ChatStore {
   static String summaryKey(String contactId) =>
       'sotto.chats.summary.$contactId';
 
+  /// Storage key for a chat's settings: archived, muted and pinned (see
+  /// [ChatMeta]). Absent means the defaults. The summary carries a copy, so
+  /// the chat list does not read this key.
+  static String metaKey(String contactId) => 'sotto.chats.meta.$contactId';
+
+  /// Most chats that can be pinned at once.
+  static const maxPinnedChats = 3;
+
   /// Most pending controls kept for one contact. Past this, the oldest is
   /// dropped, so a chat that stays offline for long cannot grow without limit.
   static const maxPendingControls = 100;
@@ -495,6 +568,9 @@ class ChatStore {
 
   /// In-memory cache of contact ID -> messages.
   final _cachedChats = <String, List<ChatMessage>>{};
+
+  /// In-memory cache of contact ID -> settings (see [metaKey]).
+  final _cachedMeta = <String, ChatMeta>{};
 
   bool _migrated = false;
 
@@ -610,10 +686,11 @@ class ChatStore {
       next.remove(contactId);
     }
     final indexChanged = next.length != index.length;
+    final meta = await _metaOf(contactId);
     await _store.writeAll(
       {
         contactKey(contactId): jsonEncode([for (final m in list) m.toJson()]),
-        if (list.isNotEmpty) summaryKey(contactId): _summaryJson(list),
+        if (list.isNotEmpty) summaryKey(contactId): _summaryJson(list, meta),
         if (indexChanged) contactsIndexKey: jsonEncode(next.toList()),
       },
       deleted: [if (list.isEmpty) summaryKey(contactId)],
@@ -625,10 +702,111 @@ class ChatStore {
     }
   }
 
-  /// The summary record of [list]: its last message as stored and its unread
-  /// count.
-  static String _summaryJson(List<ChatMessage> list) =>
-      jsonEncode({'last': list.last.toJson(), 'unread': _unreadIn(list)});
+  /// The summary record of [list]: its last message as stored, its unread
+  /// count, and the chat's settings ([meta]).
+  static String _summaryJson(List<ChatMessage> list, ChatMeta meta) =>
+      jsonEncode({
+        'last': list.last.toJson(),
+        'unread': _unreadIn(list),
+        'meta': meta.toJson(),
+      });
+
+  /// The settings of the chat with [contactId]: the defaults when it has no
+  /// record. A record that cannot be read is reported and the defaults are
+  /// used, so it never blocks the chat.
+  Future<ChatMeta> _metaOf(String contactId) async {
+    if (_cachedMeta[contactId] case final cached?) return cached;
+    final raw = await _store.read(metaKey(contactId));
+    if (raw == null) return _cachedMeta[contactId] = ChatMeta.defaults;
+    final meta = _metaFrom(raw);
+    if (meta == null) {
+      _report(contactId, 'chat settings cannot be read');
+      return _cachedMeta[contactId] = ChatMeta.defaults;
+    }
+    return _cachedMeta[contactId] = meta;
+  }
+
+  static ChatMeta? _metaFrom(String raw) {
+    try {
+      return ChatMeta.fromJson(jsonDecode(raw));
+    } on FormatException {
+      return null;
+    }
+  }
+
+  /// Stores [next] as the settings of the chat with [contactId], with its
+  /// summary, in one write. Called inside [_inOrder].
+  Future<void> _writeMeta(String contactId, ChatMeta next) async {
+    final list = await _loadContact(contactId);
+    await _store.writeAll(
+      {
+        if (!next.isDefault) metaKey(contactId): jsonEncode(next.toJson()),
+        if (list.isNotEmpty) summaryKey(contactId): _summaryJson(list, next),
+      },
+      deleted: [if (next.isDefault) metaKey(contactId)],
+    );
+    _cachedMeta[contactId] = next;
+    if (!_changes.isClosed) {
+      _changes.add(null);
+    }
+  }
+
+  /// The settings of the chat with [contactId].
+  Future<ChatMeta> chatMeta(String contactId) =>
+      _inOrder(() => _metaOf(contactId));
+
+  /// Archives or unarchives the chat with [contactId]. An archived chat is
+  /// left out of the main chat list (see [archivedChats]).
+  Future<void> setArchived(String contactId, bool archived) =>
+      _changeMeta(contactId, (m) => m.copyWith(archived: archived));
+
+  /// Mutes or unmutes the chat with [contactId].
+  Future<void> setMuted(String contactId, bool muted) =>
+      _changeMeta(contactId, (m) => m.copyWith(muted: muted));
+
+  Future<void> _changeMeta(
+    String contactId,
+    ChatMeta Function(ChatMeta current) change,
+  ) => _inOrder(() async {
+    final current = await _metaOf(contactId);
+    final next = change(current);
+    if (next != current) await _writeMeta(contactId, next);
+  });
+
+  /// Pins the chat with [contactId] at [at], or unpins it. A chat that is
+  /// already pinned keeps its place. At most [maxPinnedChats] chats are
+  /// pinned at once, archived ones included: past that a pin is refused with
+  /// [ChatPinResult.limitReached], and nothing changes.
+  Future<ChatPinResult> setPinned(
+    String contactId,
+    bool pinned, {
+    required int at,
+  }) => _inOrder(() async {
+    final current = await _metaOf(contactId);
+    if (!pinned) {
+      if (current.pinnedAt != null) {
+        await _writeMeta(contactId, current.copyWith(clearPinnedAt: true));
+      }
+      return ChatPinResult.unpinned;
+    }
+    if (current.pinnedAt != null) return ChatPinResult.pinned;
+    if (await _pinnedCountExcept(contactId) >= maxPinnedChats) {
+      return ChatPinResult.limitReached;
+    }
+    await _writeMeta(contactId, current.copyWith(pinnedAt: at));
+    return ChatPinResult.pinned;
+  });
+
+  /// How many chats other than [contactId] are pinned. Called inside
+  /// [_inOrder], so it reads the settings records, not the summaries (a
+  /// summary read can itself wait for [_inOrder]).
+  Future<int> _pinnedCountExcept(String contactId) async {
+    var count = 0;
+    for (final id in await _loadIndex()) {
+      if (id != contactId && (await _metaOf(id)).pinnedAt != null) count++;
+    }
+    return count;
+  }
 
   /// The number of incoming messages in [list] not yet read.
   static int _unreadIn(Iterable<ChatMessage> list) =>
@@ -881,9 +1059,12 @@ class ChatStore {
           summaryKey(contactId),
           pendingKey(contactId),
           contactKey(contactId),
+          metaKey(contactId),
+          '$retentionPrefix$contactId',
         ],
       );
       _cachedChats.remove(contactId);
+      _cachedMeta.remove(contactId);
       if (indexChanged) _contactIndex = next;
       if (!_changes.isClosed) {
         _changes.add(null);
@@ -1194,8 +1375,9 @@ class ChatStore {
       if (again != null) return _readSummary(contactId, again);
       final list = await _loadContact(contactId);
       if (list.isEmpty) return null;
+      final meta = await _metaOf(contactId);
       try {
-        await _store.write(summaryKey(contactId), _summaryJson(list));
+        await _store.write(summaryKey(contactId), _summaryJson(list, meta));
       } catch (_) {
         // The chat is listed from its messages all the same, and the record
         // is written again the next time it is read.
@@ -1205,6 +1387,7 @@ class ChatStore {
         contactId: contactId,
         lastMessage: list.last,
         unreadCount: _unreadIn(list),
+        meta: meta,
       );
     });
   }
@@ -1235,13 +1418,22 @@ class ChatStore {
     }
     final last = json['last'];
     final unread = json['unread'];
-    if (last is! Map<String, dynamic> || unread is! int || unread < 0) {
+    // A summary from before the settings were kept has none: the defaults.
+    final metaRaw = json['meta'];
+    final meta = metaRaw == null
+        ? ChatMeta.defaults
+        : ChatMeta.fromJson(metaRaw);
+    if (last is! Map<String, dynamic> ||
+        unread is! int ||
+        unread < 0 ||
+        meta == null) {
       throw const ChatStoreException('unreadable');
     }
     return ChatThreadSummary(
       contactId: contactId,
       lastMessage: ChatMessage.fromJson(contactId, last),
       unreadCount: unread,
+      meta: meta,
     );
   }
 
@@ -1315,9 +1507,13 @@ class ChatThreadSummary {
     required this.contactId,
     required this.lastMessage,
     required this.unreadCount,
+    this.meta = ChatMeta.defaults,
   });
 
   final String contactId;
   final ChatMessage lastMessage;
   final int unreadCount;
+
+  /// The chat's archived, muted and pinned settings.
+  final ChatMeta meta;
 }
