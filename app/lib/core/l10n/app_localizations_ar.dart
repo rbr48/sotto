@@ -637,6 +637,13 @@ class AppLocalizationsAr extends AppLocalizations {
   String get chatEditTooLate => 'لم يعد من الممكن تعديل هذه الرسالة.';
 
   @override
+  String get chatReplyGone =>
+      'تم حذف الرسالة التي رددت عليها، لذلك أُزيل الرد.';
+
+  @override
+  String get chatSendRefused => 'تعذّر إرسال الرسالة.';
+
+  @override
   String get chatForwardTitle => 'إعادة التوجيه إلى';
 
   @override

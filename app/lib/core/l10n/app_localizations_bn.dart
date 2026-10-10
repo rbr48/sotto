@@ -627,6 +627,13 @@ class AppLocalizationsBn extends AppLocalizations {
   String get chatEditTooLate => 'এই বার্তাটি আর সম্পাদনা করা যাবে না।';
 
   @override
+  String get chatReplyGone =>
+      'যে বার্তার উত্তর দিচ্ছিলেন সেটি মুছে ফেলা হয়েছে, তাই উত্তরটি সরিয়ে দেওয়া হয়েছে।';
+
+  @override
+  String get chatSendRefused => 'বার্তাটি পাঠানো যায়নি।';
+
+  @override
   String get chatForwardTitle => 'কাকে পাঠাবেন';
 
   @override

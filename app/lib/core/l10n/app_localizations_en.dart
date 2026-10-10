@@ -624,6 +624,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get chatEditTooLate => 'This message can no longer be edited.';
 
   @override
+  String get chatReplyGone =>
+      'The message you replied to was deleted, so the reply was removed.';
+
+  @override
+  String get chatSendRefused => 'This message could not be sent.';
+
+  @override
   String get chatForwardTitle => 'Forward to';
 
   @override

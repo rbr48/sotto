@@ -1072,6 +1072,71 @@ void main() {
       },
     );
 
+    testWidgets(
+      'a reply ends when the other person deletes the message it answers',
+      (tester) async {
+        final question = text('Are you free?', outgoing: false);
+        await tester.runAsync(() => store.add(question));
+        await pumpPage(tester);
+
+        await openMenu(tester, 'Are you free?');
+        await tester.tap(find.text('Reply'));
+        await tester.pumpAndSettle();
+        expect(find.byTooltip('Cancel reply'), findsOneWidget);
+
+        await tester.runAsync(
+          () => store.changeMessage(
+            'bob',
+            question.id,
+            (m) =>
+                m.copyWith(text: '', deletedForAll: true, reactions: const {}),
+          ),
+        );
+        chat.publishForTest(ChatUpdate('bob', MessageChanged(question.id)));
+        await settleStore(tester);
+
+        expect(find.byTooltip('Cancel reply'), findsNothing);
+        expect(find.text('Are you free?'), findsNothing);
+        expect(find.text('Message deleted'), findsOneWidget);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'a reply whose message is gone is not sent; the reply ends and the text stays',
+      (tester) async {
+        final question = text('Coming to the mosque?', outgoing: false);
+        await tester.runAsync(() => store.add(question));
+        await pumpPage(tester);
+
+        await openMenu(tester, 'Coming to the mosque?');
+        await tester.tap(find.text('Reply'));
+        await tester.pumpAndSettle();
+        await tester.runAsync(() => store.deleteMessage('bob', question.id));
+
+        await tester.enterText(find.byType(TextField), 'Yes, inshallah');
+        await tester.pump();
+        await tester.tap(find.byTooltip('Send'));
+        await settleStore(tester);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text(
+            'The message you replied to was deleted, so the reply was removed.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.byTooltip('Cancel reply'), findsNothing);
+        expect(
+          tester.widget<TextField>(find.byType(TextField)).controller!.text,
+          'Yes, inshallah',
+        );
+        final sent = await tester.runAsync(() => store.messages('bob'));
+        expect(sent!.any((m) => m.text == 'Yes, inshallah'), isFalse);
+        await leave(tester);
+      },
+    );
+
     testWidgets('edit fills the box, and the send edits the message in place', (
       tester,
     ) async {

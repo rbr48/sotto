@@ -457,6 +457,23 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _messages = messages;
       _hasMore = total > _loadedCount;
     });
+    await _endReplyIfGone();
+  }
+
+  /// Keeps the reply preview to the message it answers, as it is stored now.
+  /// A reply ends when that message is gone or deleted for everyone, since
+  /// there is then no text to quote. Returns whether a reply ended.
+  Future<bool> _endReplyIfGone() async {
+    final reply = _replyTo;
+    if (reply == null) return false;
+    final target = await widget.chat.store.find(widget.contactId, reply.id);
+    if (!mounted || _replyTo?.id != reply.id) return false;
+    if (target == null || target.deletedForAll) {
+      setState(() => _replyTo = null);
+      return true;
+    }
+    setState(() => _replyTo = target);
+    return false;
   }
 
   Future<void> _loadMore() async {
@@ -610,7 +627,13 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         if (mounted) setState(() => _replyTo = null);
       }
     } on ArgumentError {
-      // Too long, or not a contact any more: the text stays in the box.
+      // Too long, not a contact any more, or the message replied to is gone.
+      // The text stays in the box, and the reply ends when its message is gone.
+      final replyEnded = await _endReplyIfGone();
+      if (mounted) {
+        final l10n = AppLocalizations.of(context);
+        _showSnack(replyEnded ? l10n.chatReplyGone : l10n.chatSendRefused);
+      }
     } finally {
       if (mounted) setState(() => _sending = false);
     }

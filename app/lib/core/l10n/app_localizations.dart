@@ -1144,6 +1144,18 @@ abstract class AppLocalizations {
   /// **'This message can no longer be edited.'**
   String get chatEditTooLate;
 
+  /// No description provided for @chatReplyGone.
+  ///
+  /// In en, this message translates to:
+  /// **'The message you replied to was deleted, so the reply was removed.'**
+  String get chatReplyGone;
+
+  /// No description provided for @chatSendRefused.
+  ///
+  /// In en, this message translates to:
+  /// **'This message could not be sent.'**
+  String get chatSendRefused;
+
   /// No description provided for @chatForwardTitle.
   ///
   /// In en, this message translates to:

@@ -366,6 +366,8 @@
   "chatEditing": "Editing message",
   "chatCancelEdit": "Cancel edit",
   "chatEditTooLate": "This message can no longer be edited.",
+  "chatReplyGone": "The message you replied to was deleted, so the reply was removed.",
+  "chatSendRefused": "This message could not be sent.",
   "chatForwardTitle": "Forward to",
   "chatYou": "You",
   "chatReactionSemantics": "{emoji}, {who}",
