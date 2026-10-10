@@ -402,6 +402,39 @@ void main() {
       );
     });
 
+    test('fromInvite applies the D24 rules to an invite built without '
+        'decoding', () {
+      GroupInvite built(List<String> members, {String? inviter}) => GroupInvite(
+        group: _group(40),
+        name: 'Trip',
+        members: members,
+        ts: _now,
+        inviter: inviter ?? _member(2),
+      );
+      String? refused(GroupInvite invite) =>
+          _refusedBy(() => ChatGroups.fromInvite(invite, selfId: _member(1)));
+      expect(refused(built([_member(2), _member(1)])), 'too-few');
+      expect(
+        refused(
+          built([_member(2), _member(1), _member(3), _member(4), _member(5)]),
+        ),
+        'too-many',
+      );
+      expect(
+        refused(
+          built([_member(1), _member(3), _member(4)], inviter: _member(2)),
+        ),
+        'malformed',
+      );
+      expect(refused(built([_member(2), _member(1), _member(1)])), 'malformed');
+      expect(
+        refused(
+          built([_member(1), _member(3), _member(4)], inviter: _member(1)),
+        ),
+        'malformed',
+      );
+    });
+
     test('an invite from creation to the receiver keeps the group', () {
       final made = ChatGroups.create(
         selfId: _member(1),

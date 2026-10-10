@@ -226,24 +226,31 @@ abstract final class ChatGroups {
       );
 
   /// The group a receiver holds from [invite]. The inviter is accepted, and
-  /// every other member, [selfId] included, is invited at the invite's ts.
+  /// every other member, [selfId] included, is invited at the invite's ts. The
+  /// invite is checked again here (D24): a [GroupInvite] can be built without
+  /// decoding, so a caller cannot skip the rules.
   static ChatGroup fromInvite(GroupInvite invite, {required String selfId}) {
-    if (!invite.members.contains(selfId)) {
-      throw const ChatFrameException('malformed');
-    }
-    return ChatGroup(
-      id: invite.group,
+    final checked = validateInvite(
+      group: invite.group,
       name: invite.name,
+      members: invite.members,
+      ts: invite.ts,
+      inviter: invite.inviter,
+      receiver: selfId,
+    );
+    return ChatGroup(
+      id: checked.group,
+      name: checked.name,
       selfId: selfId,
-      createdAt: invite.ts,
+      createdAt: checked.ts,
       members: [
-        for (final id in invite.members)
+        for (final id in checked.members)
           GroupMember(
             id: id,
-            state: id == invite.inviter
+            state: id == checked.inviter
                 ? MemberState.accepted
                 : MemberState.invited,
-            invitedAt: invite.ts,
+            invitedAt: checked.ts,
           ),
       ],
     );
