@@ -46,14 +46,16 @@ Android installs an update only if it is signed with **the same key** as the ins
 
 ## Making a release
 
-1. Raise the version in `app/pubspec.yaml`, both parts: `version: 0.1.2+3`. The part after `+` is Android's version code and must go up with every release, or Android refuses the update. Commit it to `main`.
+1. Raise the version in `app/pubspec.yaml`, both parts: `version: 0.1.2+3`. The part after `+` is Android's version code and must go up with every release, or Android refuses the update. Commit it to `main`, with the "What's new" text for the stores in `fastlane/metadata/android/en-US/changelogs/<version code>.txt` (500 bytes at most; the release stops without it).
 2. Tag that commit and push the tag; the tag must match the version (`v0.1.2` for `0.1.2+3`), or the workflow stops:
    ```bash
    git tag v0.1.2
    git push origin v0.1.2
    ```
    Or run **Actions → Release → Run workflow** (leave the tag empty to use the version from `pubspec.yaml`; optionally publish as a draft or pre-release).
-3. The workflow checks the version, builds the three platforms, checks the APK's signature, and publishes the release with checksums and the certificate fingerprint.
+3. The workflow checks the version, then that the commit is on `main`, that CI passed for it on `main` (it waits up to 40 minutes for CI to finish) and that no release with this tag exists yet. Then it builds the three platforms, checks the APK's signature, and publishes the release with checksums and the certificate fingerprint.
+
+A published release is never replaced: moving a tag to another commit makes the release stop. For a fix, raise the version and make a new release. (To redo a release on purpose, delete it on GitHub first.)
 
 ## Local builds
 
