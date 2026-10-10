@@ -963,9 +963,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       if (kIsWeb) {
         downloadWebFile(bytes, fileName, message.fileMime);
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Downloading $fileName...')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Downloading $fileName...')));
         return;
       }
 

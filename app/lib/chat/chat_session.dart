@@ -489,7 +489,8 @@ class ChatSession {
     final progress = transfer.chunks.length / transfer.totalChunks;
     _events.add(FileTransferProgress(chunk.fileId, progress));
 
-    if (transfer.doneReceived && transfer.chunks.length == transfer.totalChunks) {
+    if (transfer.doneReceived &&
+        transfer.chunks.length == transfer.totalChunks) {
       _incomingFiles.remove(chunk.fileId);
       await _finishIncomingTransfer(transfer);
     }
@@ -758,21 +759,26 @@ class ChatSession {
         } else {
           // If some binary chunks are still being dispatched/decoded in the
           // Web or mobile event loop, allow up to 5 seconds to arrive.
-          transfer.completionTimeout ??= Timer(const Duration(seconds: 5), () async {
-            if (_ended || !_incomingFiles.containsKey(id)) return;
-            if (transfer.chunks.length != transfer.totalChunks) {
-              _incomingFiles.remove(id);
-              _write(FileCancelFrame(id: id, reason: 'incomplete'));
-              final existing = await store.find(contactId, id);
-              if (existing != null) {
-                await store.updateMessage(existing.copyWith(fileStatus: 'failed'));
+          transfer.completionTimeout ??= Timer(
+            const Duration(seconds: 5),
+            () async {
+              if (_ended || !_incomingFiles.containsKey(id)) return;
+              if (transfer.chunks.length != transfer.totalChunks) {
+                _incomingFiles.remove(id);
+                _write(FileCancelFrame(id: id, reason: 'incomplete'));
+                final existing = await store.find(contactId, id);
+                if (existing != null) {
+                  await store.updateMessage(
+                    existing.copyWith(fileStatus: 'failed'),
+                  );
+                }
+                _events.add(FileTransferFailed(id, 'incomplete'));
+              } else {
+                _incomingFiles.remove(id);
+                await _finishIncomingTransfer(transfer);
               }
-              _events.add(FileTransferFailed(id, 'incomplete'));
-            } else {
-              _incomingFiles.remove(id);
-              await _finishIncomingTransfer(transfer);
-            }
-          });
+            },
+          );
         }
       case FileAckFrame(:final id):
         if (!_peerHello) return;
@@ -806,9 +812,7 @@ class ChatSession {
         _write(FileCancelFrame(id: id, reason: 'missing-chunk'));
         final existing = await store.find(contactId, id);
         if (existing != null) {
-          await store.updateMessage(
-            existing.copyWith(fileStatus: 'failed'),
-          );
+          await store.updateMessage(existing.copyWith(fileStatus: 'failed'));
         }
         _events.add(FileTransferFailed(id, 'missing-chunk'));
         return;

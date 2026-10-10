@@ -19,9 +19,7 @@ Future<Uint8List> resizeAvatarImage(
       final frame = await codec.getNextFrame();
       final image = frame.image;
       try {
-        final byteData = await image.toByteData(
-          format: ui.ImageByteFormat.png,
-        );
+        final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
         if (byteData != null && byteData.lengthInBytes > 0) {
           return byteData.buffer.asUint8List();
         }
@@ -37,7 +35,9 @@ Future<Uint8List> resizeAvatarImage(
   if (bytes.length <= 16 * 1024) {
     return bytes;
   }
-  throw ArgumentError('Avatar image is too large and could not be downsampled.');
+  throw ArgumentError(
+    'Avatar image is too large and could not be downsampled.',
+  );
 }
 
 /// Helper to convert resized image bytes to a base64 data URL string.

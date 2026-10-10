@@ -941,9 +941,8 @@ class _ProfileFormState extends State<_ProfileForm> {
       if (mounted) setState(() {});
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not set avatar')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Could not set avatar')));
     }
   }
 
