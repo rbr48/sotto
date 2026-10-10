@@ -95,14 +95,12 @@ abstract final class Backup {
     final salt =
         fixedSalt ?? sodium.randombytes.buf(sodium.crypto.pwhash.saltBytes);
     final nonce = fixedNonce ?? sodium.randombytes.buf(aead.nonceBytes);
-    final plain = Uint8List.fromList(
-      utf8.encode(
-        jsonEncode({
-          'master': b64Encode(masterSecret),
-          'values': values,
-          'created': (now ?? DateTime.now()).toUtc().toIso8601String(),
-        }),
-      ),
+    final plain = utf8.encode(
+      jsonEncode({
+        'master': b64Encode(masterSecret),
+        'values': values,
+        'created': (now ?? DateTime.now()).toUtc().toIso8601String(),
+      }),
     );
     final data = PassphraseBox.seal(
       sodium: sodium,
