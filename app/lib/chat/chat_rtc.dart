@@ -111,7 +111,7 @@ class WebRtcChatRtc implements ChatRtc {
   Future<String> createOffer() async {
     final channel = await _pc.createDataChannel(
       chatChannelLabel,
-      RTCDataChannelInit(),
+      RTCDataChannelInit()..binaryType = 'binary',
     );
     _attach(channel);
     final offer = await _pc.createOffer();
@@ -265,6 +265,9 @@ class _DataChannelTransport implements ChatTransport {
 
   @override
   Stream<Uint8List> get binaryFrames => _binaryFrames.stream;
+
+  @override
+  int get bufferedAmount => _channel?.bufferedAmount ?? 0;
 
   @override
   Future<void> close() async {

@@ -21,6 +21,7 @@ import '../file_storage.dart';
 import '../voice/voice_format.dart';
 import '../voice/voice_player.dart';
 import '../voice/voice_recorder.dart';
+import '../web_download.dart';
 import 'chat_tokens.dart';
 
 /// Whether a day separator goes above a message: it is the first message
@@ -928,8 +929,13 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   Future<void> _openFile(ChatMessage message) async {
     final failed = AppLocalizations.of(context).chatFileOpenFailed;
     try {
+      if (kIsWeb) {
+        final bytes = await widget.chat.store.readFile(message);
+        downloadWebFile(bytes, message.fileName ?? 'file', message.fileMime);
+        return;
+      }
       final copy = await widget.chat.store.openCopy(message);
-      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      if (defaultTargetPlatform == TargetPlatform.android) {
         try {
           final mime =
               message.fileMime ??
@@ -954,18 +960,38 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       final bytes = await widget.chat.store.readFile(message);
       final fileName = message.fileName ?? 'file';
 
-      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      if (kIsWeb) {
+        downloadWebFile(bytes, fileName, message.fileMime);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Downloading $fileName...')),
+        );
+        return;
+      }
+
+      if (defaultTargetPlatform == TargetPlatform.android) {
         String? savedPath;
+        final mime = message.fileMime ?? ChatFrames.detectMimeType(fileName);
         try {
-          final copy = await widget.chat.store.openCopy(message);
-          final mime = message.fileMime ?? ChatFrames.detectMimeType(fileName);
           const channel = MethodChannel('sotto/android');
           savedPath = await channel.invokeMethod<String>('saveToDownloads', {
-            'path': copy.path,
+            'bytes': bytes,
             'name': fileName,
             'mime': mime,
           });
         } catch (_) {}
+
+        if (savedPath == null) {
+          try {
+            final copy = await widget.chat.store.openCopy(message);
+            const channel = MethodChannel('sotto/android');
+            savedPath = await channel.invokeMethod<String>('saveToDownloads', {
+              'path': copy.path,
+              'name': fileName,
+              'mime': mime,
+            });
+          } catch (_) {}
+        }
 
         if (savedPath == null) {
           try {
@@ -991,6 +1017,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           );
           return;
         }
+        throw Exception('Could not save to Downloads folder');
       }
 
       final location = await getSaveLocation(suggestedName: fileName);

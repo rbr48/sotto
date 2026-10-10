@@ -135,6 +135,9 @@ class _FakeTransport implements ChatTransport {
   Stream<Uint8List> get binaryFrames => owner._binaryFrames.stream;
 
   @override
+  int get bufferedAmount => 0;
+
+  @override
   Future<void> close() async {
     if (!owner._frames.isClosed) unawaited(owner._frames.close());
     if (!owner._binaryFrames.isClosed) unawaited(owner._binaryFrames.close());

@@ -23,6 +23,9 @@ abstract interface class ChatTransport {
   /// Incoming binary frames, in order, until the channel closes.
   Stream<Uint8List> get binaryFrames => const Stream.empty();
 
+  /// The amount of bytes buffered in the transport output buffer.
+  int get bufferedAmount => 0;
+
   Future<void> close();
 }
 
@@ -123,6 +126,12 @@ class _IncomingFileTransfer {
   /// Bytes received so far, in total.
   int received = 0;
   final chunks = <int, Uint8List>{};
+
+  /// Whether the sender reported that it finished sending all chunks.
+  bool doneReceived = false;
+
+  /// Fallback timeout waiting for in-flight binary chunks when doneReceived is true.
+  Timer? completionTimeout;
 }
 
 /// One chat over one data channel, as specified in `docs/MESSAGING_PLAN.md`.
@@ -324,11 +333,14 @@ class ChatSession {
       fileMime: mime,
       fileSha256: hash,
       fileStatus: 'offered',
-      filePath: kept?.name,
+      filePath: kept?.name ?? (files == null ? 'web:$id' : null),
       fileKey: kept?.key,
       voiceNote: voice,
     );
     _outgoingFiles[id] = clean;
+    if (files == null) {
+      store.rememberFile(id, clean);
+    }
     await store.add(offered);
     // A voice note keeps its own copy, so the sender can play it back.
     final message = voice && kept == null
@@ -413,7 +425,8 @@ class ChatSession {
   /// Cancels an active file transfer.
   Future<void> cancelFile(String fileId, {String? reason}) async {
     _outgoingFiles.remove(fileId);
-    _incomingFiles.remove(fileId);
+    final incoming = _incomingFiles.remove(fileId);
+    incoming?.completionTimeout?.cancel();
     final msg = await store.find(contactId, fileId);
     if (msg != null) {
       await store.updateMessage(msg.copyWith(fileStatus: 'cancelled'));
@@ -426,6 +439,11 @@ class ChatSession {
     final count = totalChunks == 0 ? 1 : totalChunks;
     for (var i = 0; i < count; i++) {
       if (_ended || !_outgoingFiles.containsKey(fileId)) return;
+
+      while (!_ended && transport.bufferedAmount > 256 * 1024) {
+        await Future<void>.delayed(const Duration(milliseconds: 15));
+      }
+
       final start = i * fileChunkSize;
       final end = (start + fileChunkSize) > bytes.length
           ? bytes.length
@@ -439,8 +457,9 @@ class ChatSession {
       transport.sendBinary(chunkBytes);
       final progress = (i + 1) / count;
       _events.add(FileTransferProgress(fileId, progress));
-      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
     }
+    await Future<void>.delayed(const Duration(milliseconds: 50));
     _write(FileDoneFrame(id: fileId));
   }
 
@@ -469,6 +488,11 @@ class ChatSession {
     transfer.lastChunkAt = clock();
     final progress = transfer.chunks.length / transfer.totalChunks;
     _events.add(FileTransferProgress(chunk.fileId, progress));
+
+    if (transfer.doneReceived && transfer.chunks.length == transfer.totalChunks) {
+      _incomingFiles.remove(chunk.fileId);
+      await _finishIncomingTransfer(transfer);
+    }
   }
 
   /// Sends again a message from an earlier attempt. It keeps its id, so the
@@ -543,6 +567,8 @@ class ChatSession {
     final now = clock();
     for (final transfer in _incomingFiles.values.toList()) {
       if (now.difference(transfer.lastChunkAt) >= fileStallTimeout) {
+        transfer.completionTimeout?.cancel();
+        _incomingFiles.remove(transfer.id);
         _write(FileCancelFrame(id: transfer.id, reason: 'stalled'));
         await _failFile(transfer.id, 'stalled', 'failed');
       }
@@ -723,71 +749,31 @@ class ChatSession {
         }
       case FileDoneFrame(:final id):
         if (!_peerHello) return;
-        final transfer = _incomingFiles.remove(id);
+        final transfer = _incomingFiles[id];
         if (transfer == null) return;
-        if (transfer.chunks.length != transfer.totalChunks) {
-          _write(FileCancelFrame(id: id, reason: 'incomplete'));
-          final existing = await store.find(contactId, id);
-          if (existing != null) {
-            await store.updateMessage(existing.copyWith(fileStatus: 'failed'));
-          }
-          _events.add(FileTransferFailed(id, 'incomplete'));
-          return;
-        }
-        final builder = BytesBuilder(copy: false);
-        for (var i = 0; i < transfer.totalChunks; i++) {
-          final chunk = transfer.chunks[i];
-          if (chunk == null) {
-            _write(FileCancelFrame(id: id, reason: 'missing-chunk'));
-            final existing = await store.find(contactId, id);
-            if (existing != null) {
-              await store.updateMessage(
-                existing.copyWith(fileStatus: 'failed'),
-              );
-            }
-            _events.add(FileTransferFailed(id, 'missing-chunk'));
-            return;
-          }
-          builder.add(chunk);
-        }
-        final fullBytes = builder.takeBytes();
-        final computedHash = sha256.convert(fullBytes).toString();
-        // A voice note that does not look like its format is damaged, and is
-        // never saved or played.
-        final voiceDamaged =
-            transfer.voice && !voiceBytesLookRight(transfer.mime, fullBytes);
-        if (computedHash != transfer.sha256 || voiceDamaged) {
-          _write(FileCancelFrame(id: id, reason: 'damaged'));
-          final existing = await store.find(contactId, id);
-          if (existing != null) {
-            await store.updateMessage(existing.copyWith(fileStatus: 'failed'));
-          }
-          _events.add(FileTransferFailed(id, 'damaged'));
-          return;
-        }
-        // The browser keeps nothing, so its message gets a `web:` path (FR-05).
-        final files = store.files;
-        final kept = files == null ? null : await files.save(fullBytes);
-        // The browser holds a received voice note for this tab only.
-        if (kept == null && transfer.voice) {
-          store.rememberVoice(id, fullBytes);
-        }
-        _write(FileAckFrame(id: id));
-        final existing = await store.find(contactId, id);
-        if (existing != null) {
-          await store.updateMessage(
-            existing.copyWith(
-              fileStatus: 'completed',
-              filePath: kept?.name ?? 'web:$id',
-              fileKey: kept?.key,
-            ),
-          );
+        transfer.doneReceived = true;
+        if (transfer.chunks.length == transfer.totalChunks) {
+          _incomingFiles.remove(id);
+          await _finishIncomingTransfer(transfer);
         } else {
-          // Deleted while it was arriving: don't keep a file nobody can see.
-          await files?.remove(kept?.name);
-          store.forgetVoice(id);
+          // If some binary chunks are still being dispatched/decoded in the
+          // Web or mobile event loop, allow up to 5 seconds to arrive.
+          transfer.completionTimeout ??= Timer(const Duration(seconds: 5), () async {
+            if (_ended || !_incomingFiles.containsKey(id)) return;
+            if (transfer.chunks.length != transfer.totalChunks) {
+              _incomingFiles.remove(id);
+              _write(FileCancelFrame(id: id, reason: 'incomplete'));
+              final existing = await store.find(contactId, id);
+              if (existing != null) {
+                await store.updateMessage(existing.copyWith(fileStatus: 'failed'));
+              }
+              _events.add(FileTransferFailed(id, 'incomplete'));
+            } else {
+              _incomingFiles.remove(id);
+              await _finishIncomingTransfer(transfer);
+            }
+          });
         }
-        _events.add(FileTransferCompleted(id, kept?.name));
       case FileAckFrame(:final id):
         if (!_peerHello) return;
         _outgoingFiles.remove(id);
@@ -798,7 +784,8 @@ class ChatSession {
         _events.add(FileTransferCompleted(id, null));
       case FileCancelFrame(:final id, :final reason):
         _outgoingFiles.remove(id);
-        _incomingFiles.remove(id);
+        final incoming = _incomingFiles.remove(id);
+        incoming?.completionTimeout?.cancel();
         final existing = await store.find(contactId, id);
         if (existing != null) {
           await store.updateMessage(existing.copyWith(fileStatus: 'cancelled'));
@@ -807,6 +794,68 @@ class ChatSession {
       case ByeFrame():
         await _end('bye');
     }
+  }
+
+  Future<void> _finishIncomingTransfer(_IncomingFileTransfer transfer) async {
+    final id = transfer.id;
+    transfer.completionTimeout?.cancel();
+    final builder = BytesBuilder(copy: false);
+    for (var i = 0; i < transfer.totalChunks; i++) {
+      final chunk = transfer.chunks[i];
+      if (chunk == null) {
+        _write(FileCancelFrame(id: id, reason: 'missing-chunk'));
+        final existing = await store.find(contactId, id);
+        if (existing != null) {
+          await store.updateMessage(
+            existing.copyWith(fileStatus: 'failed'),
+          );
+        }
+        _events.add(FileTransferFailed(id, 'missing-chunk'));
+        return;
+      }
+      builder.add(chunk);
+    }
+    final fullBytes = builder.takeBytes();
+    final computedHash = sha256.convert(fullBytes).toString();
+    // A voice note that does not look like its format is damaged, and is
+    // never saved or played.
+    final voiceDamaged =
+        transfer.voice && !voiceBytesLookRight(transfer.mime, fullBytes);
+    if (computedHash != transfer.sha256 || voiceDamaged) {
+      _write(FileCancelFrame(id: id, reason: 'damaged'));
+      final existing = await store.find(contactId, id);
+      if (existing != null) {
+        await store.updateMessage(existing.copyWith(fileStatus: 'failed'));
+      }
+      _events.add(FileTransferFailed(id, 'damaged'));
+      return;
+    }
+    // The browser keeps nothing on disk, so it holds in memory with `web:` path.
+    final files = store.files;
+    final kept = files == null ? null : await files.save(fullBytes);
+    if (kept == null) {
+      store.rememberFile(id, fullBytes);
+      if (transfer.voice) {
+        store.rememberVoice(id, fullBytes);
+      }
+    }
+    _write(FileAckFrame(id: id));
+    final existing = await store.find(contactId, id);
+    if (existing != null) {
+      await store.updateMessage(
+        existing.copyWith(
+          fileStatus: 'completed',
+          filePath: kept?.name ?? 'web:$id',
+          fileKey: kept?.key,
+        ),
+      );
+    } else {
+      // Deleted while it was arriving: don't keep a file nobody can see.
+      await files?.remove(kept?.name);
+      store.forgetFile(id);
+      store.forgetVoice(id);
+    }
+    _events.add(FileTransferCompleted(id, kept?.name));
   }
 
   /// Marks a file message as [status] and tells the screens why.
@@ -844,6 +893,9 @@ class ChatSession {
     _unsent.clear();
     await _settleFiles(reason);
     _outgoingFiles.clear();
+    for (final transfer in _incomingFiles.values) {
+      transfer.completionTimeout?.cancel();
+    }
     _incomingFiles.clear();
     await _subscription?.cancel();
     await _binarySubscription?.cancel();

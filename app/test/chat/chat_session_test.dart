@@ -45,6 +45,9 @@ class _Link implements ChatTransport {
   }
 
   @override
+  int get bufferedAmount => 0;
+
+  @override
   Stream<String> get frames => _incoming.stream;
 
   @override

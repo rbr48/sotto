@@ -256,6 +256,9 @@ class ChatStore {
   /// Never in the vault or in browser storage, so a reload loses them.
   final _browserVoice = <String, Uint8List>{};
 
+  /// Files (attachments) the browser holds for the life of the tab, by file/message id.
+  final _browserFiles = <String, Uint8List>{};
+
   /// Legacy storage key for monolithic chat storage.
   static const storageKey = 'sotto.chats.v1';
 
@@ -494,6 +497,8 @@ class ChatStore {
     for (final message in messages) {
       await files?.remove(message.filePath);
       _browserVoice.remove(message.id);
+      _browserFiles.remove(message.fileId ?? message.id);
+      _browserFiles.remove(message.id);
     }
   }
 
@@ -503,12 +508,25 @@ class ChatStore {
     final store = files;
     final name = message.filePath;
     final key = message.fileKey;
+    final fileId = message.fileId ?? message.id;
     if (store == null || name == null || key == null) {
+      final heldFile = _browserFiles[fileId] ?? _browserFiles[message.id];
+      if (heldFile != null) return heldFile;
       final held = _browserVoice[message.id];
       if (held != null) return held;
       throw const ReceivedFileException('missing');
     }
     return store.read(name: name, key: key);
+  }
+
+  /// Whether the bytes of a file are still here: in the file
+  /// store, or held by the browser for this tab.
+  bool hasFile(ChatMessage message) {
+    final fileId = message.fileId ?? message.id;
+    return _browserFiles.containsKey(fileId) ||
+        _browserFiles.containsKey(message.id) ||
+        _browserVoice.containsKey(message.id) ||
+        (files != null && message.filePath != null && message.fileKey != null);
   }
 
   /// Whether the bytes of a voice note are still here to play: in the file
@@ -545,6 +563,16 @@ class ChatStore {
   /// Drops a voice note the browser held, when its message is gone.
   void forgetVoice(String id) {
     _browserVoice.remove(id);
+  }
+
+  /// Keeps a file attachment the browser sent or received, for this tab.
+  void rememberFile(String id, Uint8List bytes) {
+    _browserFiles[id] = bytes;
+  }
+
+  /// Drops a file attachment the browser held, when its message is gone.
+  void forgetFile(String id) {
+    _browserFiles.remove(id);
   }
 
   /// A decrypted copy of a received file, for another app to open. The copy

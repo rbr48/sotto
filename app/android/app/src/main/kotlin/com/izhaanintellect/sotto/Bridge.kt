@@ -153,19 +153,31 @@ object Bridge {
                     val packageName = resolveInfo.activityInfo.packageName
                     app.grantUriPermission(packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
-                open(intent)
-                true
+                try {
+                    open(intent)
+                    true
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    false
+                }
             }
             "saveToDownloads" -> {
-                val path = args["path"] as? String ?: return@handle null
-                val fileName = (args["name"] as? String)?.takeIf { it.isNotBlank() } ?: File(path).name
+                val bytes = args["bytes"] as? ByteArray
+                val path = args["path"] as? String
+                if (bytes == null && path == null) return@handle null
+                val fileName = (args["name"] as? String)?.takeIf { it.isNotBlank() }
+                    ?: if (path != null) File(path).name else "file"
                 var mime = (args["mime"] as? String)?.takeIf { it.isNotBlank() } ?: "*/*"
-                val src = File(path)
-                if (!src.exists()) return@handle null
                 if (mime == "*/*" || mime == "application/octet-stream") {
-                    val ext = src.extension.lowercase()
+                    val ext = if (fileName.contains(".")) fileName.substringAfterLast(".").lowercase() else ""
                     val inferred = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
                     if (inferred != null) mime = inferred
+                }
+
+                val openInput: () -> java.io.InputStream? = {
+                    if (bytes != null) java.io.ByteArrayInputStream(bytes)
+                    else if (path != null && File(path).exists()) File(path).inputStream()
+                    else null
                 }
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -179,7 +191,8 @@ object Bridge {
                         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                         if (uri != null) {
                             resolver.openOutputStream(uri)?.use { out ->
-                                src.inputStream().use { input -> input.copyTo(out) }
+                                val input = openInput() ?: return@handle null
+                                input.use { it.copyTo(out) }
                             }
                             values.clear()
                             values.put(MediaStore.Downloads.IS_PENDING, 0)
@@ -202,7 +215,10 @@ object Bridge {
                         dest = File(downloadDir, "$base ($count)$ext")
                         count++
                     }
-                    src.copyTo(dest, overwrite = true)
+                    val input = openInput() ?: return@handle null
+                    dest.outputStream().use { out ->
+                        input.use { it.copyTo(out) }
+                    }
                     MediaScannerConnection.scanFile(app, arrayOf(dest.absolutePath), null, null)
                     dest.absolutePath
                 } catch (e: Exception) {
