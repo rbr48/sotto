@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -23,6 +24,29 @@ ChatMessage _message(
   text: text,
   state: state,
 );
+
+/// Checks that the summary record of [contactId] holds the last message and
+/// unread count of its messages as they stand now. It reads the record
+/// itself, so a summary that was never written cannot pass by being rebuilt.
+Future<void> _expectSummaryInStep(
+  MemorySecretStore secrets,
+  String contactId,
+) async {
+  final list = await ChatStore(secrets).messages(contactId);
+  final raw = await secrets.read(ChatStore.summaryKey(contactId));
+  if (list.isEmpty) {
+    expect(raw, isNull, reason: 'a chat with no messages has no summary');
+    return;
+  }
+  expect(raw, isNotNull, reason: 'the summary of $contactId');
+  final json = jsonDecode(raw!) as Map<String, dynamic>;
+  expect(json['last'], list.last.toJson(), reason: 'last of $contactId');
+  expect(
+    json['unread'],
+    list.where((m) => !m.outgoing && !m.read).length,
+    reason: 'unread of $contactId',
+  );
+}
 
 void main() {
   late MemorySecretStore secrets;
@@ -1144,5 +1168,201 @@ void main() {
         );
       },
     );
+  });
+
+  group('summary records', () {
+    test(
+      'add keeps the summary in step, and a message stored twice leaves it',
+      () async {
+        await store.add(
+          ChatMessage(
+            id: _id(1),
+            contactId: 'bob',
+            outgoing: false,
+            ts: 1000,
+            text: 'hello',
+            state: ChatState.received,
+            read: false,
+          ),
+        );
+        await _expectSummaryInStep(secrets, 'bob');
+        await store.add(_message(2));
+        await _expectSummaryInStep(secrets, 'bob');
+        final before = await secrets.read(ChatStore.summaryKey('bob'));
+        await store.add(_message(2));
+        expect(await secrets.read(ChatStore.summaryKey('bob')), before);
+      },
+    );
+
+    test('updateMessage keeps the summary in step, for the last message and for an earlier one', () async {
+      await store.add(_message(1, outgoing: false));
+      await store.add(_message(2));
+      await store.updateMessage(
+        _message(2).copyWith(reactions: {'peer': '\u{1F44D}'}),
+      );
+      await _expectSummaryInStep(secrets, 'bob');
+      await store.updateMessage(
+        _message(1, outgoing: false).copyWith(text: 'x'),
+      );
+      await _expectSummaryInStep(secrets, 'bob');
+    });
+
+    test(
+      'setState keeps the summary in step, with its state and reason',
+      () async {
+        await store.add(_message(1, state: ChatState.sending));
+        await store.setState(
+          'bob',
+          _id(1),
+          ChatState.notSent,
+          reason: 'no-answer',
+        );
+        await _expectSummaryInStep(secrets, 'bob');
+        final json = jsonDecode(
+          (await secrets.read(ChatStore.summaryKey('bob')))!,
+        ) as Map<String, dynamic>;
+        expect((json['last'] as Map)['state'], 'notSent');
+        expect((json['last'] as Map)['reason'], 'no-answer');
+      },
+    );
+
+    test('a quote refresh keeps the summary in step, when the quoted message is edited or deleted', () async {
+      const before = 'the door code is 4471';
+      const after = 'the door code is 4472';
+      await store.add(_message(1, text: before));
+      await store.add(
+        ChatMessage(
+          id: _id(2),
+          contactId: 'bob',
+          outgoing: false,
+          ts: 1001,
+          text: 'got it',
+          state: ChatState.received,
+          read: false,
+          replyTo: (id: _id(1), text: before),
+        ),
+      );
+
+      await store.changeMessage(
+        'bob',
+        _id(1),
+        (m) => m.copyWith(text: after, editedAt: 2000),
+      );
+      await _expectSummaryInStep(secrets, 'bob');
+      final edited = jsonDecode(
+        (await secrets.read(ChatStore.summaryKey('bob')))!,
+      ) as Map<String, dynamic>;
+      expect(((edited['last'] as Map)['replyTo'] as Map)['text'], after);
+
+      await store.changeMessage(
+        'bob',
+        _id(1),
+        (m) => m.copyWith(text: '', deletedForAll: true),
+      );
+      await _expectSummaryInStep(secrets, 'bob');
+      final deleted = jsonDecode(
+        (await secrets.read(ChatStore.summaryKey('bob')))!,
+      ) as Map<String, dynamic>;
+      expect(((deleted['last'] as Map)['replyTo'] as Map)['text'], '');
+    });
+
+    test('markAsRead keeps the unread count in step', () async {
+      await store.add(
+        ChatMessage(
+          id: _id(1),
+          contactId: 'bob',
+          outgoing: false,
+          ts: 1000,
+          text: 'one',
+          state: ChatState.received,
+          read: false,
+        ),
+      );
+      await store.add(
+        ChatMessage(
+          id: _id(2),
+          contactId: 'bob',
+          outgoing: false,
+          ts: 1001,
+          text: 'two',
+          state: ChatState.received,
+          read: false,
+        ),
+      );
+      await _expectSummaryInStep(secrets, 'bob');
+
+      await store.markAsRead('bob');
+      await _expectSummaryInStep(secrets, 'bob');
+      final json = jsonDecode(
+        (await secrets.read(ChatStore.summaryKey('bob')))!,
+      ) as Map<String, dynamic>;
+      expect(json['unread'], 0);
+    });
+
+    test('deleting messages keeps the summary in step, down to none', () async {
+      await store.add(_message(1));
+      await store.add(_message(2));
+      await store.add(_message(3));
+
+      await store.deleteMessage('bob', _id(3));
+      await _expectSummaryInStep(secrets, 'bob');
+      await store.deleteMessage('bob', _id(1));
+      await _expectSummaryInStep(secrets, 'bob');
+      await store.deleteMessage('bob', _id(2));
+      await _expectSummaryInStep(secrets, 'bob');
+      expect(await secrets.read(ChatStore.summaryKey('bob')), isNull);
+    });
+
+    test('the sweep keeps the summary in step, down to none', () async {
+      final now = DateTime(2026, 10, 9, 12, 0, 0);
+      await store.add(
+        ChatMessage(
+          id: _id(1),
+          contactId: 'bob',
+          outgoing: false,
+          ts: now.subtract(const Duration(hours: 2)).millisecondsSinceEpoch,
+          text: 'old',
+          state: ChatState.received,
+          read: false,
+        ),
+      );
+      await store.add(
+        ChatMessage(
+          id: _id(2),
+          contactId: 'bob',
+          outgoing: false,
+          ts: now.subtract(const Duration(minutes: 10)).millisecondsSinceEpoch,
+          text: 'new',
+          state: ChatState.received,
+          read: false,
+        ),
+      );
+
+      await store.setRetention(
+        'bob',
+        const Duration(hours: 1),
+        clock: () => now,
+      );
+      await _expectSummaryInStep(secrets, 'bob');
+      final json = jsonDecode(
+        (await secrets.read(ChatStore.summaryKey('bob')))!,
+      ) as Map<String, dynamic>;
+      expect((json['last'] as Map)['id'], _id(2));
+      expect(json['unread'], 1);
+
+      await store.sweepExpired(clock: () => now.add(const Duration(hours: 1)));
+      await _expectSummaryInStep(secrets, 'bob');
+      expect(await secrets.read(ChatStore.summaryKey('bob')), isNull);
+    });
+
+    test('deleting a chat removes its summary record', () async {
+      await store.add(_message(1));
+      await store.add(_message(2, contact: 'carol'));
+      expect(await secrets.read(ChatStore.summaryKey('bob')), isNotNull);
+
+      await store.deleteChat('bob');
+      expect(await secrets.read(ChatStore.summaryKey('bob')), isNull);
+      expect(await secrets.read(ChatStore.summaryKey('carol')), isNotNull);
+    });
   });
 }

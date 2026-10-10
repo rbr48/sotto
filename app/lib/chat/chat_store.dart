@@ -346,7 +346,9 @@ class ChatStoreException implements Exception {
 
 /// The history of each chat, kept in the encrypted vault.
 /// Conversations are stored per contact under separate keys (`sotto.chats.contact.<id>`),
-/// with a directory index under `sotto.chats.contacts.v1`.
+/// with a directory index under `sotto.chats.contacts.v1`. Each chat also has a
+/// summary (`sotto.chats.summary.<id>`) with its last message and unread count,
+/// so the chat list does not read whole histories.
 /// Legacy monolithic stores (`sotto.chats.v1`) are automatically migrated.
 class ChatStore {
   ChatStore(
@@ -419,6 +421,11 @@ class ChatStore {
   /// [queueControl]).
   static String pendingKey(String contactId) =>
       'sotto.chats.pending.$contactId';
+
+  /// Storage key for a chat's summary: its last message as stored and its
+  /// unread count. Written with every change to the chat's messages.
+  static String summaryKey(String contactId) =>
+      'sotto.chats.summary.$contactId';
 
   /// Most pending controls kept for one contact. Past this, the oldest is
   /// dropped, so a chat that stays offline for long cannot grow without limit.
@@ -544,6 +551,7 @@ class ChatStore {
       contactKey(contactId),
       jsonEncode([for (final m in list) m.toJson()]),
     );
+    await _writeSummary(contactId, list);
     _cachedChats[contactId] = list;
     final index = await _loadIndex();
     var indexChanged = false;
@@ -559,6 +567,27 @@ class ChatStore {
       _changes.add(null);
     }
   }
+
+  /// Writes the summary of the chat with [contactId] as [list] stands, or
+  /// removes it when the chat has no messages. A summary that has not changed
+  /// is not written again: each write re-encrypts the whole vault.
+  Future<void> _writeSummary(String contactId, List<ChatMessage> list) async {
+    final key = summaryKey(contactId);
+    if (list.isEmpty) {
+      await _store.delete(key);
+      return;
+    }
+    final encoded = jsonEncode({
+      'last': list.last.toJson(),
+      'unread': _unreadIn(list),
+    });
+    if (await _store.read(key) == encoded) return;
+    await _store.write(key, encoded);
+  }
+
+  /// The number of incoming messages in [list] not yet read.
+  static int _unreadIn(Iterable<ChatMessage> list) =>
+      list.where((m) => !m.outgoing && !m.read).length;
 
   /// The messages with [contactId], oldest first.
   /// When [limit] is provided, returns at most [limit] messages ending at [offset]
@@ -778,6 +807,7 @@ class ChatStore {
       _cachedChats.remove(contactId);
       await _store.delete(contactKey(contactId));
       await _store.delete(pendingKey(contactId));
+      await _store.delete(summaryKey(contactId));
       final index = await _loadIndex();
       if (index.remove(contactId)) {
         await _store.write(contactsIndexKey, jsonEncode(index.toList()));
@@ -938,6 +968,7 @@ class ChatStore {
   /// Drops a chat that has no messages left.
   Future<void> _forgetEmptyChat(String contactId) async {
     await _store.delete(contactKey(contactId));
+    await _store.delete(summaryKey(contactId));
     final index = await _loadIndex();
     if (index.remove(contactId)) {
       await _store.write(contactsIndexKey, jsonEncode(index.toList()));
