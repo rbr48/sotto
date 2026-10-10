@@ -1,8 +1,11 @@
 // Independent implementation of the Sotto crypto spec (docs/PROTOCOL.md) using
 // libsodium-wrappers, used to produce known-answer test vectors for the Dart code.
+// Argon2id is only in the sumo build, so the backup vector uses that package.
 const s = require('libsodium-wrappers');
+const sumo = require('libsodium-wrappers-sumo');
 (async () => {
   await s.ready;
+  await sumo.ready;
   const b64 = (b) => s.to_base64(b, s.base64_variants.URLSAFE_NO_PADDING);
   const hex = (b) => s.to_hex(b);
   const cat = (...a) => { const n = a.reduce((x, y) => x + y.length, 0); const o = new Uint8Array(n); let i = 0; for (const p of a) { o.set(p, i); i += p.length; } return o; };
@@ -38,6 +41,18 @@ const s = require('libsodium-wrappers');
   const opened = s.crypto_box_seal_open(sealed, B.box.publicKey, B.box.privateKey);
   if (s.to_string(opened.slice(64)) !== inner) throw new Error('self-check failed');
 
+  // Backup (docs/PROTOCOL.md section 8): Argon2id13 derives the key from the
+  // passphrase, and XChaCha20-Poly1305 seals the contents. Salt, nonce, cost
+  // and contents are fixed, so the backup text is the same on every run.
+  const backupSalt = Uint8Array.from({ length: 16 }, (_, i) => 0x40 + i);
+  const backupNonce = Uint8Array.from({ length: 24 }, (_, i) => 0x80 + i);
+  const backupOps = 3, backupMem = 67108864, backupAlg = 'argon2id13';
+  const backupKey = sumo.crypto_pwhash(32, 'correct horse battery staple', backupSalt, backupOps, backupMem, sumo.crypto_pwhash_ALG_ARGON2ID13);
+  const backupPlain = JSON.stringify({ master: b64(masterA), values: { 'sotto.contacts.v1': '[Priya]' }, created: '2026-10-07T00:00:00.000Z' });
+  const backupAd = cat(utf8('sotto-backup-v1'), NUL, utf8(JSON.stringify([1, backupAlg, backupOps, backupMem, b64(backupSalt), b64(backupNonce)])));
+  const backupData = sumo.crypto_aead_xchacha20poly1305_ietf_encrypt(utf8(backupPlain), backupAd, null, backupNonce, backupKey);
+  const backup = JSON.stringify({ sotto: 'backup', v: 1, kdf: { alg: backupAlg, ops: backupOps, mem: backupMem, salt: b64(backupSalt) }, nonce: b64(backupNonce), data: b64(backupData) });
+
   console.log(JSON.stringify({
     masterA: hex(masterA), masterB: hex(masterB),
     aSign: b64(A.sign.publicKey), aBox: b64(A.box.publicKey),
@@ -45,5 +60,6 @@ const s = require('libsodium-wrappers');
     aCard: card,
     safetyNumber: groups.join(' '),
     inner, innerSignature: b64(msgSig), sealedAtoB: b64(sealed),
+    backupText: backup,
   }, null, 2));
 })();

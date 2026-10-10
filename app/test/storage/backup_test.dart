@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sodium/sodium_sumo.dart';
 import 'package:sotto/crypto/sotto_crypto.dart';
+import 'package:sotto/crypto/test_vectors.dart';
 import 'package:sotto/storage/backup.dart';
 
 void main() {
@@ -142,6 +143,32 @@ void main() {
 
   test('known answer: open reads the same bytes', () {
     final opened = Backup.open(sodium, knownBackup, knownPassphrase);
+    expect(opened.masterSecret, List.generate(32, (i) => i));
+    expect(opened.values, {'sotto.contacts.v1': '[Priya]'});
+    expect(opened.createdAt, DateTime.utc(2026, 10, 7));
+  });
+
+  // The same backup, made by tools/crypto-vectors/gen.js with libsodium. CI
+  // checks that the generator still writes this text.
+  test('independent vector: create writes the same bytes', () {
+    final text = Backup.create(
+      sodium,
+      passphrase: knownPassphrase,
+      masterSecret: Uint8List.fromList(List.generate(32, (i) => i)),
+      values: {'sotto.contacts.v1': '[Priya]'},
+      now: DateTime.utc(2026, 10, 7),
+      fixedSalt: knownSalt,
+      fixedNonce: knownNonce,
+    );
+    expect(text, CryptoTestVectors.backupText);
+  });
+
+  test('independent vector: open reads it', () {
+    final opened = Backup.open(
+      sodium,
+      CryptoTestVectors.backupText,
+      knownPassphrase,
+    );
     expect(opened.masterSecret, List.generate(32, (i) => i));
     expect(opened.values, {'sotto.contacts.v1': '[Priya]'});
     expect(opened.createdAt, DateTime.utc(2026, 10, 7));
