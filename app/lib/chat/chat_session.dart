@@ -171,6 +171,16 @@ final class GroupStateChanged extends ChatSessionEvent {
   final String group;
 }
 
+/// The member sent a group invite on this session. The manager checks it: the
+/// session has no say over who may join a group.
+final class GroupInviteReceived extends ChatSessionEvent {
+  const GroupInviteReceived(this.invite, this.from);
+  final GroupInviteFrame invite;
+
+  /// The member who sent it: the session's member.
+  final String from;
+}
+
 /// A file offer was received from the peer.
 final class FileOfferReceived extends ChatSessionEvent {
   const FileOfferReceived(this.message);
@@ -854,6 +864,13 @@ class ChatSession {
     }
   }
 
+  /// Sends a group invite to this session's member, as a direct frame. The
+  /// relay copy goes too, so a member without this session still gets it.
+  void sendGroupInvite(GroupInviteFrame invite) {
+    if (!isReady || !_canSendGroup) return;
+    _write(invite);
+  }
+
   /// Sends read receipts to this session's member for the messages [ids] of the
   /// group [groupId] that the member wrote. The author alone gets them: a
   /// message by anyone else is left out, so no member learns of a read it is not
@@ -1136,14 +1153,13 @@ class ChatSession {
   /// one is applied once and reported once.
   Future<void> _onGroupState(GroupStateFrame answer) async {
     final group = await store.group(answer.group);
-    final member = group?.memberOf(contactId);
-    if (group == null || member == null) return;
-    final next = switch (answer.kind) {
-      GroupStateKind.accept => ChatGroups.accept(group, contactId, answer.ts),
-      GroupStateKind.decline when answer.ts < member.invitedAt => group,
-      GroupStateKind.decline => ChatGroups.decline(group, contactId),
-      GroupStateKind.leave => ChatGroups.leave(group, contactId),
-    };
+    if (group == null || group.memberOf(contactId) == null) return;
+    final next = ChatGroups.applyAnswer(
+      group,
+      contactId,
+      answer.kind,
+      answer.ts,
+    );
     if (identical(next, group)) return;
     await store.saveGroup(next);
     _events.add(GroupStateChanged(group.id));
@@ -1157,7 +1173,7 @@ class ChatSession {
   /// Whether [frame] is a group frame, which only a session with groups on
   /// handles.
   static bool _isGroupFrame(ChatFrame frame) => switch (frame) {
-    GroupMsgFrame() || GroupStateFrame() => true,
+    GroupMsgFrame() || GroupStateFrame() || GroupInviteFrame() => true,
     AckFrame(:final group) ||
     ReadFrame(:final group) ||
     ReactFrame(:final group) ||
@@ -1247,6 +1263,9 @@ class ChatSession {
       case final GroupMsgFrame groupFrame:
         if (!_peerHello) return;
         await _onGroupMessage(groupFrame);
+      case final GroupInviteFrame invite:
+        if (!_peerHello) return;
+        _events.add(GroupInviteReceived(invite, contactId));
       case HelloFrame(:final features):
         _peerHello = true;
         _peerFeatures = features;

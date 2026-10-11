@@ -172,6 +172,102 @@ abstract final class ChatGroups {
     );
   }
 
+  /// The relay body of a group envelope: the padded text of [body] (see
+  /// [ChatFrames.encodeGroupBody]), under `body`. The envelope type names the
+  /// kind of envelope, and the text repeats it as `t`, so a body of another
+  /// kind is refused.
+  static Map<String, Object?> envelope(String text) => {'body': text};
+
+  /// The text of a relay body, or null when the body has none.
+  static String? textOf(Map<String, dynamic> body) {
+    final text = body['body'];
+    return text is String ? text : null;
+  }
+
+  /// Decodes the text of a relay body of [type] (`group.accept`, and so on).
+  /// Throws [ChatFrameException] for anything else, or for a text too long.
+  static Map<String, dynamic> _envelopeJson(String text, String type) {
+    if (utf8.encode(text).length > maxFrameBytes) {
+      throw const ChatFrameException('too-large');
+    }
+    final Object? json;
+    try {
+      json = jsonDecode(text);
+    } on FormatException {
+      throw const ChatFrameException('malformed');
+    }
+    if (json is! Map<String, dynamic> || json['t'] != type) {
+      throw const ChatFrameException('malformed');
+    }
+    return json;
+  }
+
+  /// The text of a group answer or leave, dated [ts] (`group.accept`,
+  /// `group.decline` or `group.leave`).
+  static String encodeAnswer(
+    GroupStateKind kind, {
+    required String group,
+    required int ts,
+  }) => ChatFrames.encodeGroupBody({
+    't': 'group.${kind.name}',
+    'group': group,
+    'ts': ts,
+  });
+
+  /// Reads the text of a group answer of [kind]: its group and its ts.
+  static ({String group, int ts}) decodeAnswer(
+    String text,
+    GroupStateKind kind,
+  ) {
+    final json = _envelopeJson(text, 'group.${kind.name}');
+    final group = json['group'];
+    final ts = json['ts'];
+    if (!ChatFrames.isId(group) || ts is! int || ts <= 0) {
+      throw const ChatFrameException('malformed');
+    }
+    return (group: group as String, ts: ts);
+  }
+
+  /// The text of a message to [group] for the relay (`group.text`). Its id and
+  /// ts are the message's own, as a one-to-one relay text carries them.
+  static String encodeRelayText({
+    required String group,
+    required String id,
+    required int ts,
+    required String text,
+  }) => ChatFrames.encodeGroupBody({
+    't': 'group.text',
+    'group': group,
+    'id': id,
+    'ts': ts,
+    'text': text,
+  });
+
+  /// Reads the text of a relay message to a group. The text is cleaned and
+  /// checked as a direct message is (see [ChatFrames.decode]).
+  static ({String group, String id, int ts, String text}) decodeRelayText(
+    String text,
+  ) {
+    final json = _envelopeJson(text, 'group.text');
+    final group = json['group'];
+    final id = json['id'];
+    final ts = json['ts'];
+    final raw = json['text'];
+    if (!ChatFrames.isId(group) ||
+        !ChatFrames.isId(id) ||
+        ts is! int ||
+        ts <= 0 ||
+        raw is! String) {
+      throw const ChatFrameException('malformed');
+    }
+    final cleaned = ChatFrames.cleanText(raw);
+    if (cleaned.isEmpty) throw const ChatFrameException('malformed');
+    if (cleaned.runes.length > maxTextChars) {
+      throw const ChatFrameException('too-long');
+    }
+    return (group: group as String, id: id as String, ts: ts, text: cleaned);
+  }
+
   /// A new group made on this device. [invitees] are two or three other
   /// contacts (D24), each of them one of [contacts]. The creator is accepted,
   /// and each invitee is invited at [ts]. The group id is 16 random bytes.
@@ -331,6 +427,25 @@ abstract final class ChatGroups {
       MemberState.invited,
       invitedAt: ts,
     );
+  }
+
+  /// Applies a group answer of [kind] from [memberId], dated [ts], to [group]
+  /// (see [accept], [decline] and [leave]). A decline dated before the invite
+  /// it would answer belongs to an earlier invite, so it does not count.
+  static ChatGroup applyAnswer(
+    ChatGroup group,
+    String memberId,
+    GroupStateKind kind,
+    int ts,
+  ) {
+    final member = group.memberOf(memberId);
+    if (member == null) return group;
+    return switch (kind) {
+      GroupStateKind.accept => accept(group, memberId, ts),
+      GroupStateKind.decline when ts < member.invitedAt => group,
+      GroupStateKind.decline => decline(group, memberId),
+      GroupStateKind.leave => leave(group, memberId),
+    };
   }
 
   /// A member who has accepted leaves. Any other state does not change.

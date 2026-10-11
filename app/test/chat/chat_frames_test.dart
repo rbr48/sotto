@@ -1191,6 +1191,34 @@ void main() {
       },
     );
 
+    test('a group invite frame round-trips and is padded to a bucket', () {
+      final raw = ChatFrames.encode(
+        GroupInviteFrame(
+          group: group,
+          name: 'Trip',
+          members: [_id(1), _id(2), _id(3)],
+          ts: 11,
+        ),
+      );
+      expect(utf8.encode(raw).length % padBucketBytes, 0);
+      final frame = ChatFrames.decode(raw) as GroupInviteFrame;
+      expect(frame.group, group);
+      expect(frame.name, 'Trip');
+      expect(frame.members, [_id(1), _id(2), _id(3)]);
+      expect(frame.ts, 11);
+    });
+
+    test('a group invite frame with a member that is not text is refused', () {
+      final raw = jsonEncode({
+        't': 'group.invite',
+        'group': group,
+        'name': 'Trip',
+        'members': [1, 2],
+        'ts': 11,
+      });
+      expect(() => ChatFrames.decode(raw), throwsA(isA<ChatFrameException>()));
+    });
+
     test('a group state frame round-trips for each kind', () {
       for (final kind in GroupStateKind.values) {
         final raw = ChatFrames.encode(

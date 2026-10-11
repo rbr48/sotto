@@ -255,6 +255,30 @@ final class DeleteFrame extends ControlFrame {
   final String? group;
 }
 
+/// A group invite sent to the member on a direct session, as well as through
+/// the relay. The fields are those of the invite body (see
+/// `ChatGroups.encodeInvite`); the receiver checks them (D24).
+final class GroupInviteFrame extends ChatFrame {
+  const GroupInviteFrame({
+    required this.group,
+    required this.name,
+    required this.members,
+    required this.ts,
+  });
+
+  /// The group's id: 16 random bytes, unpadded base64url.
+  final String group;
+
+  /// The name as the inviter sent it. The receiver cleans it.
+  final String name;
+
+  /// Every member, the inviter and the receiver included.
+  final List<String> members;
+
+  /// The inviter's clock, in milliseconds since the Unix epoch.
+  final int ts;
+}
+
 /// What a member did with a group invite, or does on leaving: the names are the
 /// wire names.
 enum GroupStateKind { accept, decline, leave }
@@ -519,6 +543,14 @@ abstract final class ChatFrames {
             'reply': {'id': quote.id, 'text': quote.text},
           if (forwarded) 'fwd': true,
         },
+      GroupInviteFrame(:final group, :final name, :final members, :final ts) =>
+        {
+          't': 'group.invite',
+          'group': group,
+          'name': name,
+          'members': members,
+          'ts': ts,
+        },
       GroupStateFrame(:final kind, :final group, :final ts) => {
         't': 'group.state',
         'type': kind.name,
@@ -675,6 +707,26 @@ abstract final class ChatFrames {
           text: cleaned,
           reply: _reply(json['reply']),
           forwarded: forwarded,
+        );
+      case 'group.invite':
+        final group = _id(json['group']);
+        final name = json['name'];
+        final ts = json['ts'];
+        final rawMembers = json['members'];
+        if (name is! String || ts is! int || ts <= 0) {
+          throw const ChatFrameException('malformed');
+        }
+        if (rawMembers is! List) throw const ChatFrameException('malformed');
+        final members = <String>[];
+        for (final member in rawMembers) {
+          if (member is! String) throw const ChatFrameException('malformed');
+          members.add(member);
+        }
+        return GroupInviteFrame(
+          group: group,
+          name: name,
+          members: members,
+          ts: ts,
         );
       case 'group.state':
         final kind = switch (json['type']) {

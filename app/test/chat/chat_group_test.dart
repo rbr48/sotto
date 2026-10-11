@@ -809,4 +809,119 @@ void main() {
       },
     );
   });
+
+  group('relay bodies of group envelopes', () {
+    test('a text to a group round-trips, padded to a bucket', () {
+      final text = ChatGroups.encodeRelayText(
+        group: _group(40),
+        id: _group(7),
+        ts: _now,
+        text: 'Hi  there',
+      );
+      expect(utf8.encode(text).length % padBucketBytes, 0);
+      final read = ChatGroups.decodeRelayText(text);
+      expect(read.group, _group(40));
+      expect(read.id, _group(7));
+      expect(read.ts, _now);
+      expect(read.text, 'Hi  there');
+    });
+
+    test('a relay text is refused when it is another kind, has no id, or has '
+        'no text', () {
+      final body = {
+        't': 'group.text',
+        'group': _group(40),
+        'id': _group(7),
+        'ts': _now,
+        'text': 'Hi',
+      };
+      String refused(Map<String, Object?> json) =>
+          _refusedBy(() => ChatGroups.decodeRelayText(jsonEncode(json)))!;
+      expect(refused({...body, 't': 'group.msg'}), 'malformed');
+      expect(refused({...body, 'id': 'short'}), 'malformed');
+      expect(refused({...body, 'ts': 0}), 'malformed');
+      expect(refused({...body, 'text': '   '}), 'malformed');
+      expect(refused({...body, 'text': 'x' * (maxTextChars + 1)}), 'too-long');
+    });
+
+    test('an answer round-trips for its kind, and another kind is refused', () {
+      final text = ChatGroups.encodeAnswer(
+        GroupStateKind.decline,
+        group: _group(40),
+        ts: _now,
+      );
+      final read = ChatGroups.decodeAnswer(text, GroupStateKind.decline);
+      expect(read.group, _group(40));
+      expect(read.ts, _now);
+      expect(
+        _refusedBy(() => ChatGroups.decodeAnswer(text, GroupStateKind.accept)),
+        'malformed',
+      );
+    });
+
+    test('the envelope body carries the text under body, and nothing else', () {
+      expect(ChatGroups.envelope('x'), {'body': 'x'});
+      expect(ChatGroups.textOf({'body': 'x'}), 'x');
+      expect(ChatGroups.textOf({'body': 1}), isNull);
+      expect(ChatGroups.textOf(const {}), isNull);
+    });
+  });
+
+  group('applying an answer', () {
+    ChatGroup threeWay() => ChatGroups.create(
+      selfId: _member(1),
+      name: 'Trip',
+      invitees: [_member(2), _member(3)],
+      contacts: {_member(2), _member(3)},
+      ts: _now,
+      random: Random(1),
+    );
+
+    test('a decline dated before the invite it answers does not count', () {
+      final group = threeWay();
+      final applied = ChatGroups.applyAnswer(
+        group,
+        _member(2),
+        GroupStateKind.decline,
+        _now - _minute,
+      );
+      expect(identical(applied, group), isTrue);
+    });
+
+    test('an accept, a decline and a leave apply as their rules say', () {
+      final group = threeWay();
+      final accepted = ChatGroups.applyAnswer(
+        group,
+        _member(2),
+        GroupStateKind.accept,
+        _now,
+      );
+      expect(accepted.memberOf(_member(2))!.state, MemberState.accepted);
+      final declined = ChatGroups.applyAnswer(
+        group,
+        _member(3),
+        GroupStateKind.decline,
+        _now + _minute,
+      );
+      expect(declined.memberOf(_member(3))!.state, MemberState.declined);
+      final left = ChatGroups.applyAnswer(
+        accepted,
+        _member(2),
+        GroupStateKind.leave,
+        _now + 2 * _minute,
+      );
+      expect(left.memberOf(_member(2))!.state, MemberState.left);
+    });
+
+    test('an answer from someone who is not a member changes nothing', () {
+      final group = threeWay();
+      expect(
+        identical(
+          ChatGroups.applyAnswer(group, _member(4), GroupStateKind.leave, _now),
+          group,
+        ),
+        isTrue,
+      );
+    });
+  });
 }

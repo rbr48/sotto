@@ -2270,6 +2270,7 @@ String _frameTypeName(ChatFrame frame) => switch (frame) {
   EditFrame() => 'edit',
   DeleteFrame() => 'delete',
   GroupMsgFrame() => 'group.msg',
+  GroupInviteFrame() => 'group.invite',
   GroupStateFrame() => 'group.state',
   FileAcceptFrame() => 'file.accept',
   FileDeclineFrame() => 'file.decline',
