@@ -50,6 +50,35 @@ class _SlowSecrets implements SecretStore {
   }
 }
 
+/// A store whose reads wait until [open] is called, as a store does while the
+/// app is still unlocking. Its device does not answer a chat until then.
+class _GatedSecrets implements SecretStore {
+  final _inner = MemorySecretStore();
+  final _gate = Completer<void>();
+
+  void open() {
+    if (!_gate.isCompleted) _gate.complete();
+  }
+
+  @override
+  Future<String?> read(String key) async {
+    await _gate.future;
+    return _inner.read(key);
+  }
+
+  @override
+  Future<void> write(String key, String value) => _inner.write(key, value);
+
+  @override
+  Future<void> delete(String key) => _inner.delete(key);
+
+  @override
+  Future<void> writeAll(
+    Map<String, String> values, {
+    Iterable<String> deleted = const [],
+  }) => _inner.writeAll(values, deleted: deleted);
+}
+
 void main() {
   late FakeNetwork net;
   late DateTime now;
@@ -1709,6 +1738,45 @@ void main() {
         );
       },
     );
+  });
+
+  group('a relayed text acknowledged before its chat says hello', () {
+    test('is not sent with its text once it is deleted for everyone', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final bobSecrets = _GatedSecrets();
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      net.relayText = false;
+      device('bob', contacts: {'alice'}, store: ChatStore(bobSecrets));
+      final message = await alice.sendText('bob', 'top secret');
+      await _settle();
+      // Alice's chat is open and has sent its hello, but Bob's store cannot be
+      // read yet, so Bob's hello, and with it Alice's outbox, waits.
+      expect(net.rtcs['alice']!.expand((rtc) => rtc.sentFrames), isNotEmpty);
+
+      alice.handle(
+        from: 'bob',
+        type: ChatManager.relayTextAck,
+        body: {'id': message.id},
+        callId: null,
+      );
+      await _settle();
+      expect(
+        (await aliceStore.find('bob', message.id))!.state,
+        ChatState.delivered,
+      );
+      expect(await alice.deleteForEveryone('bob', message.id), isTrue);
+      await _settle();
+
+      bobSecrets.open();
+      await _settle();
+
+      final sent = net.rtcs['alice']!
+          .expand((rtc) => rtc.sentFrames)
+          .map(ChatFrames.decode)
+          .whereType<MessageFrame>()
+          .where((f) => f.id == message.id);
+      expect(sent, isEmpty);
+    });
   });
 
   group('an edit to a message not yet delivered', () {

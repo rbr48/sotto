@@ -385,10 +385,10 @@ class ChatManager {
     );
     if (!changed) return false;
     _setQuotes(contact, id, '');
-    // The other side has not stored the text yet: it must not be sent again.
-    final stored =
-        message.state == ChatState.delivered || message.state == ChatState.read;
-    if (!stored) _forget(contact, id);
+    // Taken off every list that would send the text, even when the other side
+    // has it: a relay acknowledgement can leave the text in the session's
+    // outbox, and the session sends its outbox again when the chat says hello.
+    _forget(contact, id);
     await store.queueControl(contact, DeleteFrame(id: id, ts: now));
     await _flushControls(contact);
     return true;
