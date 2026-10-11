@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import '../crypto/identity_store.dart';
 import '../diagnostics/event_log.dart';
 import 'chat_frames.dart';
+import 'chat_groups.dart';
 import 'file_storage.dart';
 
 /// Where a message is. Outgoing: [sending] until stored on the other device
@@ -43,13 +44,30 @@ class ChatMessage {
     this.starred = false,
     this.deliveredAt,
     this.readAt,
-  });
+    this.groupId,
+    this.authorId,
+    this.memberStates = const {},
+  }) : assert(groupId == null || groupId == contactId),
+       assert(groupId == null || authorId != null);
 
   /// 16 random bytes, unpadded base64url. The same on both devices.
   final String id;
 
-  /// The other person's Sotto ID.
+  /// The chat this message is in: the other person's Sotto ID, or for a group
+  /// message the group's id, which [groupId] repeats.
   final String contactId;
+
+  /// The group this message is in, or null for a one-to-one message.
+  final String? groupId;
+
+  /// The member who wrote the message: its Sotto ID. For a one-to-one message
+  /// it is the contact, when the caller sets it. Null in records from before
+  /// groups. Always set for a group message.
+  final String? authorId;
+
+  /// Each member's state for an outgoing group message, keyed by member id.
+  /// Empty for a one-to-one message. [state] stays the message's own state.
+  final Map<String, ChatState> memberStates;
 
   final bool outgoing;
 
@@ -158,10 +176,14 @@ class ChatMessage {
     starred: starred,
     deliveredAt: deliveredAt,
     readAt: readAt,
+    groupId: groupId,
+    authorId: authorId,
+    memberStates: memberStates,
   );
 
   /// The same message with [who]'s reaction set to [emoji]. [who] is "me" or
-  /// "peer". An empty emoji removes the reaction.
+  /// "peer" in a one-to-one chat, and a member's id in a group. An empty emoji
+  /// removes the reaction.
   ChatMessage withReaction(String who, String emoji) {
     final next = {...reactions};
     if (emoji.isEmpty) {
@@ -171,6 +193,11 @@ class ChatMessage {
     }
     return copyWith(reactions: next);
   }
+
+  /// The same message with [member]'s state in [memberStates] set to [state].
+  /// [state] of the message itself is left as it is.
+  ChatMessage withMemberState(String member, ChatState state) =>
+      copyWith(memberStates: {...memberStates, member: state});
 
   ChatMessage copyWith({
     String? id,
@@ -199,6 +226,9 @@ class ChatMessage {
     bool? starred,
     int? deliveredAt,
     int? readAt,
+    String? groupId,
+    String? authorId,
+    Map<String, ChatState>? memberStates,
     bool clearReplyTo = false,
   }) => ChatMessage(
     id: id ?? this.id,
@@ -227,6 +257,9 @@ class ChatMessage {
     starred: starred ?? this.starred,
     deliveredAt: deliveredAt ?? this.deliveredAt,
     readAt: readAt ?? this.readAt,
+    groupId: groupId ?? this.groupId,
+    authorId: authorId ?? this.authorId,
+    memberStates: memberStates ?? this.memberStates,
   );
 
   Map<String, Object?> toJson() => {
@@ -256,8 +289,16 @@ class ChatMessage {
     if (starred) 'starred': true,
     if (deliveredAt != null) 'deliveredAt': deliveredAt,
     if (readAt != null) 'readAt': readAt,
+    if (groupId != null) 'groupId': groupId,
+    if (authorId != null) 'authorId': authorId,
+    if (memberStates.isNotEmpty)
+      'memberStates': {
+        for (final entry in memberStates.entries) entry.key: entry.value.name,
+      },
   };
 
+  /// The message stored as [json] in the chat with [contactId]: the contact's
+  /// Sotto ID, or a group's id for a group message.
   static ChatMessage fromJson(String contactId, Map<String, dynamic> json) {
     final state = ChatState.values.where((s) => s.name == json['state']);
     final id = json['id'];
@@ -277,13 +318,21 @@ class ChatMessage {
     final arrivedAt = json['arrivedAt'];
     final voiceNote = json['voiceNote'];
     final replyTo = _replyFrom(json['replyTo']);
-    final reactions = _reactionsFrom(json['reactions']);
+    final reactions = _reactionsFrom(
+      json['reactions'],
+      group: json['groupId'] != null,
+    );
     final editedAt = json['editedAt'];
     final deletedForAll = json['deletedForAll'];
     final forwarded = json['forwarded'];
     final starred = json['starred'];
     final deliveredAt = json['deliveredAt'];
     final readAt = json['readAt'];
+    final groupId = json['groupId'];
+    final authorId = json['authorId'];
+    final memberStates = _memberStatesFrom(json['memberStates']);
+    // A group message is kept under its group's id, and names it.
+    final inGroup = groupId != null;
     if (id is! String ||
         outgoing is! bool ||
         ts is! int ||
@@ -308,7 +357,11 @@ class ChatMessage {
         (forwarded != null && forwarded is! bool) ||
         (starred != null && starred is! bool) ||
         (deliveredAt != null && deliveredAt is! int) ||
-        (readAt != null && readAt is! int)) {
+        (readAt != null && readAt is! int) ||
+        (inGroup && (groupId is! String || groupId != contactId)) ||
+        (authorId != null && authorId is! String) ||
+        (inGroup && !ChatGroups.isMemberId(authorId)) ||
+        memberStates == null) {
       throw const ChatStoreException('unreadable');
     }
     return ChatMessage(
@@ -338,6 +391,9 @@ class ChatMessage {
       starred: starred == true,
       deliveredAt: deliveredAt as int?,
       readAt: readAt as int?,
+      groupId: groupId as String?,
+      authorId: authorId as String?,
+      memberStates: memberStates,
     );
   }
 
@@ -353,19 +409,44 @@ class ChatMessage {
   }
 
   /// The reactions stored as `reactions`: absent means none. Null when the
-  /// value is not a map of "me" or "peer" to an emoji.
-  static Map<String, String>? _reactionsFrom(Object? raw) {
+  /// value is not a map of emojis by reactor. A one-to-one message has "me" or
+  /// "peer" as its reactors; a group message has member ids (see [withReaction]).
+  static Map<String, String>? _reactionsFrom(
+    Object? raw, {
+    required bool group,
+  }) {
     if (raw == null) return const {};
     if (raw is! Map) return null;
     final reactions = <String, String>{};
     for (final entry in raw.entries) {
       final who = entry.key;
       final emoji = entry.value;
-      if (who is! String || (who != 'me' && who != 'peer')) return null;
+      if (who is! String || !_isReactor(who, group: group)) return null;
       if (emoji is! String) return null;
       reactions[who] = emoji;
     }
     return reactions;
+  }
+
+  static bool _isReactor(String who, {required bool group}) =>
+      group ? ChatGroups.isMemberId(who) : (who == 'me' || who == 'peer');
+
+  /// The member states stored as `memberStates`: absent means none. Null when
+  /// a member id or a state is not valid.
+  static Map<String, ChatState>? _memberStatesFrom(Object? raw) {
+    if (raw == null) return const {};
+    if (raw is! Map) return null;
+    final states = <String, ChatState>{};
+    for (final entry in raw.entries) {
+      final member = entry.key;
+      final name = entry.value;
+      if (member is! String || !ChatGroups.isMemberId(member)) return null;
+      if (name is! String) return null;
+      final match = ChatState.values.where((s) => s.name == name);
+      if (match.isEmpty) return null;
+      states[member] = match.first;
+    }
+    return states;
   }
 }
 
