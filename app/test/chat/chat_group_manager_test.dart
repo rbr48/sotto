@@ -50,10 +50,11 @@ void main() {
     String myId, {
     required Set<String> contacts,
     bool groupsEnabled = true,
+    ChatStore? store,
   }) {
     final manager = ChatManager(
       myId: myId,
-      store: ChatStore(MemorySecretStore()),
+      store: store ?? ChatStore(MemorySecretStore()),
       isContact: contacts.contains,
       send: (to, type, body, callId) =>
           net.deliver(myId, to, type, body, callId),
@@ -392,6 +393,65 @@ void main() {
           .whereType<GroupMsgFrame>()
           .map((frame) => frame.text);
       expect(frames, contains('Direct to Bob'));
+    });
+
+    test('a reply, which the relay does not carry, goes to a member when its '
+        'session opens', () async {
+      final alice = device(_alice, contacts: {_bob, _carol});
+      final bob = device(_bob, contacts: {_alice, _carol});
+      final carol = device(_carol, contacts: {_alice, _bob});
+      final group = await threeMade(alice: alice, bob: bob, carol: carol);
+      final first = await alice.groups.sendText(group.id, 'First');
+      await _settle();
+
+      final reply = await alice.groups.sendText(
+        group.id,
+        'A reply',
+        replyToId: first.id,
+      );
+      await _settle();
+      expect(await bob.store.find(group.id, reply.id), isNull);
+
+      await alice.sendText(_bob, 'open the chat');
+      await _settle();
+
+      final heard = await bob.store.find(group.id, reply.id);
+      expect(heard, isNotNull);
+      expect(heard!.replyTo?.id, first.id);
+      expect(
+        (await alice.store.find(group.id, reply.id))!.memberStates[_bob],
+        ChatState.delivered,
+      );
+    });
+
+    test('a group text still being sent when the app stopped is not sent for '
+        'the members that were waiting', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final alice = device(_alice, contacts: {_bob, _carol}, store: aliceStore);
+      final bob = device(_bob, contacts: {_alice, _carol});
+      final carol = device(_carol, contacts: {_alice, _bob});
+      final group = await threeMade(alice: alice, bob: bob, carol: carol);
+      net.managers.remove(_carol);
+      final message = await alice.groups.sendText(group.id, 'Interrupted');
+      await _settle();
+      expect(
+        (await aliceStore.find(group.id, message.id))!.memberStates[_carol],
+        ChatState.sending,
+      );
+
+      await alice.dispose();
+      managers.remove(alice);
+      net.managers[_alice]!.remove(alice);
+      final restarted = device(
+        _alice,
+        contacts: {_bob, _carol},
+        store: aliceStore,
+      );
+      await restarted.recoverInterrupted();
+
+      final after = await aliceStore.find(group.id, message.id);
+      expect(after!.memberStates[_carol], ChatState.notSent);
+      expect(after.memberStates[_bob], ChatState.delivered);
     });
 
     test('a reply quotes only this device\'s own message (D25)', () async {
