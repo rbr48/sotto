@@ -1675,7 +1675,6 @@ class ChatSession {
       store.forgetVoice(id);
     }
     _events.add(FileTransferCompleted(id, kept?.name));
-    unawaited(_checkPendingIncomingAutoAccept());
   }
 
   /// Marks a file message as [status] and tells the screens why.
@@ -1685,21 +1684,6 @@ class ChatSession {
       await store.updateMessage(existing.copyWith(fileStatus: status));
     }
     _emit(FileTransferFailed(id, reason));
-    unawaited(_checkPendingIncomingAutoAccept());
-  }
-
-  Future<void> _checkPendingIncomingAutoAccept() async {
-    if (_ended) return;
-    for (final message in await store.messages(contactId)) {
-      if (_ended) return;
-      if (!message.outgoing &&
-          message.isAttachment &&
-          message.fileStatus == 'offered' &&
-          _mayAutoAccept(message.fileSize ?? 0)) {
-        _autoAcceptedBytes += message.fileSize ?? 0;
-        await acceptFile(message.id);
-      }
-    }
   }
 
   /// Whether a file offered by the contact downloads without asking: the
