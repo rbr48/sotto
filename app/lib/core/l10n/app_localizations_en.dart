@@ -752,4 +752,131 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get chatExportReactionsLabel => 'Reactions';
+
+  @override
+  String get chatsNewGroup => 'New group';
+
+  @override
+  String get groupCreateTitle => 'New group';
+
+  @override
+  String get groupNameLabel => 'Group name';
+
+  @override
+  String get groupNameRequired => 'Give the group a name.';
+
+  @override
+  String groupNameTooLong(int max) {
+    return 'Use at most $max characters.';
+  }
+
+  @override
+  String get groupMembersTitle => 'Members';
+
+  @override
+  String get groupMembersHint =>
+      'Choose two or three contacts. Each of them must also be a contact of the others.';
+
+  @override
+  String groupMembersChosen(int count, int max) {
+    return '$count of $max chosen';
+  }
+
+  @override
+  String get groupCreate => 'Create group';
+
+  @override
+  String get groupCreateFailed => 'The group could not be made.';
+
+  @override
+  String get groupNeedTwoContacts =>
+      'You need at least two contacts to make a group.';
+
+  @override
+  String groupMemberCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count members',
+      one: '$count member',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get groupInvitation => 'You are invited to this group.';
+
+  @override
+  String get groupInvitationPreview => 'Invitation to join';
+
+  @override
+  String get groupAccept => 'Accept';
+
+  @override
+  String get groupDecline => 'Decline';
+
+  @override
+  String get groupJoinNotContacts =>
+      'You can\'t join: not every member is one of your contacts.';
+
+  @override
+  String get groupJoinEnded => 'This invitation has ended.';
+
+  @override
+  String get groupLeftNote =>
+      'You left this group. Its messages stay on this device.';
+
+  @override
+  String get groupDeclinedNote => 'You declined this invitation.';
+
+  @override
+  String get groupClosedNote => 'You can\'t send messages to this group.';
+
+  @override
+  String get groupInfo => 'Group info';
+
+  @override
+  String get groupMemberYou => 'You';
+
+  @override
+  String get groupMemberJoined => 'Joined';
+
+  @override
+  String get groupMemberInvited => 'Invited';
+
+  @override
+  String get groupMemberDeclined => 'Declined';
+
+  @override
+  String get groupMemberLeft => 'Left';
+
+  @override
+  String get groupMemberNoAnswer => 'No answer';
+
+  @override
+  String get groupMemberNotReachable => 'Not reachable';
+
+  @override
+  String get groupInviteAgain => 'Invite again';
+
+  @override
+  String get groupLeave => 'Leave group';
+
+  @override
+  String get groupLeaveTitle => 'Leave this group?';
+
+  @override
+  String get groupLeaveBody =>
+      'The others will see that you left. The messages stay on this device, but you can\'t send or receive any more.';
+
+  @override
+  String get groupDeliveredAll => 'Delivered to all';
+
+  @override
+  String get groupReadAll => 'Read by all';
+
+  @override
+  String groupSentToSome(int sent, int total) {
+    return 'Sent to $sent of $total';
+  }
 }

@@ -136,4 +136,37 @@ void main() {
       expect(dismissed, 1);
     },
   );
+
+  testWidgets('in a group, each reaction is named by its member', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    final reacted = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SottoTheme.light(),
+        locale: AppLanguage.english.locale,
+        supportedLocales: AppLanguage.supported,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        home: Scaffold(
+          body: ReactionBar(
+            reactions: const {'self-id': '👍', 'anna-id': '❤️', 'ben-id': '😂'},
+            peerName: 'Trip',
+            selfKey: 'self-id',
+            nameOf: (key) => {'anna-id': 'Anna', 'ben-id': 'Ben'}[key]!,
+            choosing: false,
+            onReact: reacted.add,
+          ),
+        ),
+      ),
+    );
+    expect(find.bySemanticsLabel('👍, You'), findsOneWidget);
+    expect(find.bySemanticsLabel('❤️, Anna'), findsOneWidget);
+    expect(find.bySemanticsLabel('😂, Ben'), findsOneWidget);
+    // Your own, under your id, is removed by a tap.
+    await tester.tap(find.text('👍'));
+    await tester.pump();
+    expect(reacted, ['']);
+    semantics.dispose();
+  });
 }

@@ -755,4 +755,131 @@ class AppLocalizationsBn extends AppLocalizations {
 
   @override
   String get chatExportReactionsLabel => 'প্রতিক্রিয়া';
+
+  @override
+  String get chatsNewGroup => 'নতুন গ্রুপ';
+
+  @override
+  String get groupCreateTitle => 'নতুন গ্রুপ';
+
+  @override
+  String get groupNameLabel => 'গ্রুপের নাম';
+
+  @override
+  String get groupNameRequired => 'গ্রুপের একটি নাম দিন।';
+
+  @override
+  String groupNameTooLong(int max) {
+    return 'সর্বোচ্চ $maxটি অক্ষর ব্যবহার করুন।';
+  }
+
+  @override
+  String get groupMembersTitle => 'সদস্য';
+
+  @override
+  String get groupMembersHint =>
+      'দুই বা তিনজন পরিচিতি বেছে নিন। তাঁদের প্রত্যেককে অন্যদেরও পরিচিতি হতে হবে।';
+
+  @override
+  String groupMembersChosen(int count, int max) {
+    return '$maxজনের মধ্যে $countজন বেছে নেওয়া হয়েছে';
+  }
+
+  @override
+  String get groupCreate => 'গ্রুপ তৈরি করুন';
+
+  @override
+  String get groupCreateFailed => 'গ্রুপটি তৈরি করা যায়নি।';
+
+  @override
+  String get groupNeedTwoContacts =>
+      'গ্রুপ তৈরি করতে অন্তত দুজন পরিচিতি লাগবে।';
+
+  @override
+  String groupMemberCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count জন সদস্য',
+      one: '$count জন সদস্য',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get groupInvitation => 'আপনাকে এই গ্রুপে আমন্ত্রণ জানানো হয়েছে।';
+
+  @override
+  String get groupInvitationPreview => 'যোগ দেওয়ার আমন্ত্রণ';
+
+  @override
+  String get groupAccept => 'গ্রহণ করুন';
+
+  @override
+  String get groupDecline => 'প্রত্যাখ্যান করুন';
+
+  @override
+  String get groupJoinNotContacts =>
+      'আপনি যোগ দিতে পারবেন না: সব সদস্য আপনার পরিচিতি নন।';
+
+  @override
+  String get groupJoinEnded => 'এই আমন্ত্রণের সময় শেষ হয়ে গেছে।';
+
+  @override
+  String get groupLeftNote =>
+      'আপনি এই গ্রুপ ছেড়ে দিয়েছেন। এর বার্তাগুলো এই ডিভাইসে থাকবে।';
+
+  @override
+  String get groupDeclinedNote => 'আপনি এই আমন্ত্রণ প্রত্যাখ্যান করেছেন।';
+
+  @override
+  String get groupClosedNote => 'আপনি এই গ্রুপে বার্তা পাঠাতে পারবেন না।';
+
+  @override
+  String get groupInfo => 'গ্রুপের তথ্য';
+
+  @override
+  String get groupMemberYou => 'আপনি';
+
+  @override
+  String get groupMemberJoined => 'যোগ দিয়েছেন';
+
+  @override
+  String get groupMemberInvited => 'আমন্ত্রিত';
+
+  @override
+  String get groupMemberDeclined => 'প্রত্যাখ্যান করেছেন';
+
+  @override
+  String get groupMemberLeft => 'ছেড়ে গেছেন';
+
+  @override
+  String get groupMemberNoAnswer => 'উত্তর নেই';
+
+  @override
+  String get groupMemberNotReachable => 'পৌঁছানো যাচ্ছে না';
+
+  @override
+  String get groupInviteAgain => 'আবার আমন্ত্রণ জানান';
+
+  @override
+  String get groupLeave => 'গ্রুপ ছাড়ুন';
+
+  @override
+  String get groupLeaveTitle => 'এই গ্রুপ ছাড়বেন?';
+
+  @override
+  String get groupLeaveBody =>
+      'অন্যরা দেখবেন যে আপনি ছেড়ে গেছেন। বার্তাগুলো এই ডিভাইসে থাকবে, কিন্তু আপনি আর পাঠাতে বা পেতে পারবেন না।';
+
+  @override
+  String get groupDeliveredAll => 'সবার কাছে পৌঁছেছে';
+
+  @override
+  String get groupReadAll => 'সবাই পড়েছেন';
+
+  @override
+  String groupSentToSome(int sent, int total) {
+    return '$totalজনের মধ্যে $sentজনকে পাঠানো হয়েছে';
+  }
 }

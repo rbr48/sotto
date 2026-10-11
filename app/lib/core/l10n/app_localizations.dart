@@ -1371,6 +1371,222 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Reactions'**
   String get chatExportReactionsLabel;
+
+  /// No description provided for @chatsNewGroup.
+  ///
+  /// In en, this message translates to:
+  /// **'New group'**
+  String get chatsNewGroup;
+
+  /// No description provided for @groupCreateTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'New group'**
+  String get groupCreateTitle;
+
+  /// No description provided for @groupNameLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Group name'**
+  String get groupNameLabel;
+
+  /// No description provided for @groupNameRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Give the group a name.'**
+  String get groupNameRequired;
+
+  /// No description provided for @groupNameTooLong.
+  ///
+  /// In en, this message translates to:
+  /// **'Use at most {max} characters.'**
+  String groupNameTooLong(int max);
+
+  /// No description provided for @groupMembersTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Members'**
+  String get groupMembersTitle;
+
+  /// No description provided for @groupMembersHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose two or three contacts. Each of them must also be a contact of the others.'**
+  String get groupMembersHint;
+
+  /// No description provided for @groupMembersChosen.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} of {max} chosen'**
+  String groupMembersChosen(int count, int max);
+
+  /// No description provided for @groupCreate.
+  ///
+  /// In en, this message translates to:
+  /// **'Create group'**
+  String get groupCreate;
+
+  /// No description provided for @groupCreateFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The group could not be made.'**
+  String get groupCreateFailed;
+
+  /// No description provided for @groupNeedTwoContacts.
+  ///
+  /// In en, this message translates to:
+  /// **'You need at least two contacts to make a group.'**
+  String get groupNeedTwoContacts;
+
+  /// No description provided for @groupMemberCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {{count} member} other {{count} members}}'**
+  String groupMemberCount(int count);
+
+  /// No description provided for @groupInvitation.
+  ///
+  /// In en, this message translates to:
+  /// **'You are invited to this group.'**
+  String get groupInvitation;
+
+  /// No description provided for @groupInvitationPreview.
+  ///
+  /// In en, this message translates to:
+  /// **'Invitation to join'**
+  String get groupInvitationPreview;
+
+  /// No description provided for @groupAccept.
+  ///
+  /// In en, this message translates to:
+  /// **'Accept'**
+  String get groupAccept;
+
+  /// No description provided for @groupDecline.
+  ///
+  /// In en, this message translates to:
+  /// **'Decline'**
+  String get groupDecline;
+
+  /// No description provided for @groupJoinNotContacts.
+  ///
+  /// In en, this message translates to:
+  /// **'You can\'t join: not every member is one of your contacts.'**
+  String get groupJoinNotContacts;
+
+  /// No description provided for @groupJoinEnded.
+  ///
+  /// In en, this message translates to:
+  /// **'This invitation has ended.'**
+  String get groupJoinEnded;
+
+  /// No description provided for @groupLeftNote.
+  ///
+  /// In en, this message translates to:
+  /// **'You left this group. Its messages stay on this device.'**
+  String get groupLeftNote;
+
+  /// No description provided for @groupDeclinedNote.
+  ///
+  /// In en, this message translates to:
+  /// **'You declined this invitation.'**
+  String get groupDeclinedNote;
+
+  /// No description provided for @groupClosedNote.
+  ///
+  /// In en, this message translates to:
+  /// **'You can\'t send messages to this group.'**
+  String get groupClosedNote;
+
+  /// No description provided for @groupInfo.
+  ///
+  /// In en, this message translates to:
+  /// **'Group info'**
+  String get groupInfo;
+
+  /// No description provided for @groupMemberYou.
+  ///
+  /// In en, this message translates to:
+  /// **'You'**
+  String get groupMemberYou;
+
+  /// No description provided for @groupMemberJoined.
+  ///
+  /// In en, this message translates to:
+  /// **'Joined'**
+  String get groupMemberJoined;
+
+  /// No description provided for @groupMemberInvited.
+  ///
+  /// In en, this message translates to:
+  /// **'Invited'**
+  String get groupMemberInvited;
+
+  /// No description provided for @groupMemberDeclined.
+  ///
+  /// In en, this message translates to:
+  /// **'Declined'**
+  String get groupMemberDeclined;
+
+  /// No description provided for @groupMemberLeft.
+  ///
+  /// In en, this message translates to:
+  /// **'Left'**
+  String get groupMemberLeft;
+
+  /// No description provided for @groupMemberNoAnswer.
+  ///
+  /// In en, this message translates to:
+  /// **'No answer'**
+  String get groupMemberNoAnswer;
+
+  /// No description provided for @groupMemberNotReachable.
+  ///
+  /// In en, this message translates to:
+  /// **'Not reachable'**
+  String get groupMemberNotReachable;
+
+  /// No description provided for @groupInviteAgain.
+  ///
+  /// In en, this message translates to:
+  /// **'Invite again'**
+  String get groupInviteAgain;
+
+  /// No description provided for @groupLeave.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave group'**
+  String get groupLeave;
+
+  /// No description provided for @groupLeaveTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave this group?'**
+  String get groupLeaveTitle;
+
+  /// No description provided for @groupLeaveBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The others will see that you left. The messages stay on this device, but you can\'t send or receive any more.'**
+  String get groupLeaveBody;
+
+  /// No description provided for @groupDeliveredAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Delivered to all'**
+  String get groupDeliveredAll;
+
+  /// No description provided for @groupReadAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Read by all'**
+  String get groupReadAll;
+
+  /// No description provided for @groupSentToSome.
+  ///
+  /// In en, this message translates to:
+  /// **'Sent to {sent} of {total}'**
+  String groupSentToSome(int sent, int total);
 }
 
 class _AppLocalizationsDelegate
