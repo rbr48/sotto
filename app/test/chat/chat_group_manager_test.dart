@@ -4,6 +4,7 @@ import 'package:sotto/chat/chat_group.dart';
 import 'package:sotto/chat/chat_group_manager.dart';
 import 'package:sotto/chat/chat_groups.dart';
 import 'package:sotto/chat/chat_manager.dart';
+import 'package:sotto/chat/chat_session.dart';
 import 'package:sotto/chat/chat_store.dart';
 import 'package:sotto/crypto/encoding.dart';
 import 'package:sotto/crypto/identity_store.dart';
@@ -675,4 +676,269 @@ void main() {
       );
     });
   });
+
+  group('races, a stop during an invite, and departures', () {
+    test(
+      'two answers in flight together both apply, so neither is lost',
+      () async {
+        final alice = device(_alice, contacts: {_bob, _carol});
+        device(_bob, contacts: {_alice, _carol});
+        device(_carol, contacts: {_alice, _bob});
+        final group = await alice.groups.create(
+          name: 'Trip',
+          invitees: [_bob, _carol],
+        );
+        await _settle();
+
+        final answer = ChatGroups.envelope(
+          ChatGroups.encodeAnswer(
+            GroupStateKind.accept,
+            group: group.id,
+            ts: now.millisecondsSinceEpoch,
+          ),
+        );
+        alice.handle(
+          from: _bob,
+          type: 'group.accept',
+          body: answer,
+          callId: null,
+        );
+        alice.handle(
+          from: _carol,
+          type: 'group.accept',
+          body: answer,
+          callId: null,
+        );
+        await _settle();
+
+        final kept = await held(alice, group.id);
+        expect(kept.memberOf(_bob)!.state, MemberState.accepted);
+        expect(kept.memberOf(_carol)!.state, MemberState.accepted);
+      },
+    );
+
+    test('a stop while the invites are kept leaves no group with an invitee '
+        'waiting and no invite kept', () async {
+      final store = _StoppingStore();
+      final alice = device(_alice, contacts: {_bob, _carol}, store: store);
+      device(_bob, contacts: {_alice, _carol});
+      device(_carol, contacts: {_alice, _bob});
+      store.invitesLeft = 1;
+
+      await expectLater(
+        alice.groups.create(name: 'Trip', invitees: [_bob, _carol]),
+        throwsA(isA<StateError>()),
+      );
+      expect(await alice.store.groups(), isEmpty);
+    });
+
+    test(
+      'a stop while a member is invited again leaves the member as it was',
+      () async {
+        final store = _StoppingStore();
+        final alice = device(_alice, contacts: {_bob, _carol}, store: store);
+        final bob = device(_bob, contacts: {_alice, _carol});
+        final carol = device(_carol, contacts: {_alice, _bob});
+        final group = await alice.groups.create(
+          name: 'Trip',
+          invitees: [_bob, _carol],
+        );
+        await _settle();
+        expect(await bob.groups.accept(group.id), GroupJoinResult.joined);
+        expect(await carol.groups.decline(group.id), isTrue);
+        await _settle();
+
+        now = now.add(_minute);
+        store.invitesLeft = 0;
+        await expectLater(
+          alice.groups.invite(group.id, _carol),
+          throwsA(isA<StateError>()),
+        );
+        expect(
+          (await held(alice, group.id)).memberOf(_carol)!.state,
+          MemberState.declined,
+        );
+      },
+    );
+
+    test(
+      'a group text the relay delivers twice at once is shown once',
+      () async {
+        final alice = device(_alice, contacts: {_bob, _carol});
+        final bob = device(_bob, contacts: {_alice, _carol});
+        final carol = device(_carol, contacts: {_alice, _bob});
+        final group = await threeMade(alice: alice, bob: bob, carol: carol);
+        final shown = <ChatSessionEvent>[];
+        final subscription = bob.events.listen((event) {
+          if (event is ChatUpdate) shown.add(event.event);
+        });
+
+        final body = ChatGroups.envelope(
+          ChatGroups.encodeRelayText(
+            group: group.id,
+            id: _id(7),
+            ts: now.millisecondsSinceEpoch,
+            text: 'Hi',
+          ),
+        );
+        bob.handle(from: _alice, type: 'group.text', body: body, callId: null);
+        bob.handle(from: _alice, type: 'group.text', body: body, callId: null);
+        await _settle();
+        await subscription.cancel();
+
+        expect(shown.whereType<MessageReceived>().length, 1);
+        expect(await bob.store.contains(group.id, _id(7)), isTrue);
+      },
+    );
+
+    test('a text is copied to a member that has not answered for 15 minutes, '
+        'and not after', () async {
+      final alice = device(_alice, contacts: {_bob, _carol});
+      final bob = device(_bob, contacts: {_alice, _carol});
+      final carol = device(_carol, contacts: {_alice, _bob});
+      final group = await threeMade(alice: alice, bob: bob, carol: carol);
+      net.managers.remove(_carol);
+
+      final message = await alice.groups.sendText(group.id, 'Late?');
+      await _settle();
+      final atSend = sentTo(_carol, 'group.text');
+
+      now = now.add(const Duration(minutes: 14));
+      await alice.tick();
+      await _settle();
+      expect(
+        sentTo(_carol, 'group.text'),
+        atSend + 1,
+        reason: 'still inside the window, so the copy goes out again',
+      );
+
+      now = now.add(const Duration(minutes: 2));
+      await alice.tick();
+      await _settle();
+      expect(sentTo(_carol, 'group.text'), atSend + 1);
+      expect(
+        (await alice.store.find(group.id, message.id))!.memberStates[_carol],
+        ChatState.notSent,
+      );
+    });
+
+    test(
+      'a text still waiting for a member who has left gets no more copies',
+      () async {
+        final alice = device(_alice, contacts: {_bob, _carol});
+        final bob = device(_bob, contacts: {_alice, _carol});
+        final carol = device(_carol, contacts: {_alice, _bob});
+        final group = await threeMade(alice: alice, bob: bob, carol: carol);
+        net.managers.remove(_carol);
+
+        final message = await alice.groups.sendText(group.id, 'While away');
+        await _settle();
+        final beforeLeave = sentTo(_carol, 'group.text');
+
+        expect(await carol.groups.leave(group.id), isTrue);
+        await _settle();
+        now = now.add(const Duration(seconds: 30));
+        await alice.tick();
+        await _settle();
+
+        expect(sentTo(_carol, 'group.text'), beforeLeave);
+        expect(
+          (await alice.store.find(group.id, message.id))!.memberStates[_carol],
+          ChatState.notSent,
+        );
+      },
+    );
+
+    test(
+      'a new invite sent on by a member who has left does not count',
+      () async {
+        final dave = _member(4);
+        final alice = device(_alice, contacts: {_bob, _carol, dave});
+        final bob = device(_bob, contacts: {_alice, _carol, dave});
+        final carol = device(_carol, contacts: {_alice, _bob, dave});
+        final daveDevice = device(dave, contacts: {_alice, _bob, _carol});
+        final group = await alice.groups.create(
+          name: 'Trip',
+          invitees: [_bob, _carol, dave],
+        );
+        await _settle();
+        expect(await bob.groups.accept(group.id), GroupJoinResult.joined);
+        expect(await carol.groups.accept(group.id), GroupJoinResult.joined);
+        expect(await daveDevice.groups.decline(group.id), isTrue);
+        await _settle();
+        expect(await carol.groups.leave(group.id), isTrue);
+        await _settle();
+        expect(
+          (await held(bob, group.id)).memberOf(dave)!.state,
+          MemberState.declined,
+        );
+
+        final renewal = ChatGroups.envelope(
+          ChatGroups.encodeRenewal(
+            group: group.id,
+            member: dave,
+            ts: now.add(_minute).millisecondsSinceEpoch,
+          ),
+        );
+        bob.handle(
+          from: _carol,
+          type: 'group.reinvite',
+          body: renewal,
+          callId: null,
+        );
+        await _settle();
+
+        expect(
+          (await held(bob, group.id)).memberOf(dave)!.state,
+          MemberState.declined,
+          reason: 'a member who has left cannot send on a new invite',
+        );
+      },
+    );
+
+    test('a group text from a member who has not accepted is dropped, with no '
+        'acknowledgement', () async {
+      final alice = device(_alice, contacts: {_bob, _carol});
+      final bob = device(_bob, contacts: {_alice, _carol});
+      device(_carol, contacts: {_alice, _bob});
+      final group = await alice.groups.create(
+        name: 'Trip',
+        invitees: [_bob, _carol],
+      );
+      await _settle();
+      expect(await bob.groups.accept(group.id), GroupJoinResult.joined);
+      await _settle();
+      net.sent.clear();
+
+      final body = ChatGroups.envelope(
+        ChatGroups.encodeRelayText(
+          group: group.id,
+          id: _id(7),
+          ts: now.millisecondsSinceEpoch,
+          text: 'From a member who has not joined',
+        ),
+      );
+      bob.handle(from: _carol, type: 'group.text', body: body, callId: null);
+      await _settle();
+
+      expect(await bob.store.contains(group.id, _id(7)), isFalse);
+      expect(
+        net.sent.where((s) => s.from == _bob && s.type == 'chat.text.ack'),
+        isEmpty,
+      );
+    });
+  });
+}
+
+/// A store that stops (throws) on the invite writes after [invitesLeft] of them.
+class _StoppingStore extends ChatStore {
+  _StoppingStore() : super(MemorySecretStore());
+
+  int invitesLeft = 1 << 30;
+
+  @override
+  Future<void> queueInvite(PendingInvite invite) async {
+    if (invitesLeft-- <= 0) throw StateError('stopped');
+    await super.queueInvite(invite);
+  }
 }

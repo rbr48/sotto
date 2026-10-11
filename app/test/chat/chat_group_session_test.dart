@@ -97,12 +97,17 @@ Future<void> _settle() async {
 /// This device's session with [contact], over a channel whose far end the
 /// test drives with [receive], as the member would.
 class _Device {
-  _Device(this.contact, {required this.groups, ChatStore? store})
-    : store = store ?? ChatStore(MemorySecretStore());
+  _Device(
+    this.contact, {
+    required this.groups,
+    ChatStore? store,
+    this.isContact,
+  }) : store = store ?? ChatStore(MemorySecretStore());
 
   final String contact;
   final bool groups;
   final ChatStore store;
+  final bool Function()? isContact;
   final _near = _Link();
   final _far = _Link();
   late final ChatSession session;
@@ -117,6 +122,7 @@ class _Device {
       store: store,
       clock: () => _now,
       groupsEnabled: groups,
+      isContact: isContact,
     );
     session.events.listen(events.add);
     unawaited(session.start(resend: resend));
@@ -873,6 +879,115 @@ void main() {
         expect((await device.store.find(_group, _id(1)))!.memberStates, {
           _bob: ChatState.sending,
         });
+      },
+    );
+  });
+
+  group('a member removed as a contact, or who has left', () {
+    test('gets no group message, control or read receipt after removal, with its session open', () async {
+      var contact = true;
+      final store = ChatStore(MemorySecretStore());
+      await store.saveGroup(_groupWith());
+      await store.add(_held(_id(2), _bob, text: 'from bob'));
+      final device = _Device(
+        _bob,
+        groups: true,
+        store: store,
+        isContact: () => contact,
+      )..start();
+      device.receive(HelloFrame(features: _allFeatures));
+      await _settle();
+
+      contact = false;
+      final mine = _held(_id(1), _self, text: 'held');
+      await store.add(mine);
+      await device.session.sendToGroup(mine);
+      await store.queueControl(
+        _group,
+        ReactFrame(id: _id(2), emoji: 'x', ts: _ts, group: _group),
+        memberId: _bob,
+        clock: () => _now,
+      );
+      await device.session.flushControls();
+      await device.session.sendGroupReadReceipts(_group, [_id(2)]);
+      await _settle();
+
+      expect(device.written.whereType<GroupMsgFrame>(), isEmpty);
+      expect(device.written.whereType<ReactFrame>(), isEmpty);
+      expect(device.written.whereType<ReadFrame>(), isEmpty);
+    });
+
+    test('a group answer from a member removed as a contact ends the session and changes nothing', () async {
+      var contact = true;
+      final store = ChatStore(MemorySecretStore());
+      await store.saveGroup(_groupWith());
+      final device = _Device(
+        _bob,
+        groups: true,
+        store: store,
+        isContact: () => contact,
+      )..start();
+      device.receive(HelloFrame(features: _allFeatures));
+      await _settle();
+
+      contact = false;
+      device.receive(
+        GroupStateFrame(kind: GroupStateKind.leave, group: _group, ts: _ts),
+      );
+      await _settle();
+
+      expect(
+        (await store.group(_group))!.memberOf(_bob)!.state,
+        MemberState.accepted,
+      );
+      expect(device.session.isEnded, isTrue);
+    });
+
+    test(
+      'a copy queued before a member left is not sent to it when it comes back',
+      () async {
+        final store = ChatStore(MemorySecretStore());
+        await store.saveGroup(_groupWith());
+        final device = _Device(_bob, groups: true, store: store)..start();
+        device.receive(HelloFrame(features: ChatFrames.features));
+        await _settle();
+        final message = _held(_id(1), _self, text: 'held');
+        await store.add(message);
+        await device.session.sendToGroup(message);
+        await _settle();
+        expect(device.written.whereType<GroupMsgFrame>(), isEmpty);
+
+        device.receive(
+          GroupStateFrame(kind: GroupStateKind.leave, group: _group, ts: _ts),
+        );
+        await _settle();
+        device.receive(HelloFrame(features: _allFeatures));
+        await _settle();
+
+        expect(device.written.whereType<GroupMsgFrame>(), isEmpty);
+      },
+    );
+  });
+
+  group('a reply quote in a group', () {
+    test(
+      'quoting a message this device does not hold arrives with no quote',
+      () async {
+        final device = await _open(_bob, group: _groupWith());
+        device.receive(
+          GroupMsgFrame(
+            id: _id(3),
+            ts: _ts,
+            group: _group,
+            text: 'quoting a message not held here',
+            reply: (id: _id(9), text: 'unknown'),
+          ),
+        );
+        await _settle();
+
+        final stored = (await device.store.find(_group, _id(3)))!;
+        expect(stored.text, 'quoting a message not held here');
+        expect(stored.replyTo, isNull);
       },
     );
   });

@@ -130,8 +130,34 @@ class ChatGroupManager {
       if (isContact(id)) id,
   });
 
+  /// Whether a group message, control or receipt may go to [member] of
+  /// [group]: an accepted member that is still a contact (D22).
+  bool _canReach(ChatGroup group, String member) =>
+      isContact(member) &&
+      group.memberOf(member)?.state == MemberState.accepted;
+
   Future<void> _flushMember(String member) async {
+    if (!isContact(member)) return;
     await sessionOf(member)?.flushControls();
+  }
+
+  /// Changes the group [groupId] in one step (see [ChatStore.updateGroup]), so
+  /// that a change made while another is in progress is not lost. [change]
+  /// returns null for no change. Reports a change, and returns the group as it
+  /// is after the call.
+  Future<ChatGroup?> _apply(
+    String groupId,
+    ChatGroup? Function(ChatGroup? current) change,
+  ) async {
+    var changed = false;
+    final result = await store.updateGroup(groupId, (current) {
+      final next = change(current);
+      if (next == null || identical(next, current)) return null;
+      changed = true;
+      return next;
+    });
+    if (changed) emit(groupId, GroupStateChanged(groupId), group: groupId);
+    return result;
   }
 
   // Creating and inviting.
@@ -160,9 +186,14 @@ class ChatGroupManager {
     } on ChatFrameException catch (e) {
       throw ArgumentError.value(invitees, 'invitees', e.reason);
     }
+    // The invites are kept before the group is saved: a stop between the two
+    // writes must not leave an invitee waiting with no invite kept for it.
+    for (final id in invitees) {
+      await _queueInvite(group, id);
+    }
     await store.saveGroup(group);
     for (final id in invitees) {
-      await _invite(group, id);
+      _sendInvite(ChatGroups.inviteFor(group, id), id);
     }
     emit(group.id, GroupStateChanged(group.id), group: group.id);
     return group;
@@ -183,22 +214,25 @@ class ChatGroupManager {
       );
     }
     final ts = _now;
-    final next = ChatGroups.renew(group, memberId, ts);
-    if (identical(next, group)) {
+    final planned = ChatGroups.renew(group, memberId, ts);
+    if (identical(planned, group)) {
       throw ArgumentError.value(
         memberId,
         'memberId',
         'is not waiting to be invited',
       );
     }
-    await store.saveGroup(next);
-    await _invite(next, memberId);
-    for (final other in next.memberIds) {
+    final invite = await _queueInvite(planned, memberId);
+    await _apply(groupId, (current) {
+      if (current == null) return null;
+      return ChatGroups.renew(current, memberId, ts);
+    });
+    _sendInvite(invite, memberId);
+    for (final other in planned.memberIds) {
       if (other != myId && other != memberId) {
-        _sendRenewal(next, other, memberId, ts);
+        _sendRenewal(planned, other, memberId, ts);
       }
     }
-    emit(group.id, GroupStateChanged(group.id), group: group.id);
   }
 
   /// Sends the other members the new invite to [memberId] of [group], dated
@@ -221,9 +255,9 @@ class ChatGroupManager {
     );
   }
 
-  /// Sends the invite to [memberId] and keeps it until it is answered or
-  /// expires (see [tick]).
-  Future<void> _invite(ChatGroup group, String memberId) async {
+  /// Keeps the invite to [memberId] of [group] until it is answered or expires
+  /// (see [tick]), and returns it. The invite is sent by the caller.
+  Future<GroupInvite> _queueInvite(ChatGroup group, String memberId) async {
     final invite = ChatGroups.inviteFor(group, memberId);
     await store.queueInvite(
       PendingInvite(
@@ -234,7 +268,7 @@ class ChatGroupManager {
         expiry: invite.ts + inviteWindow.inMilliseconds,
       ),
     );
-    _sendInvite(invite, memberId);
+    return invite;
   }
 
   /// Sends [invite] to [memberId] through the relay, and as a direct frame when
@@ -278,12 +312,14 @@ class ChatGroupManager {
       return GroupJoinResult.missingContacts;
     }
     final ts = _now;
-    final next = ChatGroups.accept(group, myId, ts);
-    if (!identical(next, group)) {
-      await store.saveGroup(next);
-      emit(group.id, GroupStateChanged(group.id), group: group.id);
+    final next = await _apply(
+      groupId,
+      (current) =>
+          current == null ? null : ChatGroups.accept(current, myId, ts),
+    );
+    if (next == null || !ChatGroups.isActive(next)) {
+      return GroupJoinResult.expired;
     }
-    if (!ChatGroups.isActive(next)) return GroupJoinResult.expired;
     for (final member in next.memberIds) {
       if (member != myId) {
         await _answer(next, member, GroupStateKind.accept, ts, retry: true);
@@ -304,9 +340,11 @@ class ChatGroupManager {
       return false;
     }
     final ts = _now;
-    final next = ChatGroups.decline(group, myId);
-    await store.saveGroup(next);
-    emit(group.id, GroupStateChanged(group.id), group: group.id);
+    final next = await _apply(
+      groupId,
+      (current) => current == null ? null : ChatGroups.decline(current, myId),
+    );
+    if (next == null) return false;
     for (final member in next.memberIds) {
       if (member != myId) {
         await _answer(next, member, GroupStateKind.decline, ts, retry: true);
@@ -323,9 +361,11 @@ class ChatGroupManager {
     final self = group.memberOf(myId);
     if (self == null || self.state != MemberState.accepted) return false;
     final ts = _now;
-    final next = ChatGroups.leave(group, myId);
-    await store.saveGroup(next);
-    emit(group.id, GroupStateChanged(group.id), group: group.id);
+    final next = await _apply(
+      groupId,
+      (current) => current == null ? null : ChatGroups.leave(current, myId),
+    );
+    if (next == null) return false;
     for (final member in next.memberIds) {
       if (member != myId) {
         await _answer(next, member, GroupStateKind.leave, ts, retry: false);
@@ -593,19 +633,20 @@ class ChatGroupManager {
     final group = await store.group(groupId);
     if (group == null) return;
     for (final member in group.memberIds) {
-      if (member != myId) {
+      if (member != myId && isContact(member)) {
         await sessionOf(member)?.sendGroupReadReceipts(groupId, ids);
       }
     }
   }
 
   /// Sends the group messages this device wrote and that [member] has not
-  /// acknowledged yet, over the session that has just opened with it.
+  /// acknowledged yet, over the session that has just opened with it. A member
+  /// who has left gets none of them.
   Future<void> catchUp(String member, ChatSession session) async {
     if (!groupsEnabled) return;
     final since = _now - groupRelayWindow.inMilliseconds;
     for (final group in await store.groups()) {
-      if (group.memberOf(member) == null) continue;
+      if (!_canReach(group, member)) continue;
       for (final message in await store.messages(group.id)) {
         if (session.isEnded) return;
         if (!message.outgoing || message.ts < since) continue;
@@ -673,32 +714,26 @@ class ChatGroupManager {
   }
 
   Future<void> _receiveInvite(GroupInvite invite) async {
-    final known = await store.group(invite.group);
-    if (known == null) {
-      final group = ChatGroups.fromInvite(invite, selfId: myId);
-      await store.saveGroup(group);
-      emit(group.id, GroupStateChanged(group.id), group: group.id);
-      return;
-    }
-    // A group already held: a new invite counts only from a member of it (D23).
-    if (known.memberOf(invite.inviter) == null) return;
-    final next = ChatGroups.renew(known, myId, invite.ts);
-    if (identical(next, known)) return;
-    await store.saveGroup(next);
-    emit(known.id, GroupStateChanged(known.id), group: known.id);
+    await _apply(invite.group, (current) {
+      if (current == null) return ChatGroups.fromInvite(invite, selfId: myId);
+      // A group already held: a new invite counts only from a member of it
+      // (D23).
+      if (current.memberOf(invite.inviter) == null) return null;
+      return ChatGroups.renew(current, myId, invite.ts);
+    });
   }
 
   /// A new invite to a member, as another member of the group sends it on. It
-  /// is taken only from a member of the group, and about a member of it.
+  /// is taken only from an accepted member of the group, and about a member of
+  /// it. A member who has left, or declined, is not one.
   Future<void> _receiveRenewal(String from, String text) async {
     if (!isContact(from)) return;
     final renewal = ChatGroups.decodeRenewal(text);
-    final group = await store.group(renewal.group);
-    if (group == null || group.memberOf(from) == null) return;
-    final next = ChatGroups.renew(group, renewal.member, renewal.ts);
-    if (identical(next, group)) return;
-    await store.saveGroup(next);
-    emit(group.id, GroupStateChanged(group.id), group: group.id);
+    await _apply(renewal.group, (current) {
+      if (current == null) return null;
+      if (current.memberOf(from)?.state != MemberState.accepted) return null;
+      return ChatGroups.renew(current, renewal.member, renewal.ts);
+    });
   }
 
   Future<void> _receiveText(String from, String text) async {
@@ -707,9 +742,12 @@ class ChatGroupManager {
     final group = await store.group(decoded.group);
     if (group == null || !ChatGroups.isActive(group)) return;
     if (group.memberOf(from)?.state != MemberState.accepted) return;
-    if (!await store.contains(group.id, decoded.id)) {
-      final arrived = _now;
-      final message = ChatMessage(
+    final arrived = _now;
+    // Stored once even when the direct copy of the same message arrives at the
+    // same time (see ChatSession._onGroupMessage): only the copy that is kept
+    // is reported.
+    final stored = await store.addNew(
+      ChatMessage(
         id: decoded.id,
         contactId: group.id,
         groupId: group.id,
@@ -720,8 +758,9 @@ class ChatGroupManager {
         state: ChatState.received,
         read: false,
         arrivedAt: arrived,
-      );
-      final stored = await store.add(message);
+      ),
+    );
+    if (stored != null) {
       emit(group.id, MessageReceived(stored), group: group.id);
     }
     send(from, _textAckType, {'id': decoded.id, 'group': group.id}, null);
@@ -752,10 +791,14 @@ class ChatGroupManager {
     final answer = ChatGroups.decodeAnswer(text, kind);
     final group = await store.group(answer.group);
     if (group == null || group.memberOf(from) == null) return;
-    final next = ChatGroups.applyAnswer(group, from, kind, answer.ts);
-    if (identical(next, group)) return;
-    await store.saveGroup(next);
-    emit(group.id, GroupStateChanged(group.id), group: group.id);
+    final next = await _apply(answer.group, (current) {
+      if (current == null || current.memberOf(from) == null) return null;
+      return ChatGroups.applyAnswer(current, from, kind, answer.ts);
+    });
+    if (kind == GroupStateKind.leave &&
+        next?.memberOf(from)?.state == MemberState.left) {
+      sessionOf(from)?.forgetGroup(answer.group);
+    }
   }
 
   /// Times out invites nobody answered, sends the invites and answers that are
@@ -773,9 +816,12 @@ class ChatGroupManager {
           await store.removeInvite(group.id, invite.invitee);
         } else if (now >= invite.expiry) {
           await store.removeInvite(group.id, invite.invitee);
-          current = ChatGroups.expire(current, invite.invitee);
-          await store.saveGroup(current);
-          emit(group.id, GroupStateChanged(group.id), group: group.id);
+          current =
+              await _apply(
+                group.id,
+                (c) => c == null ? null : ChatGroups.expire(c, invite.invitee),
+              ) ??
+              current;
         } else if (now - invite.sentAt >= groupResendEvery.inMilliseconds) {
           _sendInvite(
             ChatGroups.inviteFor(current, invite.invitee),
@@ -827,27 +873,30 @@ class ChatGroupManager {
               entry.key,
         ];
         if (waiting.isEmpty) continue;
-        if (message.ts < since) {
-          for (final member in waiting) {
-            if (message.memberStates[member] == ChatState.sending) {
-              await store.setState(
-                group.id,
-                message.id,
-                ChatState.notSent,
-                memberId: member,
-              );
-              emit(
-                group.id,
-                MessageNotSent(message.id, group: group.id),
-                group: group.id,
-              );
-            }
+        // A member that has left, or is no longer a contact, gets no more
+        // copies, so its copy is not sent any further. The window ending marks
+        // every member still waiting.
+        final expired = message.ts < since;
+        for (final member in waiting) {
+          if (!expired && _canReach(group, member)) continue;
+          if (message.memberStates[member] == ChatState.sending) {
+            await store.setState(
+              group.id,
+              message.id,
+              ChatState.notSent,
+              memberId: member,
+            );
+            emit(
+              group.id,
+              MessageNotSent(message.id, group: group.id),
+              group: group.id,
+            );
           }
-          continue;
         }
-        if (!_relayable(message)) continue;
+        if (expired || !_relayable(message)) continue;
         for (final member in waiting) {
           if (budget <= 0) return;
+          if (!_canReach(group, member)) continue;
           if (sessionOf(member)?.isReady ?? false) continue;
           final current = await store.findUndeleted(group.id, message.id);
           if (current == null || !_relayable(current)) break;

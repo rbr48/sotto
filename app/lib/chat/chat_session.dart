@@ -388,6 +388,10 @@ class ChatSession {
   bool get _canSendGroup =>
       groupsEnabled && _peerFeatures.contains(ChatFrames.featureGroups);
 
+  /// Whether group frames go to this session's member: it takes them, and it
+  /// is still a contact. A member removed as a contact gets nothing further (D22).
+  bool get _groupsOpen => _canSendGroup && _contactNow;
+
   bool get isEnded => _ended;
 
   /// The features this session lists in its hello. The group feature is listed
@@ -867,7 +871,7 @@ class ChatSession {
   /// Sends a group invite to this session's member, as a direct frame. The
   /// relay copy goes too, so a member without this session still gets it.
   void sendGroupInvite(GroupInviteFrame invite) {
-    if (!isReady || !_canSendGroup) return;
+    if (!isReady || !_groupsOpen) return;
     _write(invite);
   }
 
@@ -876,7 +880,7 @@ class ChatSession {
   /// message by anyone else is left out, so no member learns of a read it is not
   /// owed. Receipts asked for before the member is ready go when it is.
   Future<void> sendGroupReadReceipts(String groupId, List<String> ids) async {
-    if (_ended || ids.isEmpty || !groupsEnabled) return;
+    if (_ended || ids.isEmpty || !groupsEnabled || !_contactNow) return;
     final owed = <String>[];
     for (final id in ids) {
       final message = await store.find(groupId, id);
@@ -886,12 +890,12 @@ class ChatSession {
         owed.add(id);
       }
     }
-    if (owed.isEmpty || _ended) return;
+    if (owed.isEmpty || _ended || !_contactNow) return;
     if (!isReady) {
       _pendingGroupReads.putIfAbsent(groupId, () => <String>{}).addAll(owed);
       return;
     }
-    if (_canSendGroup) _writeReads(owed, group: groupId);
+    if (_groupsOpen) _writeReads(owed, group: groupId);
   }
 
   /// Takes a message off the outbox, so it is not sent after it was deleted.
@@ -991,7 +995,7 @@ class ChatSession {
   /// device has left. A control waits in the same way as a one-to-one control
   /// (see [_flushPending]), and goes only while this device is an active member.
   Future<void> _flushGroupPending(int now) async {
-    if (!_canSendGroup) return;
+    if (!_groupsOpen) return;
     for (final group in await store.groups()) {
       final member = group.memberOf(contactId);
       if (member == null) continue;
@@ -1132,8 +1136,9 @@ class ChatSession {
         _unsent.remove(id);
         continue;
       }
-      // A group copy waits while the member cannot take group frames.
-      if (message.groupId != null && !_canSendGroup) continue;
+      // A group copy waits while the member cannot take group frames, and is
+      // not sent once the member is no longer a contact (D22).
+      if (message.groupId != null && !_groupsOpen) continue;
       if (!_write(_messageFrame(message))) return;
       _unsent.remove(id);
     }
@@ -1152,17 +1157,41 @@ class ChatSession {
   /// An answer that changes nothing, such as a repeat, is not saved again, so each
   /// one is applied once and reported once.
   Future<void> _onGroupState(GroupStateFrame answer) async {
+    if (!_contactNow) {
+      _write(const ByeFrame());
+      await _end('not-contact');
+      return;
+    }
     final group = await store.group(answer.group);
     if (group == null || group.memberOf(contactId) == null) return;
-    final next = ChatGroups.applyAnswer(
-      group,
-      contactId,
-      answer.kind,
-      answer.ts,
-    );
-    if (identical(next, group)) return;
-    await store.saveGroup(next);
+    var changed = false;
+    await store.updateGroup(group.id, (current) {
+      if (current == null) return null;
+      final next = ChatGroups.applyAnswer(
+        current,
+        contactId,
+        answer.kind,
+        answer.ts,
+      );
+      changed = !identical(next, current);
+      return changed ? next : null;
+    });
+    if (!changed) return;
+    if (answer.kind == GroupStateKind.leave) forgetGroup(group.id);
     _events.add(GroupStateChanged(group.id));
+  }
+
+  /// Takes the group messages of [groupId] off the outbox: a member who has
+  /// left gets no copy of them, even one queued before it left.
+  void forgetGroup(String groupId) {
+    final gone = [
+      for (final entry in _outbox.entries)
+        if (entry.value.groupId == groupId) entry.key,
+    ];
+    for (final id in gone) {
+      _outbox.remove(id);
+      _unsent.remove(id);
+    }
   }
 
   /// Whether the message [m] was written by this session's member, so the
@@ -1204,37 +1233,37 @@ class ChatSession {
     }
     final group = await _groupWithSender(frame.group);
     if (group == null) return;
-    if (!await store.contains(group.id, frame.id)) {
-      final arrived = clock().millisecondsSinceEpoch;
-      final stored = await store.add(
-        ChatMessage(
-          id: frame.id,
-          contactId: group.id,
-          groupId: group.id,
-          authorId: contactId,
-          outgoing: false,
-          ts: ChatFrames.receivedTs(frame.ts, arrived),
-          text: frame.text,
-          state: ChatState.received,
-          read: false,
-          arrivedAt: arrived,
-          replyTo: await _quoteOwnMessage(group.id, frame.reply),
-          forwarded: frame.forwarded,
-        ),
-      );
-      _events.add(MessageReceived(stored));
-    }
+    final arrived = clock().millisecondsSinceEpoch;
+    // Reported only when this copy is the one kept: the relay copy of the same
+    // message may be stored at the same time (see ChatGroupManager._receiveText).
+    final stored = await store.addNew(
+      ChatMessage(
+        id: frame.id,
+        contactId: group.id,
+        groupId: group.id,
+        authorId: contactId,
+        outgoing: false,
+        ts: ChatFrames.receivedTs(frame.ts, arrived),
+        text: frame.text,
+        state: ChatState.received,
+        read: false,
+        arrivedAt: arrived,
+        replyTo: await _quoteOwnMessage(group.id, frame.reply),
+        forwarded: frame.forwarded,
+      ),
+    );
+    if (stored != null) _events.add(MessageReceived(stored));
     _write(AckFrame(id: frame.id, group: group.id));
   }
 
-  /// The quote a group message carries (D25). A quote of a message the group
-  /// holds is kept only when that message is the session's member's own, since
-  /// a member quotes only its own messages. A quote of a message not held here
-  /// cannot be checked, and is kept as sent.
+  /// The quote a group message carries (D25). It is kept only when the quoted
+  /// message is held here and is the session's member's own, since a member
+  /// quotes only its own messages. A quote of a message not held here cannot be
+  /// checked, so it is dropped.
   Future<ChatReply?> _quoteOwnMessage(String groupId, ChatReply? reply) async {
     if (reply == null) return null;
     final quoted = await store.find(groupId, reply.id);
-    if (quoted == null) return reply;
+    if (quoted == null) return null;
     return ChatGroups.mayQuote(
           authorId: quoted.authorId ?? '',
           replierId: contactId,
@@ -1283,7 +1312,7 @@ class ChatSession {
           _pendingReads.clear();
         }
         for (final entry in _pendingGroupReads.entries) {
-          if (_canSendGroup) _writeReads(entry.value, group: entry.key);
+          if (_groupsOpen) _writeReads(entry.value, group: entry.key);
         }
         _pendingGroupReads.clear();
       case MessageFrame(

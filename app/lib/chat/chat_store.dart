@@ -67,7 +67,8 @@ class ChatMessage {
   final String? authorId;
 
   /// Each member's state for an outgoing group message, keyed by member id.
-  /// Empty for a one-to-one message. [state] stays the message's own state.
+  /// Empty for a one-to-one message. For a group message, its status comes
+  /// from these states alone: [state] stays `sending` and is never updated.
   final Map<String, ChatState> memberStates;
 
   final bool outgoing;
@@ -1170,7 +1171,25 @@ class ChatStore {
   /// Stores [group]: its record, and its place in the group index. Saving a
   /// group again replaces its record, which is how a change to its members is
   /// kept.
-  Future<void> saveGroup(ChatGroup group) => _inOrder(() async {
+  Future<void> saveGroup(ChatGroup group) => _inOrder(() => _writeGroup(group));
+
+  /// Changes the group [groupId] in one step. [change] gets the record as it
+  /// is when this write runs, and returns the next record, or null for no
+  /// change. Writes run in order, so two changes made at once each build on the
+  /// other's result rather than overwriting it. Returns the record as it is
+  /// after the call, or null when there is no such group and [change] made none.
+  Future<ChatGroup?> updateGroup(
+    String groupId,
+    ChatGroup? Function(ChatGroup? current) change,
+  ) => _inOrder(() async {
+    final current = await _loadGroup(groupId);
+    final next = change(current);
+    if (next == null || identical(next, current)) return current;
+    await _writeGroup(next);
+    return next;
+  });
+
+  Future<void> _writeGroup(ChatGroup group) async {
     final index = await _loadGroupIndex();
     final next = {...index, group.id};
     await _store.writeAll({
@@ -1183,7 +1202,7 @@ class ChatStore {
     if (!_changes.isClosed) {
       _changes.add(null);
     }
-  });
+  }
 
   /// The group with [groupId] on this device, or null when there is none.
   Future<ChatGroup?> group(String groupId) => _loadGroup(groupId);
@@ -1245,7 +1264,19 @@ class ChatStore {
   /// stored when this write runs (see [_withQuoteOf]). The read and the write
   /// are one step, as in [changeMessage], so a reply written while its message
   /// is edited or deleted never keeps the text the message had before.
-  Future<ChatMessage> add(ChatMessage message) => _inOrder(() async {
+  Future<ChatMessage> add(ChatMessage message) async =>
+      (await _storeOnce(message)).message;
+
+  /// Like [add], but returns null when a message with the same id is already
+  /// stored, so the caller can tell a message it has just kept from one it had.
+  Future<ChatMessage?> addNew(ChatMessage message) async {
+    final result = await _storeOnce(message);
+    return result.added ? result.message : null;
+  }
+
+  Future<({ChatMessage message, bool added})> _storeOnce(
+    ChatMessage message,
+  ) => _inOrder(() async {
     // A group message filed under a group that is not saved would be kept as a
     // contact's chat, so it is refused.
     if (message.groupId != null && !await _isGroup(message.contactId)) {
@@ -1253,11 +1284,11 @@ class ChatStore {
     }
     final list = [...await _loadContact(message.contactId)];
     final index = list.indexWhere((m) => m.id == message.id);
-    if (index >= 0) return list[index];
+    if (index >= 0) return (message: list[index], added: false);
     final stored = _withQuoteOf(list, message);
     list.add(stored);
     await _saveContact(message.contactId, list);
-    return stored;
+    return (message: stored, added: true);
   });
 
   /// [message] with its quote given the text of the message it quotes in

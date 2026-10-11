@@ -1269,7 +1269,8 @@ void main() {
       );
     });
 
-    test('the group feature is defined and not advertised in hello', () {
+    test('the default feature set leaves groups out; a session adds it only '
+        'with groups on', () {
       expect(ChatFrames.featureGroups, 'groups');
       expect(ChatFrames.features, isNot(contains(ChatFrames.featureGroups)));
     });
