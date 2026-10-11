@@ -84,6 +84,9 @@ class _Link implements ChatTransport {
   }
 }
 
+/// Every feature a peer with groups lists in its hello.
+final _allFeatures = {...ChatFrames.features, ChatFrames.featureGroups};
+
 /// Lets queued events and futures run.
 Future<void> _settle() async {
   for (var i = 0; i < 50; i++) {
@@ -105,7 +108,7 @@ class _Device {
   late final ChatSession session;
   final events = <ChatSessionEvent>[];
 
-  void start() {
+  void start({List<ChatMessage> resend = const []}) {
     _near.peer = _far;
     _far.peer = _near;
     session = ChatSession(
@@ -116,7 +119,7 @@ class _Device {
       groupsEnabled: groups,
     );
     session.events.listen(events.add);
-    unawaited(session.start());
+    unawaited(session.start(resend: resend));
   }
 
   /// Sends [frame] from the far end, as the member would.
@@ -140,7 +143,7 @@ Future<_Device> _open(
   final device = _Device(contact, groups: groups);
   if (group != null) await device.store.saveGroup(group);
   device.start();
-  device.receive(const HelloFrame(features: {'groups'}));
+  device.receive(HelloFrame(features: _allFeatures));
   await _settle();
   return device;
 }
@@ -706,6 +709,170 @@ void main() {
         final sent = device.written.whereType<ReactFrame>().single;
         expect(sent.emoji, '👍');
         expect(sent.group, _group);
+      },
+    );
+  });
+
+  group('group messages this device sends', () {
+    /// This device's outgoing message [n] in the group, as it is stored before
+    /// it is sent.
+    ChatMessage outgoing(int n, {ChatReply? replyTo}) => _held(
+      _id(n),
+      _self,
+      text: 'held',
+    ).copyWith(state: ChatState.sending, replyTo: replyTo);
+
+    test('a group message goes to a member as a group frame, and its ack marks it delivered for that member', () async {
+      final device = await _open(_bob, group: _groupWith());
+      final message = outgoing(1);
+      await device.store.add(message);
+
+      await device.session.sendToGroup(message);
+      await _settle();
+
+      final sent = device.written.whereType<GroupMsgFrame>().single;
+      expect(sent.id, _id(1));
+      expect(sent.group, _group);
+      expect(sent.text, 'held');
+      expect((await device.store.find(_group, _id(1)))!.memberStates, {
+        _bob: ChatState.sending,
+      });
+
+      device.receive(AckFrame(id: _id(1), group: _group));
+      await _settle();
+
+      final stored = (await device.store.find(_group, _id(1)))!;
+      expect(stored.memberStates, {_bob: ChatState.delivered});
+      expect(stored.state, ChatState.sending);
+      expect(device.ofType<MessageDelivered>().single.group, _group);
+    });
+
+    test('each member\'s copy is acknowledged on its own', () async {
+      final store = ChatStore(MemorySecretStore());
+      await store.saveGroup(_groupWith());
+      final toBob = _Device(_bob, groups: true, store: store)..start();
+      final toCarol = _Device(_carol, groups: true, store: store)..start();
+      toBob.receive(HelloFrame(features: _allFeatures));
+      toCarol.receive(HelloFrame(features: _allFeatures));
+      final message = outgoing(1);
+      await store.add(message);
+
+      await toBob.session.sendToGroup(message);
+      await toCarol.session.sendToGroup(message);
+      toBob.receive(AckFrame(id: _id(1), group: _group));
+      await _settle();
+
+      expect((await store.find(_group, _id(1)))!.memberStates, {
+        _bob: ChatState.delivered,
+        _carol: ChatState.sending,
+      });
+    });
+
+    test('a copy waits while the member cannot take group frames', () async {
+      final device = _Device(_bob, groups: true);
+      await device.store.saveGroup(_groupWith());
+      final message = outgoing(1);
+      await device.store.add(message);
+      device.start();
+      device.receive(const HelloFrame());
+      await _settle();
+
+      await device.session.sendToGroup(message);
+      await _settle();
+
+      expect(device.written.whereType<GroupMsgFrame>(), isEmpty);
+      expect((await device.store.find(_group, _id(1)))!.memberStates, {
+        _bob: ChatState.sending,
+      });
+    });
+
+    test('with groups off, nothing is sent to a group', () async {
+      final device = await _open(_bob, group: _groupWith(), groups: false);
+      final message = outgoing(1);
+      await device.store.add(message);
+
+      await device.session.sendToGroup(message);
+      await _settle();
+
+      expect(device.written.whereType<GroupMsgFrame>(), isEmpty);
+      expect((await device.store.find(_group, _id(1)))!.memberStates, isEmpty);
+    });
+
+    test(
+      'a reply quoting a message that is not this device\'s own is refused',
+      () async {
+        final device = await _open(_bob, group: _groupWith());
+        await device.store.add(_held(_id(1), _carol, text: 'carol said'));
+        final reply = outgoing(2, replyTo: (id: _id(1), text: 'carol said'));
+        await device.store.add(reply);
+
+        await expectLater(
+          device.session.sendToGroup(reply),
+          throwsArgumentError,
+        );
+        await _settle();
+        expect(device.written.whereType<GroupMsgFrame>(), isEmpty);
+      },
+    );
+
+    test(
+      'a reply quoting this device\'s own message goes with its quote',
+      () async {
+        final device = await _open(_bob, group: _groupWith());
+        await device.store.add(_held(_id(1), _self, text: 'mine'));
+        final reply = outgoing(2, replyTo: (id: _id(1), text: 'mine'));
+        await device.store.add(reply);
+
+        await device.session.sendToGroup(reply);
+        await _settle();
+
+        final sent = device.written.whereType<GroupMsgFrame>().single;
+        expect(sent.reply?.id, _id(1));
+        expect(sent.reply?.text, 'mine');
+      },
+    );
+
+    test('a copy not acknowledged when its session ends is not sent, for that member only', () async {
+      final store = ChatStore(MemorySecretStore());
+      await store.saveGroup(_groupWith());
+      final toBob = _Device(_bob, groups: true, store: store)..start();
+      final toCarol = _Device(_carol, groups: true, store: store)..start();
+      toBob.receive(HelloFrame(features: _allFeatures));
+      toCarol.receive(HelloFrame(features: _allFeatures));
+      final message = outgoing(1);
+      await store.add(message);
+      await toBob.session.sendToGroup(message);
+      await toCarol.session.sendToGroup(message);
+      await _settle();
+
+      await toBob.session.close();
+      await _settle();
+
+      expect((await store.find(_group, _id(1)))!.memberStates, {
+        _bob: ChatState.notSent,
+        _carol: ChatState.sending,
+      });
+      expect(toBob.ofType<MessageNotSent>().single.group, _group);
+    });
+
+    test(
+      'a copy kept from an earlier session is sent when the member is ready',
+      () async {
+        final device = _Device(_bob, groups: true);
+        await device.store.saveGroup(_groupWith());
+        final message = outgoing(1);
+        await device.store.add(message);
+        device.start(resend: [message]);
+        await _settle();
+        expect(device.written.whereType<GroupMsgFrame>(), isEmpty);
+
+        device.receive(HelloFrame(features: _allFeatures));
+        await _settle();
+
+        expect(device.written.whereType<GroupMsgFrame>().single.id, _id(1));
+        expect((await device.store.find(_group, _id(1)))!.memberStates, {
+          _bob: ChatState.sending,
+        });
       },
     );
   });
