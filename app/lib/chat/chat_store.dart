@@ -905,9 +905,40 @@ class ChatStore {
     final list = [...await _loadContact(contactId)];
     final index = list.indexWhere((m) => m.id == id);
     if (index < 0) return;
+    // A message deleted for everyone is final: it is never sent, queued or
+    // counted as not sent again, whatever state it had when it was deleted.
+    if (list[index].deletedForAll && _isUnsent(state)) return;
     list[index] = list[index].withState(state, reason: reason);
     await _saveContact(contactId, list);
   });
+
+  static bool _isUnsent(ChatState state) =>
+      state == ChatState.sending ||
+      state == ChatState.queued ||
+      state == ChatState.notSent;
+
+  /// Marks the outgoing message [id] as being sent, and returns it as stored
+  /// now. Returns null when it is gone or deleted for everyone, and then
+  /// nothing is written. A caller sends the copy returned, never an older one,
+  /// so a message deleted before this write is not sent with its text.
+  Future<ChatMessage?> markSending(String contactId, String id) =>
+      _inOrder(() async {
+        final list = [...await _loadContact(contactId)];
+        final index = list.indexWhere((m) => m.id == id);
+        if (index < 0 || list[index].deletedForAll) return null;
+        list[index] = list[index].withState(ChatState.sending);
+        await _saveContact(contactId, list);
+        return list[index];
+      });
+
+  /// The message [id] as stored when this read runs, or null when it is gone
+  /// or deleted for everyone. It is read in the same order as [markSending],
+  /// so a delete written before the read is always seen.
+  Future<ChatMessage?> findUndeleted(String contactId, String id) =>
+      _inOrder(() async {
+        final message = await find(contactId, id);
+        return message == null || message.deletedForAll ? null : message;
+      });
 
   /// Sets the state of message [id] to [state] and records when it happened,
   /// in one write: [ChatState.delivered] sets [ChatMessage.deliveredAt] and

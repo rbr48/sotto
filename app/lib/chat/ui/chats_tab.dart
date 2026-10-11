@@ -594,14 +594,17 @@ class _ChatsTabState extends State<ChatsTab> {
         child: Row(
           children: [
             if (last.outgoing) ...[
-              Icon(
-                _statusIcon(last.state),
-                size: 14,
-                color: last.state == ChatState.read
-                    ? tokens.readTick
-                    : scheme.onSurfaceVariant,
-              ),
-              const SizedBox(width: 4),
+              // A message deleted for everyone has no status, as in its bubble.
+              if (!last.deletedForAll) ...[
+                Icon(
+                  _statusIcon(last.state),
+                  size: 14,
+                  color: last.state == ChatState.read
+                      ? tokens.readTick
+                      : scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 4),
+              ],
               Text(
                 l10n.chatsYouPrefix,
                 style: TextStyle(

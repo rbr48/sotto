@@ -394,6 +394,11 @@ copy at once. It is sent to the contact over the chat, never through the relay:
   the contact would receive it first and ignore it. A delete does not wait:
   the message's text is taken off the outbox at once, so it is not sent after
   the delete, and an unknown id is ignored.
+- A message deleted for everyone is final on the sending device. It is never
+  sent again: not by Retry, a queue flush, a relay copy or a new chat. Its
+  state is not moved back to sending, queued or not sent, so it is not counted
+  as unsent, and a queued one is not offered. Only its `delete` goes out, and a
+  contact that never stored the message ignores it.
 - A control that cannot be sent (no ready chat, or the contact does not list
   its feature, or the message has not been stored yet) is kept in the vault
   under `sotto.chats.pending.<contact id>`, as a list of the frames above in

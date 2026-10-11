@@ -443,18 +443,18 @@ class ChatManager {
       return;
     }
     _ensureTicker();
-    final again = message.withState(ChatState.sending);
+    // The copy sent is the store's, read in the store's order (see
+    // [ChatStore.markSending]), so a delete made before now is not sent over.
+    final again = await store.markSending(contact, messageId);
+    if (again == null) return;
     final live = _activeFor(contact);
     final session = live?.session;
     if (session != null && !session.isEnded) {
-      await store.setState(contact, messageId, ChatState.sending);
       session.resend(again);
     } else if (live != null) {
-      await store.setState(contact, messageId, ChatState.sending);
       live.resend.add(again);
       _sendThroughRelay(again);
     } else {
-      await store.setState(contact, messageId, ChatState.sending);
       (_waiting[contact] ??= []).add(again);
       if (!_signalling.isOpening(contact)) {
         _perform(_signalling.open(contact, clock()));
@@ -559,6 +559,7 @@ class ChatManager {
     final message = await store.find(contact, messageId);
     if (message == null ||
         !message.outgoing ||
+        message.deletedForAll ||
         message.state != ChatState.queued) {
       return;
     }
@@ -589,8 +590,10 @@ class ChatManager {
           // Offered once; the session moves it from queued to sending.
           await session.offerStoredFile(msg);
         } else {
-          await store.setState(contact, msg.id, ChatState.sending);
-          session.resend(msg.withState(ChatState.sending));
+          final again = await store.markSending(contact, msg.id);
+          if (again == null) continue;
+          if (session.isEnded) return;
+          session.resend(again);
         }
       }
       return;
@@ -598,7 +601,8 @@ class ChatManager {
     // No direct chat is ready: the texts also go through the relay, so they
     // reach a device whose app is in the background.
     for (final msg in queued.where(_relayable).take(maxRelayPerFlush)) {
-      _sendThroughRelay(msg);
+      final current = await store.findUndeleted(contact, msg.id);
+      if (current != null && _relayable(current)) _sendThroughRelay(current);
     }
     // A chat being opened sends the queue itself once its channel is open.
     if (live != null || _signalling.isOpening(contact)) return;
@@ -698,13 +702,15 @@ class ChatManager {
   }
 
   /// Marks a message not sent, unless it already got through (for example
-  /// through the relay while the direct chat was still failing).
+  /// through the relay while the direct chat was still failing), or was deleted
+  /// for everyone.
   Future<bool> _markNotSent(String contact, String id, String reason) async {
     // The message may still be on its way into the store; the store applies
     // writes in order, so only a state that is known to be final is kept.
     final current = await store.find(contact, id);
     if (current != null &&
-        (current.state == ChatState.delivered ||
+        (current.deletedForAll ||
+            current.state == ChatState.delivered ||
             current.state == ChatState.read)) {
       return false;
     }
@@ -918,16 +924,26 @@ class ChatManager {
       if (session != null && !session.isEnded && session.isReady) continue;
       for (final m in await store.messages(contact)) {
         if (budget <= 0) return;
-        if (!_relayable(m) || m.ts < since) continue;
-        final pending =
-            m.state == ChatState.sending ||
-            (m.state == ChatState.notSent && m.reason != 'cancelled');
-        if (!pending) continue;
-        _sendThroughRelay(m);
+        if (!_relayable(m) || m.ts < since || !_awaitingDelivery(m)) continue;
+        // Read again in the store's order, so a delete or an acknowledgement
+        // made meanwhile is seen before the copy goes out.
+        final current = await store.findUndeleted(contact, m.id);
+        if (current == null ||
+            !_relayable(current) ||
+            !_awaitingDelivery(current)) {
+          continue;
+        }
+        _sendThroughRelay(current);
         budget--;
       }
     }
   }
+
+  /// Whether [message] is still on its way to the contact: being sent, or not
+  /// sent for any reason but a cancel.
+  static bool _awaitingDelivery(ChatMessage message) =>
+      message.state == ChatState.sending ||
+      (message.state == ChatState.notSent && message.reason != 'cancelled');
 
   /// Ends every chat and closes the event stream.
   Future<void> dispose() async {

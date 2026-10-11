@@ -2307,4 +2307,35 @@ void main() {
       },
     );
   });
+
+  group('a message deleted for everyone', () {
+    test('is never set back to sending, queued or not sent', () async {
+      await store.add(
+        ChatMessage(
+          id: _id(1),
+          contactId: 'bob',
+          outgoing: true,
+          ts: 1700000000001,
+          text: '',
+          state: ChatState.notSent,
+          reason: 'no-answer',
+          deletedForAll: true,
+        ),
+      );
+
+      for (final state in [ChatState.sending, ChatState.queued]) {
+        await store.setState('bob', _id(1), state, reason: 'interrupted');
+      }
+      await store.setState('bob', _id(1), ChatState.notSent, reason: 'failed');
+      final kept = (await store.find('bob', _id(1)))!;
+      expect(kept.state, ChatState.notSent);
+      expect(kept.reason, 'no-answer');
+      expect(kept.deletedForAll, isTrue);
+
+      // The contact did store it before the delete; that is still true.
+      await store.setStateAt('bob', _id(1), ChatState.delivered, at: 2);
+      expect((await store.find('bob', _id(1)))!.state, ChatState.delivered);
+      await _expectSummaryInStep(secrets, 'bob');
+    });
+  });
 }

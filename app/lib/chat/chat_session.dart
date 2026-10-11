@@ -354,12 +354,14 @@ class ChatSession {
     _lastActivity = clock();
     for (final message in resend) {
       // A file is never sent as a text: queued files are offered once the
-      // other side is ready (see [offerStoredFile]). A message deleted for
-      // everyone is not sent again, with its old text.
-      if (message.isAttachment || message.deletedForAll) continue;
-      await store.setState(contactId, message.id, ChatState.sending);
-      _outbox[message.id] = message.withState(ChatState.sending);
-      _unsent.add(message.id);
+      // other side is ready (see [offerStoredFile]). The text sent is the one
+      // the store holds now, so a message deleted for everyone is not sent
+      // with its old text, and an edit since the copy was made is not lost.
+      if (message.isAttachment) continue;
+      final stored = await store.markSending(contactId, message.id);
+      if (stored == null) continue;
+      _outbox[stored.id] = stored;
+      _unsent.add(stored.id);
     }
     // Each step is chained on the one before, and an error in one step (a
     // full disk, say) is dropped there, so the later frames and the end of
