@@ -214,16 +214,21 @@ abstract final class ChatGroups {
     );
   }
 
-  /// The invite this device sends for [group], dated [ts]. Its members are the
+  /// The invite this device sends [memberId] for [group]. It is dated with that
+  /// member's invitedAt, the ts this device judges the member's answer against,
+  /// so the sent ts and the judged ts cannot differ (D11). Its members are the
   /// group's members, this device included.
-  static GroupInvite inviteFor(ChatGroup group, {required int ts}) =>
-      GroupInvite(
-        group: group.id,
-        name: group.name,
-        members: group.memberIds,
-        ts: ts,
-        inviter: group.selfId,
-      );
+  static GroupInvite inviteFor(ChatGroup group, String memberId) {
+    final member = group.memberOf(memberId);
+    if (member == null) throw const ChatFrameException('malformed');
+    return GroupInvite(
+      group: group.id,
+      name: group.name,
+      members: group.memberIds,
+      ts: member.invitedAt,
+      inviter: group.selfId,
+    );
+  }
 
   /// The group a receiver holds from [invite]. The inviter is accepted, and
   /// every other member, [selfId] included, is invited at the invite's ts. The

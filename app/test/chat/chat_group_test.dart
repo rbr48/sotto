@@ -444,7 +444,7 @@ void main() {
         ts: _now,
         random: Random(3),
       );
-      final invite = ChatGroups.inviteFor(made, ts: _now + 1000);
+      final invite = ChatGroups.inviteFor(made, _member(2));
       expect(invite.inviter, _member(1));
       expect(invite.name, 'Trip');
       final text = ChatGroups.encodeInvite(invite);
@@ -457,8 +457,65 @@ void main() {
       expect(held.id, made.id);
       expect(held.name, made.name);
       expect(held.memberIds, made.memberIds);
-      expect(held.createdAt, _now + 1000);
+      expect(held.createdAt, _now);
       expect(held.memberOf(_member(1))!.state, MemberState.accepted);
+    });
+
+    test('the inviter and an invitee judge an accept the same way (D11)', () {
+      final made = ChatGroups.create(
+        selfId: _member(1),
+        name: 'Trip',
+        invitees: [_member(2), _member(3)],
+        contacts: {_member(2), _member(3)},
+        ts: _now,
+        random: Random(3),
+      );
+      final invitee = ChatGroups.fromInvite(
+        ChatGroups.decodeInvite(
+          ChatGroups.encodeInvite(ChatGroups.inviteFor(made, _member(2))),
+          from: _member(1),
+          receiver: _member(2),
+        ),
+        selfId: _member(2),
+      );
+      MemberState judge(ChatGroup group, int answeredAt) => ChatGroups.accept(
+        group,
+        _member(2),
+        answeredAt,
+      ).memberOf(_member(2))!.state;
+      for (final answeredAt in [
+        _now - 5 * _minute - 1,
+        _now - 5 * _minute,
+        _now,
+        _now + 20 * _minute,
+        _now + 20 * _minute + 1,
+      ]) {
+        expect(
+          judge(invitee, answeredAt),
+          judge(made, answeredAt),
+          reason: 'an accept at $answeredAt',
+        );
+      }
+    });
+
+    test('an invite to a member carries the ts the inviter judges that '
+        'member against, and only a member can be invited', () {
+      final made = ChatGroups.create(
+        selfId: _member(1),
+        name: 'Trip',
+        invitees: [_member(2), _member(3)],
+        contacts: {_member(2), _member(3)},
+        ts: _now,
+        random: Random(3),
+      );
+      final declined = ChatGroups.decline(made, _member(2));
+      final again = ChatGroups.reinvite(declined, _member(2), _now + _minute);
+      expect(ChatGroups.inviteFor(again, _member(2)).ts, _now + _minute);
+      expect(ChatGroups.inviteFor(made, _member(3)).ts, _now);
+      expect(
+        _refusedBy(() => ChatGroups.inviteFor(made, _member(9))),
+        'malformed',
+      );
     });
   });
 
