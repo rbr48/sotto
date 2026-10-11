@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../diagnostics/event_log.dart';
 import 'chat_frames.dart';
+import 'chat_group_manager.dart';
 import 'chat_rtc.dart';
 import 'chat_session.dart';
 import 'chat_signalling.dart';
@@ -18,11 +19,13 @@ sealed class ChatManagerEvent {
   const ChatManagerEvent();
 }
 
-/// Something happened in the chat with [contact].
+/// Something happened in the chat with [contact]. For a group, [contact] is the
+/// group's id, and [group] is set to it, so a screen can tell the two apart.
 final class ChatUpdate extends ChatManagerEvent {
-  const ChatUpdate(this.contact, this.event);
+  const ChatUpdate(this.contact, this.event, {this.group});
   final String contact;
   final ChatSessionEvent event;
+  final String? group;
 }
 
 /// Opening the chat with [contact] failed (see [ChatSignalling] for the
@@ -143,7 +146,25 @@ class ChatManager {
 
   final String Function() _newId;
   final ChatSignalling _signalling;
+
+  /// The groups of this device (see [ChatGroupManager]).
+  late final ChatGroupManager _groups = ChatGroupManager(
+    myId: myId,
+    store: store,
+    isContact: isContact,
+    send: send,
+    clock: clock,
+    newId: _newId,
+    sessionOf: _sessionOf,
+    emit: _emitGroup,
+    groupsEnabled: groupsEnabled,
+  );
+
   final _events = StreamController<ChatManagerEvent>.broadcast();
+
+  /// The groups of this device: creating, inviting, answering, leaving, and
+  /// sending in them.
+  ChatGroupManager get groups => _groups;
 
   /// Chats in progress or open, by session id.
   final _live = <String, _Live>{};
@@ -185,6 +206,7 @@ class ChatManager {
   /// the sender's chat is gone.
   Future<void> recoverInterrupted() async {
     if (_disposed) return;
+    await _groups.recoverInterrupted();
     for (final contact in await store.contactIds()) {
       if (_signalling.isOpening(contact) || _activeFor(contact) != null) {
         continue;
@@ -704,11 +726,19 @@ class ChatManager {
     send(from, relayTextAck, {'id': messageId}, null);
   }
 
-  /// The other device stored a text sent through the relay.
+  /// The other device stored a text sent through the relay. A group text
+  /// names its group.
   Future<void> _onRelayAck(String from, Map<String, dynamic> body) async {
     final id = body['id'];
     if (!ChatFrames.isId(id)) return;
     final messageId = id as String;
+    final group = body['group'];
+    if (group != null) {
+      if (ChatFrames.isId(group)) {
+        await _groups.onTextAck(from, group as String, messageId);
+      }
+      return;
+    }
     final message = await store.find(from, messageId);
     if (message == null || !message.outgoing) return;
     // Taken off every list, so a chat that fails later cannot mark it not sent.
@@ -903,6 +933,11 @@ class ChatManager {
       unawaited(_onRelayAck(from, body));
       return;
     }
+    if (type.startsWith('group.')) {
+      // Group envelopes go to the group manager, and are ignored with groups off.
+      unawaited(_groups.handle(from: from, type: type, body: body));
+      return;
+    }
     if (type == 'chat.open') _log('chat: a contact is opening a chat');
     _perform(
       _signalling.handle(
@@ -929,6 +964,13 @@ class ChatManager {
     live?.session?.sendReadReceipts(ids);
   }
 
+  /// Sends read receipts for [ids] of the group [groupId], as
+  /// [sendReadReceipts] does for a chat.
+  Future<void> sendGroupReadReceipts(String groupId, List<String> ids) async {
+    if (!readReceiptsEnabled()) return;
+    await _groups.sendReadReceipts(groupId, ids);
+  }
+
   /// Times out chats that nobody answered, closes idle sessions, sends queued
   /// messages to contacts that are online, and sweeps expired messages.
   Future<void> tick() async {
@@ -940,6 +982,7 @@ class ChatManager {
     }
     await flushAllOutbox();
     await _resendUnacknowledged();
+    await _groups.tick();
     await store.sweepExpired(clock: clock);
   }
 
@@ -1152,6 +1195,7 @@ class ChatManager {
     }
     _log('chat: direct chat connected');
     unawaited(session.start(resend: [...waiting, ...queued]));
+    unawaited(_groups.catchUp(live.contact, session));
     // Read receipts for what this device has read are sent (again) with each
     // chat, so the other side learns of reads that happened while no chat
     // was open. The other side ignores what it already knows.
@@ -1165,10 +1209,38 @@ class ChatManager {
   }
 
   void _onSessionEvent(_Live live, ChatSessionEvent event) {
-    _emit(ChatUpdate(live.contact, event));
+    if (event is GroupInviteReceived) {
+      unawaited(_groups.receiveInviteFrame(event.invite, event.from));
+      return;
+    }
+    final group = _groupOf(event);
+    _emit(ChatUpdate(group ?? live.contact, event, group: group));
     if (event is SessionEnded && !live.ended) {
       unawaited(_end(live, event.reason));
     }
+  }
+
+  /// The group an event of a session is about, or null for a chat with one
+  /// person.
+  static String? _groupOf(ChatSessionEvent event) => switch (event) {
+    MessageReceived(:final message) => message.groupId,
+    MessageDelivered(:final group) => group,
+    MessageNotSent(:final group) => group,
+    MessagesRead(:final group) => group,
+    MessageChanged(:final group) => group,
+    GroupStateChanged(:final group) => group,
+    _ => null,
+  };
+
+  /// A change in a group, as the group manager reports it.
+  void _emitGroup(String scope, ChatSessionEvent event, {String? group}) {
+    _emit(ChatUpdate(scope, event, group: group));
+  }
+
+  /// The live session with [member], when it has not ended.
+  ChatSession? _sessionOf(String member) {
+    final session = _activeFor(member)?.session;
+    return session == null || session.isEnded ? null : session;
   }
 
   void _sendCandidate(_Live live, Map<String, Object?> candidate) {
