@@ -5,6 +5,8 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'chat_frames.dart';
+import 'chat_group.dart';
+import 'chat_groups.dart';
 import 'chat_store.dart';
 import 'image_metadata.dart';
 import 'voice/voice_format.dart';
@@ -242,6 +244,7 @@ class ChatSession {
     this.maxFileBytes = platformMaxFileBytes,
     this.autoAcceptFiles = _never,
     Future<void> Function()? bufferWait,
+    this.groupsEnabled = false,
   }) : _newId = newId ?? ChatFrames.newId,
        _bufferWait = bufferWait ?? _waitForBuffer;
 
@@ -294,6 +297,11 @@ class ChatSession {
   final bool Function()? isContact;
 
   bool get _contactNow => isContact?.call() ?? true;
+
+  /// Whether groups are on for this device (see `ChatManager.groupsEnabled`).
+  /// With them off, group frames are ignored and the group feature is not
+  /// listed in hello.
+  final bool groupsEnabled;
 
   /// How long the session can be silent (with the chat not open) before it
   /// closes.
@@ -348,6 +356,13 @@ class ChatSession {
 
   bool get isEnded => _ended;
 
+  /// The features this session lists in its hello. The group feature is listed
+  /// only with groups on, so a peer does not send group frames to a device that
+  /// ignores them.
+  Set<String> get _helloFeatures => groupsEnabled
+      ? {...ChatFrames.features, ChatFrames.featureGroups}
+      : ChatFrames.features;
+
   /// Starts the session. [resend] are messages from an earlier session that
   /// were never delivered; they are sent once the session is ready.
   Future<void> start({List<ChatMessage> resend = const []}) async {
@@ -373,7 +388,7 @@ class ChatSession {
     _binarySubscription = transport.binaryFrames.listen(
       (bytes) => _enqueue(() => _onBinaryChunk(bytes)),
     );
-    _write(const HelloFrame(features: ChatFrames.features));
+    _write(HelloFrame(features: _helloFeatures));
   }
 
   void _enqueue(Future<void> Function() step) {
@@ -922,6 +937,79 @@ class ChatSession {
     return sent;
   }
 
+  /// Whether [frame] is a group frame, which only a session with groups on
+  /// handles.
+  static bool _isGroupFrame(ChatFrame frame) => switch (frame) {
+    GroupMsgFrame() || GroupStateFrame() => true,
+    AckFrame(:final group) ||
+    ReadFrame(:final group) ||
+    ReactFrame(:final group) ||
+    EditFrame(:final group) ||
+    DeleteFrame(:final group) => group != null,
+    _ => false,
+  };
+
+  /// The group [groupId] when this device is in it, and the session's member is
+  /// an accepted member of it. Null otherwise, so a frame from anyone else is
+  /// dropped.
+  Future<ChatGroup?> _groupWithSender(String groupId) async {
+    final group = await store.group(groupId);
+    if (group == null || !ChatGroups.isActive(group)) return null;
+    return group.memberOf(contactId)?.state == MemberState.accepted
+        ? group
+        : null;
+  }
+
+  /// A message to a group from the session's member. It is kept under the
+  /// group, and acknowledged with the group once it is held. A message the
+  /// group already holds is acknowledged again, and not stored twice.
+  Future<void> _onGroupMessage(GroupMsgFrame frame) async {
+    if (!_contactNow) {
+      _write(const ByeFrame());
+      await _end('not-contact');
+      return;
+    }
+    final group = await _groupWithSender(frame.group);
+    if (group == null) return;
+    if (!await store.contains(group.id, frame.id)) {
+      final arrived = clock().millisecondsSinceEpoch;
+      final stored = await store.add(
+        ChatMessage(
+          id: frame.id,
+          contactId: group.id,
+          groupId: group.id,
+          authorId: contactId,
+          outgoing: false,
+          ts: ChatFrames.receivedTs(frame.ts, arrived),
+          text: frame.text,
+          state: ChatState.received,
+          read: false,
+          arrivedAt: arrived,
+          replyTo: await _quoteOwnMessage(group.id, frame.reply),
+          forwarded: frame.forwarded,
+        ),
+      );
+      _events.add(MessageReceived(stored));
+    }
+    _write(AckFrame(id: frame.id, group: group.id));
+  }
+
+  /// The quote a group message carries (D25). A quote of a message the group
+  /// holds is kept only when that message is the session's member's own, since
+  /// a member quotes only its own messages. A quote of a message not held here
+  /// cannot be checked, and is kept as sent.
+  Future<ChatReply?> _quoteOwnMessage(String groupId, ChatReply? reply) async {
+    if (reply == null) return null;
+    final quoted = await store.find(groupId, reply.id);
+    if (quoted == null) return reply;
+    return ChatGroups.mayQuote(
+          authorId: quoted.authorId ?? '',
+          replierId: contactId,
+        )
+        ? reply
+        : null;
+  }
+
   Future<void> _onFrame(String raw) async {
     if (_ended) return;
     _lastActivity = clock();
@@ -933,15 +1021,19 @@ class ChatSession {
       if (e.reason == 'version') await _end('version');
       return;
     }
+    // A group frame is ignored when groups are off, as an old app ignores it.
+    if (!groupsEnabled && _isGroupFrame(frame)) return;
     switch (frame) {
-      // Group frames are decoded but not routed yet. A peer sends them only when
-      // groups are on, so until routing lands this session ignores them.
-      case GroupMsgFrame() ||
-          GroupStateFrame() ||
+      case GroupStateFrame() ||
           ReactFrame(group: != null) ||
           EditFrame(group: != null) ||
-          DeleteFrame(group: != null):
+          DeleteFrame(group: != null) ||
+          AckFrame(group: != null) ||
+          ReadFrame(group: != null):
         break;
+      case final GroupMsgFrame groupFrame:
+        if (!_peerHello) return;
+        await _onGroupMessage(groupFrame);
       case HelloFrame(:final features):
         _peerHello = true;
         _peerFeatures = features;
