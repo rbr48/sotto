@@ -4,6 +4,8 @@ Status: **built and tested.** Built with tests: the protocol, session logic, sto
 
 **Change from the plan:** offers, answers and candidates use `chat.offer`, `chat.answer` and `chat.ice`, not `sdp.*`, and carry the winning device's tag, so only that device applies them. The rest is as written below. `PROTOCOL.md` §5.10 has the wire format.
 
+**Added since v1:** files and voice notes, read receipts, a sender-side outbox, and plain texts through the relay when no direct chat is ready (see "Offline"). The "Not in v1" list below is the original scope.
+
 ## Summary
 
 Text messages go directly between the two people's devices over a WebRTC data
@@ -87,8 +89,11 @@ characters before it is shown.
   is stronger than the call set-up messages, which use long-term keys
   (`THREAT_MODEL.md`, item 1); those set-up messages carry no message text.
 - **What the relay learns:** that two Sotto IDs set up a session, and when.
-  This is the same as for a call. It does not learn how many messages were
-  sent or what they say.
+  This is the same as for a call. It never learns what the messages say.
+  Messages on the direct chat do not pass through it. A plain text sent
+  through the relay (see "Offline") is one sealed envelope per copy, so the
+  relay sees each copy's timing and size, and it can see when the same sender
+  sends again to the same recipient.
 - **What a TURN server learns** (when used): the volume and timing of
   encrypted traffic.
 - **Direct connections** show each side the other's IP address, unless Hide my
@@ -99,13 +104,27 @@ characters before it is shown.
 
 ## Offline
 
-With this design a message can only be sent while the other person's Sotto
-is running. If no session opens within 20 seconds, the message is marked
-**Not sent: <name> is offline**, with a Retry button. It is never kept or
-resent in the background.
+Built since v1: a sender-side outbox, with no server storage.
 
-A later option, without server storage: keep unsent messages on the sender's
-own device and send them automatically when the contact next comes online.
+- If no session opens within 20 seconds, the message is marked
+  **Not sent: <name> did not answer.**, with Retry and Queue.
+- When no direct chat is ready, a plain text also goes through the relay as a
+  sealed `chat.text` envelope. The relay holds it in memory for at most 60
+  seconds. While the contact has not acknowledged it, the sender's app sends a
+  new copy every 30 seconds for 15 minutes from the message's time, while the
+  app is open, at most 20 per check. Each copy is sealed again, with a fresh
+  nonce.
+- A message the user queues stays on the sender's device. It is sent through
+  the relay on every check and over the chat when one opens, while the app is
+  open, with no time limit.
+- Replies, forwarded texts, files and voice notes need the direct chat.
+  Reactions, edits and deletes wait in the vault (at most 100 per contact) and
+  go when a chat is ready. Edits and deletes more than 7 days old by their own
+  time are dropped; reactions are not.
+- The relay can see these repeat sends: that the same sender keeps sending to
+  the same recipient (decision D19, approved; `THREAT_MODEL.md`, limitation
+  19). The gap that remains: if the sender closes the app before the contact
+  returns, nothing more is sent until the app runs again.
 
 ## Where the code goes
 
@@ -141,12 +160,29 @@ Approved with the recommended option for each:
 1. **Who can message you:** contacts only. Others get `chat.decline`.
 2. **Notifications:** the sender's name only. No text preview on the lock screen.
 3. **History:** kept until you delete it. No automatic deletion in v1.
+   (Since added: disappearing messages per one-to-one chat, off by default,
+   on this device only.)
 4. **Offline:** "Not sent" with Retry for v1. A sender-side outbox comes later.
+   (Since built; see "Offline".)
 
 ## Second plan: the first group of messaging features
 
-Status: **step 1 is built and tested; steps 2 to 5 are not started.** The
-decisions below are approved.
+Status: **steps 1 to 4 are built and tested.** Step 5: the two-browser test of
+replies, reactions, forwarding, edits and deletes (`e2e/chat-actions.mjs`) is
+built, and checks that the browser build offers no export. The docs are
+updated. The three-browser group test (`e2e/group.mjs`) is not built yet. Groups are compiled in only with the build
+define `SOTTO_GROUPS`, and release builds turn them on in this release. The
+decisions below are approved, and so are the later decisions D10 to D26 of the
+implementation plan, with their recommended options. Three of them change what
+is written here:
+
+- **D18.** The relay may learn group membership and the timing and size of each
+  copy. Recorded in `THREAT_MODEL.md`, limitation 16. Group bodies are padded
+  to 1 KiB steps (D17), which hides only exact sizes.
+- **D19.** The 15-minute relay retry of texts stays, and the repeat sends it
+  shows the relay are documented (see "Offline").
+- **D21.** Chat settings and group records are included in encrypted backups,
+  as all vault data is (see "Storage").
 
 Adds to the one-to-one chat: replies, forwarding of text, reactions, editing,
 delete for everyone, archive, mute and pin, starred messages, chat export, and
@@ -163,7 +199,7 @@ the server to store data or goes against a rule in `ROADMAP.md` §2.
 
 | # | Question | Recommended |
 |---|---|---|
-| D1 | Offline delivery | Keep the sender-side outbox, which is already built: a message the contact did not get waits on the sender's device and goes out when the chat reopens. The server keeps storing nothing. The gap that remains is when the sender closes the app before the contact returns. The alternative is an encrypted relay queue for a fixed time. That breaks "zero server storage" (`ROADMAP.md` §2, rule 1), so the privacy text would change, and it needs your approval. |
+| D1 | Offline delivery | Keep the sender-side outbox, which is already built: a message the contact did not get waits on the sender's device and is sent again while the sender's app is open (through the relay for 15 minutes, and when a chat opens; see "Offline" and D19). The relay can see these repeat sends. The server keeps storing nothing. The gap that remains is when the sender closes the app before the contact returns. The alternative is an encrypted relay queue for a fixed time. That breaks "zero server storage" (`ROADMAP.md` §2, rule 1), so the privacy text would change, and it needs your approval. |
 | D2 | Group size | Four people in total, including you, as in the group calls plan (`GROUP_CALLS_PLAN.md`). Each device keeps a direct chat with each other member. |
 | D3 | Who can be in a group | Only people who are contacts of every member. Chats only open between contacts (recorded decision 1 above), so this is needed anyway. |
 | D4 | Delete for everyone | Your own text messages only, allowed for one hour after sending. Files cannot be deleted for everyone. Best effort: another device may keep its copy, and the app says so. |
@@ -207,8 +243,15 @@ Added to the encrypted vault as optional fields, so older records still load:
 
 - Message: `replyTo`, reactions (one emoji per person), `editedAt`,
   `deletedForAll`, `forwarded`, `starred`.
-- Chat: `archived`, `muted`, `pinnedAt`. These never leave the device.
+- Chat: `archived`, `muted`, `pinnedAt`, in a settings record per chat
+  (`sotto.chats.meta.<id>`). They are never sent to anyone.
 - Group: id, name, members, creation time, and whether you left.
+- Message: `deliveredAt` and `readAt`, and in a group `groupId`, `authorId`
+  and each member's state.
+
+Like all vault data, chat settings, group records, group messages and pending
+invites are included in encrypted backups (D21). `PROTOCOL.md` §9 lists the
+keys.
 
 ### Screens
 
