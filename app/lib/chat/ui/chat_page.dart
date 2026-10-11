@@ -2269,19 +2269,16 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                       ],
                     ),
                   ),
-                  // Not in the browser: its build has no Argon2id, so it cannot
-                  // make the encrypted export, and backups are native-only too.
-                  if (!kIsWeb)
-                    PopupMenuItem(
-                      value: 'export',
-                      child: Row(
-                        children: [
-                          const Icon(Icons.file_download_outlined, size: 20),
-                          const SizedBox(width: 12),
-                          Flexible(child: Text(l10n.chatExportChat)),
-                        ],
-                      ),
+                  PopupMenuItem(
+                    value: 'export',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.file_download_outlined, size: 20),
+                        const SizedBox(width: 12),
+                        Flexible(child: Text(l10n.chatExportChat)),
+                      ],
                     ),
+                  ),
                   PopupMenuItem(
                     value: 'delete',
                     child: Row(

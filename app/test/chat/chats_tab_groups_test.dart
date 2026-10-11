@@ -103,7 +103,7 @@ void main() {
     await settleStore(tester);
   }
 
-  group('with groups off (the default build)', () {
+  group('with groups off (SOTTO_GROUPS=false)', () {
     testWidgets('no group row, no New group entry and no group screen', (
       tester,
     ) async {
@@ -125,14 +125,15 @@ void main() {
       expect(find.byType(ChatPage), findsNothing);
     });
 
-    test('the build constant is off unless SOTTO_GROUPS is set', () {
-      // The CI and release builds set nothing, so groups stay hidden.
-      expect(groupsBuildEnabled, isFalse);
+    test('the build constant is on unless SOTTO_GROUPS=false', () {
+      // The CI and release builds set nothing, so groups are on, and every
+      // screen follows the build constant unless told otherwise.
+      expect(groupsBuildEnabled, isTrue);
       expect(
         ChatsTab(app: _unusedApp, calls: _CallsWith(chat)).groupsEnabled,
-        isFalse,
+        isTrue,
       );
-      expect(StarredPage(chat: chat).groupsEnabled, isFalse);
+      expect(StarredPage(chat: chat).groupsEnabled, isTrue);
       expect(
         ChatPage(
           chat: chat,
@@ -140,7 +141,7 @@ void main() {
           name: 'g',
           groupId: 'g',
         ).groupsEnabled,
-        isFalse,
+        isTrue,
       );
     });
 
@@ -156,7 +157,9 @@ void main() {
           ).copyWith(starred: true),
         );
       });
-      await tester.pumpWidget(appWith(StarredPage(chat: chat)));
+      await tester.pumpWidget(
+        appWith(StarredPage(chat: chat, groupsEnabled: false)),
+      );
       await settleStore(tester);
       expect(find.text('Starred in a group'), findsNothing);
     });

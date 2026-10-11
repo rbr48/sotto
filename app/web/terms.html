@@ -25,16 +25,19 @@
 <p class="muted">This Sotto server is run by {{with env "SOTTO_OPERATOR"}}{{html .}}{{else}}the operator of {{env "SOTTO_DOMAIN" | html}}{{end}}
 ("the operator"). Contact: {{with env "SOTTO_CONTACT"}}{{if hasPrefix "https://" .}}<a href="{{html .}}">{{html .}}</a>{{else if contains "@" .}}<a href="mailto:{{html .}}">{{html .}}</a>{{else}}{{html .}}{{end}}{{else}}the person or organisation that gave you this server's address{{end}}.{{with env "SOTTO_SUPPORT_EMAIL"}} Support: <a href="mailto:{{html .}}">{{html .}}</a>.{{end}}{{with env "SOTTO_SUPPORT_LINK"}}{{if hasPrefix "https://" .}} Live support: <a href="{{html .}}">call us in Sotto</a>.{{end}}{{end}}</p>
 
-<p>By using this server to make or receive calls, you agree to these terms.</p>
+<p>By using this server to make or receive calls or messages, you agree to these terms.</p>
 
 <h2>Not for emergencies</h2>
 <p><strong>Sotto cannot call emergency services.</strong> In an emergency, use a phone to call
 your local emergency number.</p>
 
 <h2>The service</h2>
-<p>This server connects Sotto apps and browsers so they can call each other, end to end
-encrypted. It is provided as it is, without a guarantee that it is always available or
-free of faults. The operator may change or stop it.</p>
+<p>This server connects Sotto apps and browsers so they can call and message each other,
+end to end encrypted. It passes on encrypted messages, including group chat messages
+and repeated copies of a message that has not arrived yet, and stores none of them: a
+message that can't be delivered within 60 seconds is dropped. It is provided as it is,
+without a guarantee that it is always available or free of faults. The operator may
+change or stop it.</p>
 
 <h2>Acceptable use</h2>
 <p>Don't use this server to break the law, to harass, threaten or deceive anyone, to
@@ -48,6 +51,10 @@ with clients or patients), you remain responsible for your professional duties, 
 confidentiality and consent, and for your own devices: keep them locked and up to date,
 and keep backups of what you can't lose. Sotto can't recover an identity or data that
 only existed on a lost device.</p>
+<p>What you send to a group chat reaches every member. Deleting a message for everyone
+asks the other devices to remove it, but can't force them to. A chat you export is a
+file you save yourself: you are responsible for where you keep it, and a plain-text
+export can be read by anyone who has the file.</p>
 
 <h2>Privacy</h2>
 <p>How information is handled is described in the <a href="privacy.html">privacy
@@ -58,8 +65,8 @@ policy</a>.</p>
 or later. Its source code is public.</p>
 
 <h2>Liability</h2>
-<p>As far as the law allows, the operator is not liable for losses caused by calls that
-fail, drop or are delayed, or by the server being unavailable.</p>
+<p>As far as the law allows, the operator is not liable for losses caused by calls or
+messages that fail, drop or are delayed, or by the server being unavailable.</p>
 
 <h2>Changes</h2>
 <p>The operator may update these terms; the current version is always at this

@@ -39,21 +39,31 @@ The messages that set up a call or a chat, including your name if you send it, a
 encrypted on your device for the other person's device only (libsodium). This server
 cannot read them, and it cannot listen to or watch a call.</p>
 <p>Text messages between contacts go straight from one device to the other over an
-encrypted connection (a WebRTC data channel). They never pass through this server.</p>
+encrypted connection (a WebRTC data channel). When that connection isn't ready, a text
+also passes through this server, encrypted for the other person's device only, so this
+server cannot read it. Group chats work the same way, with a separate copy for each
+member.</p>
 
 <h2>What this server processes</h2>
 <table>
-<tr><th>Never</th><td>Names, contact lists, call history, chat history, notes, call and
-chat content (audio, video, call and chat set-up messages, and the text of your
-messages). There is no database: nothing about you is stored.</td></tr>
+<tr><th>Never</th><td>Names, contact lists, call history, chat history, notes, group
+names, call and chat content (audio, video, call and chat set-up messages, and the text
+of your messages). There is no database: nothing about you is stored.</td></tr>
 <tr><th>Briefly, in memory only</th><td>
 <ul>
 <li>The public key of each connected device (it is your Sotto ID), and the IP address of
 the connection, while it is open.</li>
 <li>Which ID sends an encrypted message to which ID, and when, while the message passes
 through. A message for a device that is offline is held for at most 60 seconds, then
-dropped. Chat messages are never held: a chat message to an offline contact is not
-sent, and the sender is told.</li>
+dropped. This includes encrypted chat texts.</li>
+<li>Repeated copies: while a text has not arrived, the sender's app sends it again every
+30 seconds for up to 15 minutes, or for as long as the app is open if the sender chooses
+to queue it. Each copy is encrypted, but this server can see that the same ID keeps
+sending to the same ID.</li>
+<li>For group chats: which IDs are in a group together, because every copy, invitation
+and answer is addressed to one member, and when each copy is sent and roughly how large
+it is. Not the group's name, the members' names or any text. Nothing about a group is
+stored.</li>
 <li>For calls and chats that go through the relay (when devices can't connect directly,
 or with "Hide my IP address"): the IP addresses of both devices and the amount of data,
 for as long as the call or chat lasts. The relay credentials are temporary and contain
@@ -74,7 +84,11 @@ adds too much delay for live calls.</p>
 keystore), and an encrypted file with your profile, contacts, call history, chat
 history, notes, settings and guest links. Call history is deleted after the period you
 choose in Settings (30 days unless you change it). Chat history is kept until you delete
-a chat. Backups are files you create and keep yourself, encrypted with your password.
+a chat, unless you turn on disappearing messages for it. Group chats are kept the same
+way. Backups are files you create and keep yourself, encrypted with your password.
+A chat export is a file you choose to save, where you choose; it is encrypted with a
+passphrase unless you choose plain text, which anyone with the file can read. Exports
+are never uploaded, and the app keeps no copy.
 Notifications for new messages say "New message", with the sender's name only if you
 turn on names; the text is never shown in a notification.</li>
 <li><strong>Browser:</strong> nothing is kept after you close the tab, unless you choose
@@ -89,6 +103,10 @@ and your Sotto ID. A name that isn't verified is marked "not in your contacts".<
 <li>Anyone who opens your short call or contact link while your app is online gets your
 name, practice and profile photo (if you set one), encrypted so only they can read
 it.</li>
+<li>Members of a group chat see the group's name, each other's Sotto IDs and names, and
+every message, reaction and edit in the group. An invitation lists every member.</li>
+<li>Deleting a message for everyone asks the other devices to remove it. A device that
+ignores the request, or a copy someone already made, keeps the text.</li>
 <li>When a call or chat connects directly, the two devices learn each other's IP address.
 With "Hide my IP address" on, calls and chats always go through the relay, so the other
 person never sees yours.</li>

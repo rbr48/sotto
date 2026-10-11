@@ -102,4 +102,24 @@ void main() {
       isNull,
     );
   });
+
+  test('a muted chat is marked muted, so it raises no notice', () {
+    final arrival = ChatArrival.of(
+      groupArrival(anna),
+      nameOf: nameOf,
+      isViewing: (_) => false,
+      muted: true,
+    )!;
+    expect(arrival.muted, isTrue);
+    expect(
+      NoticeRules.chatMessage(
+        prefs: const DesktopPrefs(),
+        inFront: false,
+        viewing: arrival.viewing,
+        locked: false,
+        muted: arrival.muted,
+      ),
+      ChatNoticeKind.none,
+    );
+  });
 }

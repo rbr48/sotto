@@ -117,8 +117,9 @@ abstract final class NoticeRules {
     required bool inFront,
     required bool viewing,
     required bool locked,
+    bool muted = false,
   }) {
-    if (!prefs.notifications || (inFront && viewing)) {
+    if (!prefs.notifications || muted || (inFront && viewing)) {
       return ChatNoticeKind.none;
     }
     return prefs.showNames && !locked

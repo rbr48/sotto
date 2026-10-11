@@ -10,9 +10,12 @@ import 'chat_session.dart';
 import 'chat_signalling.dart';
 import 'chat_store.dart';
 
-/// Whether this build runs group chats. It is set at build time with
-/// `--dart-define=SOTTO_GROUPS=true`, and is off otherwise.
-const bool groupsBuildEnabled = bool.fromEnvironment('SOTTO_GROUPS');
+/// Whether this build runs group chats. They are on by default; a build made
+/// with `--dart-define=SOTTO_GROUPS=false` leaves them out.
+const bool groupsBuildEnabled = bool.fromEnvironment(
+  'SOTTO_GROUPS',
+  defaultValue: true,
+);
 
 /// Whether a relay envelope of [type] is for the chat manager: every `chat.*`
 /// envelope, and every `group.*` one when [groups] is on. With groups off, a
@@ -566,6 +569,9 @@ class ChatManager {
     await store.setArchived(contact, archived);
     _emit(ChatUpdate(contact, const ChatSettingsChanged()));
   }
+
+  /// Whether the chat with [contact] (or the group) is muted on this device.
+  Future<bool> isMuted(String contact) => store.isMuted(contact);
 
   /// Mutes or unmutes the chat with [contact]. Local only, as [setArchived].
   Future<void> setMuted(String contact, bool muted) async {

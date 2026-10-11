@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:sodium/sodium_sumo.dart';
 
@@ -8,6 +11,7 @@ import '../../core/l10n/app_localizations.dart';
 import '../../storage/backup.dart';
 import '../chat_export.dart';
 import '../chat_store.dart';
+import '../web_download.dart';
 
 /// Where an export's text goes, in order. [write] adds text, and [flush]
 /// completes once the text written so far has reached the file.
@@ -57,6 +61,14 @@ Future<String?> saveChatExport(
   String mimeType,
   Future<void> Function(ExportSink file) write,
 ) async {
+  if (kIsWeb) {
+    // The browser has no place to write to: the file is collected and then
+    // offered as a download.
+    final bytes = BytesBuilder(copy: false);
+    await write(_BytesExportSink(bytes));
+    downloadWebFile(bytes.takeBytes(), fileName, mimeType);
+    return fileName;
+  }
   String? path;
   try {
     path = (await getSaveLocation(suggestedName: fileName))?.path;
@@ -88,6 +100,18 @@ Future<void> writeExportFile(
     await temp.delete().catchError((Object _) => temp);
     rethrow;
   }
+}
+
+final class _BytesExportSink implements ExportSink {
+  _BytesExportSink(this._bytes);
+
+  final BytesBuilder _bytes;
+
+  @override
+  void write(String text) => _bytes.add(utf8.encode(text));
+
+  @override
+  Future<void> flush() async {}
 }
 
 final class _FileExportSink implements ExportSink {

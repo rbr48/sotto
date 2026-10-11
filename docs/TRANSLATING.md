@@ -32,6 +32,12 @@ native speaker.** Do not describe a language as verified until a native speaker
 has reviewed it. Reviewers should check the translations against the app on a
 phone, in both the light and dark theme.
 
+This includes the new strings for chat and group chats (keys starting with
+`chat`, `chats` and `group` in the ARB files): message actions, archive, mute
+and pin, starred messages, message info, export, and the group screens. They
+are unreviewed drafts in Bangla and Arabic and need a review by a native
+speaker.
+
 ## Still to do
 
 - Convert the remaining screens. About 540 literal strings in about 80 files
@@ -41,4 +47,5 @@ phone, in both the light and dark theme.
 - Website: add `lang` and `dir` attributes per page and a language switch.
 - Store listings: add the `bn` and `ar` folders under
   `fastlane/metadata/android/` (title, descriptions, change log).
-- Native speaker review of all drafted strings.
+- Native speaker review of all drafted strings, starting with the chat and
+  group strings.
