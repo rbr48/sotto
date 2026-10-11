@@ -17,6 +17,9 @@ import '../../core/test_hooks.dart';
 import '../../core/ui_kit.dart';
 import '../../crypto/sotto_crypto.dart';
 import '../chat_frames.dart';
+import '../chat_group.dart';
+import '../chat_group_manager.dart';
+import '../chat_groups.dart';
 import '../chat_manager.dart';
 import '../chat_session.dart';
 import '../chat_store.dart';
@@ -29,6 +32,8 @@ import 'chat_tokens.dart';
 import 'emoji_picker_panel.dart';
 import 'export_dialog.dart';
 import 'forward_picker.dart';
+import 'group_info_sheet.dart';
+import 'group_ui.dart';
 import 'message_info_sheet.dart';
 import 'message_menu.dart';
 import 'reaction_bar.dart';
@@ -210,9 +215,20 @@ class ChatPage extends StatefulWidget {
     this.avatar,
     this.contacts,
     this.focusMessageId,
-  });
+    this.groupId,
+    this.groupsEnabled = groupsBuildEnabled,
+  }) : assert(groupId == null || groupId == contactId);
 
   final String? avatar;
+
+  /// The group this page shows, or null for a chat with one contact. For a
+  /// group, [contactId] is the group's id too, and [name] is used only until
+  /// the group's own name is read.
+  final String? groupId;
+
+  /// Whether the group screens are on (see [groupsBuildEnabled]). A group is
+  /// shown as one only with them on; callers open no group page otherwise.
+  final bool groupsEnabled;
 
   /// A message to open the chat at, from the starred list. The chat opens at
   /// it only if the message is among those loaded; otherwise at the newest.
@@ -318,6 +334,22 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   /// open past midnight does not keep calling a day "Today".
   Timer? _midnightTimer;
 
+  /// The group shown, as this device holds it, once read. Null for a chat.
+  ChatGroup? _group;
+
+  /// Whether this page shows a group.
+  bool get _isGroup => widget.groupsEnabled && widget.groupId != null;
+
+  /// Whether you are in the group shown: accepted and not left. A group you
+  /// are not in keeps its history, read-only.
+  bool get _groupActive {
+    final group = _group;
+    return group != null && ChatGroups.isActive(group);
+  }
+
+  /// Whether typing is sent. A group has no typing indicator.
+  bool get _sendsTyping => widget.sendTyping && !_isGroup;
+
   bool get _voiceActive => _recording || _heldNote != null;
 
   /// Whether a call is active or ringing.
@@ -335,9 +367,20 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _scrollController.addListener(_onScroll);
     unawaited(_markAndSendRead());
     unawaited(_sweepThenLoad());
-    unawaited(_loadRetention());
+    if (_isGroup) {
+      unawaited(_loadGroup());
+    } else {
+      unawaited(_loadRetention());
+    }
     unawaited(_loadMuted());
     _armMidnight();
+  }
+
+  /// Reads the group shown, for its name, its members and whether you are in
+  /// it.
+  Future<void> _loadGroup() async {
+    final group = await widget.chat.store.group(widget.contactId);
+    if (mounted) setState(() => _group = group);
   }
 
   void _onInputFocusChanged() {
@@ -420,12 +463,17 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   Future<void> _markAndSendRead() async {
     final readIds = await widget.chat.store.markAsRead(widget.contactId);
     if (widget.sendReadReceipts && readIds.isNotEmpty) {
-      widget.chat.sendReadReceipts(widget.contactId, readIds);
+      if (_isGroup) {
+        // Each receipt goes to the message's author only.
+        await widget.chat.sendGroupReadReceipts(widget.contactId, readIds);
+      } else {
+        widget.chat.sendReadReceipts(widget.contactId, readIds);
+      }
     }
   }
 
   void _onInputChanged() {
-    if (!widget.sendTyping) return;
+    if (!_sendsTyping) return;
     final hasText = _input.text.trim().isNotEmpty;
     if (hasText && !_myTypingSent) {
       _myTypingSent = true;
@@ -550,6 +598,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           return;
         }
         unawaited(_markAndSendRead());
+        // A member answered, left or was invited again.
+        if (_isGroup) unawaited(_loadGroup());
         // An ordinary end (bye, closed, idle) needs no explanation.
         if (event is SessionEnded && !_ordinaryEnd(event.reason)) {
           setState(() => _problem = event.reason);
@@ -647,16 +697,22 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     setState(() => _sending = true);
     try {
       if (_editing case final editing?) {
-        final edited = await widget.chat.edit(
-          widget.contactId,
-          editing.id,
-          text,
-        );
+        final edited = _isGroup
+            ? await widget.chat.groups.edit(widget.contactId, editing.id, text)
+            : await widget.chat.edit(widget.contactId, editing.id, text);
         if (edited) _input.clear();
         if (mounted) setState(() => _editing = null);
         if (!edited && mounted) {
           _showSnack(AppLocalizations.of(context).chatEditTooLate);
         }
+      } else if (_isGroup) {
+        await widget.chat.groups.sendText(
+          widget.contactId,
+          text,
+          replyToId: _replyTo?.id,
+        );
+        _input.clear();
+        if (mounted) setState(() => _replyTo = null);
       } else {
         await widget.chat.sendText(
           widget.contactId,
@@ -1330,7 +1386,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       case MessageAction.star:
         unawaited(_toggleStar(message));
       case MessageAction.info:
-        unawaited(showMessageInfo(context, message));
+        unawaited(
+          showMessageInfo(context, message, members: _memberRows(message)),
+        );
       case MessageAction.edit:
         _startEdit(message);
       case MessageAction.deleteForEveryone:
@@ -1385,8 +1443,87 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   Future<void> _react(ChatMessage message, String emoji) async {
     setState(() => _reactingId = null);
-    await widget.chat.react(widget.contactId, message.id, emoji);
+    if (_isGroup) {
+      await widget.chat.groups.react(widget.contactId, message.id, emoji);
+    } else {
+      await widget.chat.react(widget.contactId, message.id, emoji);
+    }
     await _load();
+  }
+
+  /// The name shown for the group member [id].
+  String _memberName(String id) => groupMemberName(
+    AppLocalizations.of(context),
+    widget.contacts?.contacts ?? const [],
+    id,
+  );
+
+  /// For your [message] in a group, each member it went to and the state of
+  /// its copy. A member who has left, or is no longer a contact, says so.
+  List<({String name, String state})> _memberRows(ChatMessage message) {
+    final group = _group;
+    if (!_isGroup || group == null || !message.outgoing) return const [];
+    final l10n = AppLocalizations.of(context);
+    return [
+      for (final MapEntry(key: id, value: state)
+          in message.memberStates.entries)
+        if (group.memberOf(id) case final member?)
+          (
+            name: _memberName(id),
+            state: switch (groupMemberStatus(
+              group,
+              member,
+              widget.chat.isContact,
+            )) {
+              GroupMemberStatus.joined => switch (state) {
+                ChatState.read => l10n.chatStatusRead,
+                ChatState.delivered => l10n.chatStatusDelivered,
+                ChatState.notSent => l10n.chatStatusNotSent,
+                ChatState.queued => l10n.chatStatusQueued,
+                ChatState.sending ||
+                ChatState.received => l10n.chatStatusSending,
+              },
+              final other => groupMemberStatusText(l10n, other),
+            },
+          ),
+    ];
+  }
+
+  /// Accepts the invite to the group shown. A member who is not your contact
+  /// keeps you out (D3), and an invite past its window has ended (D11): each
+  /// is said on this device only.
+  Future<void> _acceptInvite() async {
+    final result = await widget.chat.groups.accept(widget.contactId);
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
+    switch (result) {
+      case GroupJoinResult.missingContacts:
+        _showSnack(l10n.groupJoinNotContacts);
+      case GroupJoinResult.expired:
+        _showSnack(l10n.groupJoinEnded);
+      case GroupJoinResult.joined || GroupJoinResult.notInvited:
+        break;
+    }
+    await _loadGroup();
+  }
+
+  /// Declines the invite to the group shown. It is final until a new invite
+  /// (D23).
+  Future<void> _declineInvite() async {
+    await widget.chat.groups.decline(widget.contactId);
+    await _loadGroup();
+  }
+
+  Future<void> _openGroupInfo() async {
+    final group = _group;
+    if (group == null) return;
+    await showGroupInfo(
+      context,
+      chat: widget.chat,
+      group: group,
+      contacts: widget.contacts?.contacts ?? const [],
+    );
+    await _loadGroup();
   }
 
   Future<void> _forward(ChatMessage message) async {
@@ -1420,7 +1557,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       ),
     );
     if (confirmed != true) return;
-    await widget.chat.deleteForEveryone(widget.contactId, message.id);
+    if (_isGroup) {
+      await widget.chat.groups.deleteForEveryone(widget.contactId, message.id);
+    } else {
+      await widget.chat.deleteForEveryone(widget.contactId, message.id);
+    }
     _forgetMessage(message.id);
     await _load();
   }
@@ -1699,6 +1840,183 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     ),
   );
 
+  /// Whether [a] and [b] come from the same sender, so they share a run of
+  /// bubbles. In a group, incoming messages share one only with their author.
+  bool _sameSender(ChatMessage a, ChatMessage b) =>
+      a.outgoing == b.outgoing &&
+      (!_isGroup || a.outgoing || a.authorId == b.authorId);
+
+  /// The delivery of your [message] to the group's members, or null.
+  ({GroupDeliveryKind kind, int delivered, int total})? _deliveryOf(
+    ChatMessage message,
+  ) {
+    final group = _group;
+    if (!_isGroup || group == null) return null;
+    return groupDelivery(message, group, widget.chat.isContact);
+  }
+
+  /// The title of a group: its name and how many are in it. A tap opens the
+  /// group's info.
+  Widget _groupTitle(
+    AppLocalizations l10n,
+    ChatTokens tokens,
+    TextTheme textTheme,
+  ) {
+    final group = _group;
+    final name = group?.name ?? widget.name;
+    return Semantics(
+      button: group != null,
+      child: InkWell(
+        onTap: group == null ? null : () => unawaited(_openGroupInfo()),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
+          child: Row(
+            children: [
+              InitialsAvatar(name: name, radius: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.titleMedium?.copyWith(
+                        color: tokens.headerTitle,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (group != null)
+                      Text(
+                        l10n.groupMemberCount(groupMemberCount(group)),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: textTheme.bodySmall?.copyWith(
+                          color: tokens.footerNote,
+                          fontSize: 12,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The menu of a group: starred messages, mute and the group's info. The
+  /// disappearing timer, export and delete are for chats with one contact.
+  Widget _groupMenu(AppLocalizations l10n) => PopupMenuButton<String>(
+    padding: const EdgeInsets.all(12),
+    onSelected: (value) {
+      if (value == 'starred') {
+        _openStarred();
+      } else if (value == 'mute') {
+        unawaited(_toggleMute());
+      } else if (value == 'info') {
+        unawaited(_openGroupInfo());
+      }
+    },
+    itemBuilder: (context) => [
+      PopupMenuItem(
+        value: 'info',
+        enabled: _group != null,
+        child: Row(
+          children: [
+            const Icon(Icons.info_outline, size: 20),
+            const SizedBox(width: 12),
+            Flexible(child: Text(l10n.groupInfo)),
+          ],
+        ),
+      ),
+      PopupMenuItem(
+        value: 'starred',
+        child: Row(
+          children: [
+            const Icon(Icons.star_outline, size: 20),
+            const SizedBox(width: 12),
+            Flexible(child: Text(l10n.chatStarredMessages)),
+          ],
+        ),
+      ),
+      PopupMenuItem(
+        value: 'mute',
+        child: Row(
+          children: [
+            Icon(
+              _muted
+                  ? Icons.notifications_outlined
+                  : Icons.notifications_off_outlined,
+              size: 20,
+            ),
+            const SizedBox(width: 12),
+            Flexible(child: Text(_muted ? l10n.chatUnmute : l10n.chatMute)),
+          ],
+        ),
+      ),
+    ],
+  );
+
+  /// In place of the composer, for a group you are not in: Accept and
+  /// Decline for an invitation, or why nothing can be sent. The history above
+  /// stays readable.
+  Widget _groupClosedRow(
+    AppLocalizations l10n,
+    ChatTokens tokens,
+    TextTheme textTheme,
+  ) {
+    final self = _group?.memberOf(_group!.selfId);
+    if (self == null) return const SizedBox(height: 48);
+    final invited =
+        self.state == MemberState.invited || self.state == MemberState.expired;
+    final note = switch (self.state) {
+      MemberState.invited || MemberState.expired => l10n.groupInvitation,
+      MemberState.left => l10n.groupLeftNote,
+      MemberState.declined => l10n.groupDeclinedNote,
+      MemberState.accepted => l10n.groupClosedNote,
+    };
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(0, 4, 0, 4),
+          child: Text(
+            note,
+            textAlign: TextAlign.center,
+            style: textTheme.bodyMedium?.copyWith(color: tokens.fieldText),
+          ),
+        ),
+        if (invited)
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(48, 48),
+                  backgroundColor: tokens.acceptFill,
+                  foregroundColor: tokens.acceptText,
+                ),
+                onPressed: () => unawaited(_acceptInvite()),
+                child: Text(l10n.groupAccept),
+              ),
+              TextButton(
+                style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+                onPressed: () => unawaited(_declineInvite()),
+                child: Text(l10n.groupDecline),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -1753,6 +2071,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                   ),
                   onChanged: (q) => setState(() => _searchQuery = q.trim()),
                 )
+              : _isGroup
+              ? _groupTitle(l10n, tokens, textTheme)
               : Row(
                   children: [
                     InitialsAvatar(
@@ -1836,6 +2156,22 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                     _searchController.clear();
                   }),
                 ),
+            ] else if (_isGroup) ...[
+              IconButton(
+                style: IconButton.styleFrom(minimumSize: const Size(44, 48)),
+                icon: const Icon(Icons.search),
+                tooltip: l10n.chatSearch,
+                onPressed: () => setState(() => _isSearching = true),
+              ),
+              IconButton(
+                style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+                icon: const Icon(Icons.info_outline),
+                tooltip: l10n.groupInfo,
+                onPressed: _group == null
+                    ? null
+                    : () => unawaited(_openGroupInfo()),
+              ),
+              _groupMenu(l10n),
             ] else ...[
               if (widget.calls != null) ...[
                 IconButton(
@@ -2069,14 +2405,19 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                             final sameRunAbove =
                                 !dayStart &&
                                 previous != null &&
-                                previous.outgoing == message.outgoing;
+                                _sameSender(previous, message);
                             final lastInRun =
                                 next == null ||
-                                next.outgoing != message.outgoing ||
+                                !_sameSender(next, message) ||
                                 needsDaySeparator(
                                   previousClockMs: message.clockMs,
                                   clockMs: next.clockMs,
                                 );
+                            // In a group, each run of incoming messages is
+                            // headed by its author's name.
+                            final sender = _isGroup && !message.outgoing
+                                ? _memberName(message.authorId ?? '')
+                                : null;
                             return Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -2096,7 +2437,17 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                                     child: _Bubble(
                                       message: message,
                                       lastInGroup: lastInRun,
-                                      contactName: widget.name,
+                                      contactName: sender ?? widget.name,
+                                      senderLine: sameRunAbove ? null : sender,
+                                      inGroup: _isGroup,
+                                      readOnly: _isGroup && !_groupActive,
+                                      delivery: _deliveryOf(message),
+                                      reactionSelfKey: _isGroup
+                                          ? widget.chat.myId
+                                          : 'me',
+                                      reactionName: _isGroup
+                                          ? _memberName
+                                          : null,
                                       l10n: l10n,
                                       store: widget.chat.store,
                                       clock: widget.chat.clock,
@@ -2184,151 +2535,163 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    if (!_voiceActive && (_replyTo != null || _editing != null))
-                      _composerContext(l10n, tokens, textTheme),
-                    if (_voiceActive)
-                      _recordingRow(l10n, tokens, textTheme)
-                    else
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Expanded(
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: tokens.fieldFill,
-                                borderRadius: BorderRadius.circular(24),
-                                border: Border.all(
-                                  color: tokens.divider,
-                                  width: 0.8,
+                    if (_isGroup && !_groupActive)
+                      _groupClosedRow(l10n, tokens, textTheme)
+                    else ...[
+                      if (!_voiceActive &&
+                          (_replyTo != null || _editing != null))
+                        _composerContext(l10n, tokens, textTheme),
+                      if (_voiceActive)
+                        _recordingRow(l10n, tokens, textTheme)
+                      else
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Expanded(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: tokens.fieldFill,
+                                  borderRadius: BorderRadius.circular(24),
+                                  border: Border.all(
+                                    color: tokens.divider,
+                                    width: 0.8,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.04,
+                                      ),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 1),
+                                    ),
+                                  ],
                                 ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.04),
-                                    blurRadius: 4,
-                                    offset: const Offset(0, 1),
-                                  ),
-                                ],
-                              ),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  IconButton(
-                                    tooltip: _showEmoji
-                                        ? l10n.chatKeyboardTooltip
-                                        : l10n.chatEmojiTooltip,
-                                    style: IconButton.styleFrom(
-                                      minimumSize: const Size(40, 48),
-                                    ),
-                                    icon: Icon(
-                                      _showEmoji
-                                          ? Icons.keyboard_alt_outlined
-                                          : Icons.emoji_emotions_outlined,
-                                      color: tokens.attachIcon,
-                                      size: 24,
-                                    ),
-                                    onPressed: _toggleEmojiPicker,
-                                  ),
-                                  Expanded(
-                                    child: TextField(
-                                      controller: _input,
-                                      focusNode: _inputFocusNode,
-                                      onTap: () {
-                                        if (_showEmoji) {
-                                          setState(() => _showEmoji = false);
-                                        }
-                                      },
-                                      minLines: 1,
-                                      maxLines: 5,
-                                      maxLength: maxTextChars,
-                                      buildCounter: (
-                                        _, {
-                                        required currentLength,
-                                        required isFocused,
-                                        maxLength,
-                                      }) => null,
-                                      style: textTheme.bodyLarge?.copyWith(
-                                        color: tokens.fieldText,
-                                        fontSize: 15,
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    IconButton(
+                                      tooltip: _showEmoji
+                                          ? l10n.chatKeyboardTooltip
+                                          : l10n.chatEmojiTooltip,
+                                      style: IconButton.styleFrom(
+                                        minimumSize: const Size(40, 48),
                                       ),
-                                      textInputAction: TextInputAction.send,
-                                      onSubmitted: (_) => _send(),
-                                      decoration: InputDecoration(
-                                        hintText: l10n.chatWriteHint,
-                                        hintStyle: textTheme.bodyLarge
-                                            ?.copyWith(
-                                              color: tokens.fieldHint,
-                                              fontSize: 15,
-                                            ),
-                                        border: InputBorder.none,
-                                        enabledBorder: InputBorder.none,
-                                        disabledBorder: InputBorder.none,
-                                        focusedBorder: InputBorder.none,
-                                        contentPadding:
-                                            const EdgeInsetsDirectional.fromSTEB(
-                                              0,
-                                              12,
-                                              8,
-                                              12,
-                                            ),
-                                      ),
-                                    ),
-                                  ),
-                                  IconButton(
-                                    tooltip: l10n.chatAttachFile,
-                                    style: IconButton.styleFrom(
-                                      minimumSize: const Size(40, 48),
-                                    ),
-                                    icon: Transform.rotate(
-                                      angle: -0.5,
-                                      child: Icon(
-                                        Icons.attach_file,
+                                      icon: Icon(
+                                        _showEmoji
+                                            ? Icons.keyboard_alt_outlined
+                                            : Icons.emoji_emotions_outlined,
                                         color: tokens.attachIcon,
                                         size: 24,
                                       ),
+                                      onPressed: _toggleEmojiPicker,
                                     ),
-                                    onPressed: () => _showAttachmentMenu(l10n),
-                                  ),
-                                ],
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _input,
+                                        focusNode: _inputFocusNode,
+                                        onTap: () {
+                                          if (_showEmoji) {
+                                            setState(() => _showEmoji = false);
+                                          }
+                                        },
+                                        minLines: 1,
+                                        maxLines: 5,
+                                        maxLength: maxTextChars,
+                                        buildCounter: (
+                                          _, {
+                                          required currentLength,
+                                          required isFocused,
+                                          maxLength,
+                                        }) => null,
+                                        style: textTheme.bodyLarge?.copyWith(
+                                          color: tokens.fieldText,
+                                          fontSize: 15,
+                                        ),
+                                        textInputAction: TextInputAction.send,
+                                        onSubmitted: (_) => _send(),
+                                        decoration: InputDecoration(
+                                          hintText: l10n.chatWriteHint,
+                                          hintStyle: textTheme.bodyLarge
+                                              ?.copyWith(
+                                                color: tokens.fieldHint,
+                                                fontSize: 15,
+                                              ),
+                                          border: InputBorder.none,
+                                          enabledBorder: InputBorder.none,
+                                          disabledBorder: InputBorder.none,
+                                          focusedBorder: InputBorder.none,
+                                          contentPadding:
+                                              const EdgeInsetsDirectional.fromSTEB(
+                                                0,
+                                                12,
+                                                8,
+                                                12,
+                                              ),
+                                        ),
+                                      ),
+                                    ),
+                                    // Files go only to one contact (no files
+                                    // in groups in this version).
+                                    if (!_isGroup)
+                                      IconButton(
+                                        tooltip: l10n.chatAttachFile,
+                                        style: IconButton.styleFrom(
+                                          minimumSize: const Size(40, 48),
+                                        ),
+                                        icon: Transform.rotate(
+                                          angle: -0.5,
+                                          child: Icon(
+                                            Icons.attach_file,
+                                            color: tokens.attachIcon,
+                                            size: 24,
+                                          ),
+                                        ),
+                                        onPressed: () =>
+                                            _showAttachmentMenu(l10n),
+                                      ),
+                                  ],
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          ValueListenableBuilder<TextEditingValue>(
-                            valueListenable: _input,
-                            builder: (context, value, _) {
-                              final style = IconButton.styleFrom(
-                                backgroundColor: tokens.sendFill,
-                                foregroundColor: tokens.sendIcon,
-                                minimumSize: const Size(48, 48),
-                                elevation: 2,
-                              );
-                              if (value.text.trim().isEmpty) {
-                                final blocked = _callActive || _voiceBusy;
-                                return IconButton.filled(
-                                  tooltip: _callActive
-                                      ? l10n.chatVoiceInCall
-                                      : l10n.chatVoiceMessage,
-                                  style: style,
-                                  icon: const Icon(Icons.mic, size: 22),
-                                  onPressed: blocked
-                                      ? null
-                                      : () => unawaited(_startVoiceRecording()),
+                            const SizedBox(width: 8),
+                            ValueListenableBuilder<TextEditingValue>(
+                              valueListenable: _input,
+                              builder: (context, value, _) {
+                                final style = IconButton.styleFrom(
+                                  backgroundColor: tokens.sendFill,
+                                  foregroundColor: tokens.sendIcon,
+                                  minimumSize: const Size(48, 48),
+                                  elevation: 2,
                                 );
-                              }
-                              return IconButton.filled(
-                                tooltip: l10n.chatSend,
-                                style: style,
-                                icon: const Icon(Icons.send, size: 20),
-                                onPressed: _send,
-                              );
-                            },
-                          ),
-                        ],
-                      ),
+                                if (value.text.trim().isEmpty && !_isGroup) {
+                                  final blocked = _callActive || _voiceBusy;
+                                  return IconButton.filled(
+                                    tooltip: _callActive
+                                        ? l10n.chatVoiceInCall
+                                        : l10n.chatVoiceMessage,
+                                    style: style,
+                                    icon: const Icon(Icons.mic, size: 22),
+                                    onPressed: blocked
+                                        ? null
+                                        : () =>
+                                              unawaited(_startVoiceRecording()),
+                                  );
+                                }
+                                return IconButton.filled(
+                                  tooltip: l10n.chatSend,
+                                  style: style,
+                                  icon: const Icon(Icons.send, size: 20),
+                                  onPressed: _send,
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                    ],
                   ],
                 ),
               ),
-              if (_showEmoji)
+              if (_showEmoji && (!_isGroup || _groupActive))
                 EmojiPickerPanel(
                   tokens: tokens,
                   onEmojiSelected: _onEmojiSelected,
@@ -2430,6 +2793,12 @@ class _Bubble extends StatelessWidget {
     required this.message,
     required this.lastInGroup,
     required this.contactName,
+    this.senderLine,
+    this.inGroup = false,
+    this.readOnly = false,
+    this.delivery,
+    this.reactionSelfKey = 'me',
+    this.reactionName,
     required this.l10n,
     required this.store,
     required this.clock,
@@ -2454,8 +2823,28 @@ class _Bubble extends StatelessWidget {
   /// Only that bubble has the tail.
   final bool lastInGroup;
 
-  /// The contact's name, for the status text and the screen reader label.
+  /// The contact's name, for the status text and the screen reader label. In
+  /// a group, the name of the message's author.
   final String contactName;
+
+  /// The author's name, shown above the text of an incoming group message
+  /// that starts a run. Null for none.
+  final String? senderLine;
+
+  /// Whether the message is in a group, and whether that group is one you
+  /// are no longer in. They decide the menu (see [messageActions]).
+  final bool inGroup;
+  final bool readOnly;
+
+  /// How far your group message has gone, in place of its state. Null for a
+  /// one-to-one message, a message by someone else, or one with no member
+  /// still active.
+  final ({GroupDeliveryKind kind, int delivered, int total})? delivery;
+
+  /// The key of your reaction, and the names of the others' (see
+  /// [ReactionBar]).
+  final String reactionSelfKey;
+  final String Function(String key)? reactionName;
   final AppLocalizations l10n;
 
   /// Where the voice notes are kept, for playing them.
@@ -2504,6 +2893,32 @@ class _Bubble extends StatelessWidget {
     ChatTokens tokens,
   ) {
     if (!message.outgoing) return null;
+    if (inGroup) {
+      // A group message has no state of its own: each member acknowledges
+      // its own copy, and only the author hears of a read.
+      final summary = delivery;
+      if (summary == null) return null;
+      return switch (summary.kind) {
+        GroupDeliveryKind.readByAll => (
+          icon: Icons.done_all,
+          iconColor: tokens.readTick,
+          labelColor: tokens.sentText,
+          label: groupDeliveryText(l10n, summary),
+        ),
+        GroupDeliveryKind.deliveredToAll => (
+          icon: Icons.done,
+          iconColor: tokens.sentSecondary,
+          labelColor: tokens.sentSecondary,
+          label: groupDeliveryText(l10n, summary),
+        ),
+        GroupDeliveryKind.partial => (
+          icon: summary.delivered == 0 ? Icons.schedule : Icons.done,
+          iconColor: tokens.sentSecondary,
+          labelColor: tokens.sentSecondary,
+          label: groupDeliveryText(l10n, summary),
+        ),
+      };
+    }
     if (message.isAttachment) {
       if (message.fileStatus != 'completed') return null;
       return (
@@ -2594,10 +3009,19 @@ class _Bubble extends StatelessWidget {
         : (message.fileName ?? message.text);
     final edited = !deleted && message.editedAt != null;
     final forwarded = !deleted && message.forwarded;
+    // A group message is sent again by the group manager, not from its bubble.
     final showRetry =
-        outgoing && !isFile && !deleted && message.state == ChatState.notSent;
+        !inGroup &&
+        outgoing &&
+        !isFile &&
+        !deleted &&
+        message.state == ChatState.notSent;
     final showCancelQueue =
-        outgoing && !isFile && !deleted && message.state == ChatState.queued;
+        !inGroup &&
+        outgoing &&
+        !isFile &&
+        !deleted &&
+        message.state == ChatState.queued;
 
     // One label per bubble: the time, the state, the text and the marks.
     final spoken = outgoing
@@ -2638,12 +3062,16 @@ class _Bubble extends StatelessWidget {
         message: message,
         now: clock(),
         onSelected: onAction,
+        group: inGroup,
+        readOnly: readOnly,
       ),
       onLongPress: () => showMessageSheet(
         context,
         message: message,
         now: clock(),
         onSelected: onAction,
+        group: inGroup,
+        readOnly: readOnly,
       ),
       child: Semantics(
         container: true,
@@ -2673,6 +3101,21 @@ class _Bubble extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (senderLine case final sender?)
+                    ExcludeSemantics(
+                      child: Padding(
+                        padding: const EdgeInsetsDirectional.only(bottom: 2),
+                        child: Text(
+                          sender,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: textTheme.labelLarge?.copyWith(
+                            color: tokens.receivedLink,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
                   if (message.replyTo case final quote? when !deleted)
                     ExcludeSemantics(
                       child: _QuoteBlock(
@@ -2810,7 +3253,9 @@ class _Bubble extends StatelessWidget {
           ReactionBar(
             reactions: deleted ? const {} : message.reactions,
             peerName: contactName,
-            choosing: reacting && !deleted,
+            selfKey: reactionSelfKey,
+            nameOf: reactionName,
+            choosing: reacting && !deleted && !readOnly,
             onReact: onReact,
             onDismiss: onDismissReactions,
           ),

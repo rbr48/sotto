@@ -6,7 +6,8 @@ import 'emoji_picker_panel.dart';
 
 /// The reactions under a message, and the quick choices for adding one.
 ///
-/// [reactions] is keyed `me` (yours) or `peer`. Tapping a reaction you set
+/// [reactions] is keyed `me` (yours) or `peer` in a chat, and by member id
+/// in a group (see [selfKey]). Tapping a reaction you set
 /// removes it, by sending the empty emoji. Tapping the other person's adds
 /// the same emoji as yours. While [choosing] (the React item was picked), the
 /// quick emoji are shown, and the more button opens the full picker. The
@@ -20,9 +21,19 @@ class ReactionBar extends StatelessWidget {
     required this.choosing,
     required this.onReact,
     this.onDismiss,
+    this.selfKey = 'me',
+    this.nameOf,
   });
 
   final Map<String, String> reactions;
+
+  /// The key of your own reaction in [reactions]: `me` in a chat, your Sotto
+  /// ID in a group, where each member's reaction is keyed by its id.
+  final String selfKey;
+
+  /// The name of the person who set the reaction under [key], for the screen
+  /// reader label. Null: every reaction but yours is [peerName]'s.
+  final String Function(String key)? nameOf;
 
   /// The contact's name, for the screen reader label of their reaction.
   final String peerName;
@@ -51,16 +62,18 @@ class ReactionBar extends StatelessWidget {
           for (final entry in reactions.entries)
             _Chip(
               emoji: entry.value,
-              who: entry.key == 'me' ? l10n.chatYou : peerName,
-              mine: entry.key == 'me',
-              onTap: () => onReact(entry.key == 'me' ? '' : entry.value),
+              who: entry.key == selfKey
+                  ? l10n.chatYou
+                  : (nameOf?.call(entry.key) ?? peerName),
+              mine: entry.key == selfKey,
+              onTap: () => onReact(entry.key == selfKey ? '' : entry.value),
             ),
           if (choosing) ...[
             for (final emoji in quickEmoji)
               _Chip(
                 emoji: emoji,
                 who: null,
-                mine: reactions['me'] == emoji,
+                mine: reactions[selfKey] == emoji,
                 onTap: () => onReact(emoji),
               ),
             IconButton(

@@ -279,4 +279,35 @@ void main() {
       expect(find.text('Star'), findsNothing);
     });
   });
+
+  group('in a group', () {
+    test('Reply is offered on your message only (D25)', () {
+      final now = _after(const Duration(minutes: 1));
+      expect(
+        messageActions(_text(), now, group: true),
+        contains(MessageAction.reply),
+      );
+      expect(
+        messageActions(_text(outgoing: false), now, group: true),
+        isNot(contains(MessageAction.reply)),
+      );
+      // The other person's message in a chat with one contact can be replied
+      // to, as before.
+      expect(
+        messageActions(_text(outgoing: false), now),
+        contains(MessageAction.reply),
+      );
+    });
+
+    test('a group you are not in offers nothing that would be sent', () {
+      final now = _after(const Duration(minutes: 1));
+      expect(messageActions(_text(), now, group: true, readOnly: true), [
+        MessageAction.forward,
+        MessageAction.copy,
+        MessageAction.star,
+        MessageAction.info,
+        MessageAction.deleteForMe,
+      ]);
+    });
+  });
 }

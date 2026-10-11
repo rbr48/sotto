@@ -44,17 +44,28 @@ bool canDeleteForEveryone(ChatMessage message, DateTime now) =>
 /// The items of the menu for [message] at [now], in order. Delete for me is
 /// always offered, as it has been since the chat began. Star and info stay on
 /// this device, and are not offered for a message deleted for everyone.
-List<MessageAction> messageActions(ChatMessage message, DateTime now) {
+///
+/// In a group ([group]), a reply quotes only your own message (D25), so Reply
+/// is offered on yours alone. A group you are no longer in is [readOnly]: its
+/// history stays, but nothing that would be sent to the members is offered.
+List<MessageAction> messageActions(
+  ChatMessage message,
+  DateTime now, {
+  bool group = false,
+  bool readOnly = false,
+}) {
   final live = !message.deletedForAll;
+  final canSend = !readOnly;
   return [
-    if (live) MessageAction.react,
-    if (live) MessageAction.reply,
+    if (live && canSend) MessageAction.react,
+    if (live && canSend && (!group || message.outgoing)) MessageAction.reply,
     if (live && !message.isAttachment) MessageAction.forward,
     if (live) MessageAction.copy,
     if (live) MessageAction.star,
     if (live) MessageAction.info,
-    if (canEdit(message, now)) MessageAction.edit,
-    if (canDeleteForEveryone(message, now)) MessageAction.deleteForEveryone,
+    if (canSend && canEdit(message, now)) MessageAction.edit,
+    if (canSend && canDeleteForEveryone(message, now))
+      MessageAction.deleteForEveryone,
     MessageAction.deleteForMe,
   ];
 }
@@ -114,12 +125,15 @@ List<MessageAction> messageActions(ChatMessage message, DateTime now) {
 
 /// Shows the menu of [message] at [position], for a secondary tap. Calls
 /// [onSelected] with the action chosen; nothing is called when dismissed.
+/// [group] and [readOnly] are as in [messageActions].
 Future<void> showMessageContextMenu(
   BuildContext context, {
   required Offset position,
   required ChatMessage message,
   required DateTime now,
   required ValueChanged<MessageAction> onSelected,
+  bool group = false,
+  bool readOnly = false,
 }) async {
   final l10n = AppLocalizations.of(context);
   final theme = Theme.of(context);
@@ -132,7 +146,12 @@ Future<void> showMessageContextMenu(
       position.dy,
     ),
     items: [
-      for (final action in messageActions(message, now))
+      for (final action in messageActions(
+        message,
+        now,
+        group: group,
+        readOnly: readOnly,
+      ))
         PopupMenuItem(
           value: action,
           child: _menuRow(theme, _presentation(action, l10n, message)),
@@ -143,12 +162,15 @@ Future<void> showMessageContextMenu(
 }
 
 /// Shows the menu of [message] as a sheet, for a long press. Calls
-/// [onSelected] with the action tapped.
+/// [onSelected] with the action tapped. [group] and [readOnly] are as in
+/// [messageActions].
 void showMessageSheet(
   BuildContext context, {
   required ChatMessage message,
   required DateTime now,
   required ValueChanged<MessageAction> onSelected,
+  bool group = false,
+  bool readOnly = false,
 }) {
   final l10n = AppLocalizations.of(context);
   showModalBottomSheet<void>(
@@ -161,7 +183,12 @@ void showMessageSheet(
       child: ListView(
         shrinkWrap: true,
         children: [
-          for (final action in messageActions(message, now))
+          for (final action in messageActions(
+            message,
+            now,
+            group: group,
+            readOnly: readOnly,
+          ))
             _sheetItem(sheetContext, action, l10n, message, onSelected),
         ],
       ),
