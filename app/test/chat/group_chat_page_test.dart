@@ -362,4 +362,64 @@ void main() {
     );
     await leave(tester);
   });
+
+  testWidgets('react, edit and delete for everyone go to every member', (
+    tester,
+  ) async {
+    final group = groupOf(others: [anna, ben]);
+    final theirs = groupMessage(
+      group,
+      author: anna,
+      text: 'Anna asks',
+      ts: nowMs - 60000,
+    );
+    final mine = groupMessage(
+      group,
+      author: selfId,
+      text: 'Typo here',
+      ts: nowMs - 60000,
+      memberStates: {anna: ChatState.delivered, ben: ChatState.delivered},
+    );
+    await pumpGroup(tester, group, messages: [theirs, mine]);
+
+    await openMenu(tester, 'Anna asks');
+    await tester.tap(find.text('React'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('👍').first);
+    // The reaction is queued for each member in turn: let every write finish
+    // before reading the store from outside the test's clock.
+    for (var i = 0; i < 4; i++) {
+      await settleStore(tester);
+    }
+    await tester.runAsync(() async {
+      expect((await store.find(group.id, theirs.id))!.reactions, {
+        selfId: '👍',
+      });
+    });
+
+    await openMenu(tester, 'Typo here');
+    await tester.tap(find.text('Edit'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Fixed here');
+    await tester.tap(find.byIcon(Icons.send));
+    await settleStore(tester);
+    await settleStore(tester);
+    expect(find.text('Fixed here'), findsOneWidget);
+    await tester.runAsync(() async {
+      final edited = (await store.find(group.id, mine.id))!;
+      expect(edited.text, 'Fixed here');
+      expect(edited.editedAt, isNotNull);
+    });
+
+    await openMenu(tester, 'Fixed here');
+    await tester.tap(find.text('Delete for everyone'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete for everyone'));
+    await settleStore(tester);
+    await settleStore(tester);
+    await tester.runAsync(() async {
+      expect((await store.find(group.id, mine.id))!.deletedForAll, isTrue);
+    });
+    await leave(tester);
+  });
 }
