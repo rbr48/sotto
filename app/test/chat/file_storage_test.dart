@@ -225,22 +225,30 @@ void main() {
       );
     });
 
-    test('hasFile accurately distinguishes present vs missing web files', () async {
-      final store = ChatStore(MemorySecretStore(), files: files);
-      // In-memory web file
-      final heldMsg = _file(6, name: 'web.txt', stored: 'web:${_id(6)}');
-      expect(store.hasFile(heldMsg), isFalse);
-      store.rememberFile(_id(6), _text('hello web'));
-      expect(store.hasFile(heldMsg), isTrue);
+    test(
+      'hasFile accurately distinguishes present vs missing web files',
+      () async {
+        final store = ChatStore(MemorySecretStore(), files: files);
+        // In-memory web file
+        final heldMsg = _file(6, name: 'web.txt', stored: 'web:${_id(6)}');
+        expect(store.hasFile(heldMsg), isFalse);
+        store.rememberFile(_id(6), _text('hello web'));
+        expect(store.hasFile(heldMsg), isTrue);
 
-      // Stored file with key
-      final saved = await files.save(_text('stored'));
-      final storedMsg = _file(7, name: 'stored.txt', stored: saved.name, key: saved.key);
-      expect(store.hasFile(storedMsg), isTrue);
+        // Stored file with key
+        final saved = await files.save(_text('stored'));
+        final storedMsg = _file(
+          7,
+          name: 'stored.txt',
+          stored: saved.name,
+          key: saved.key,
+        );
+        expect(store.hasFile(storedMsg), isTrue);
 
-      // Reloaded web file whose in-memory hold is gone
-      final lostWebMsg = _file(8, name: 'lost.txt', stored: 'web:${_id(8)}');
-      expect(store.hasFile(lostWebMsg), isFalse);
-    });
+        // Reloaded web file whose in-memory hold is gone
+        final lostWebMsg = _file(8, name: 'lost.txt', stored: 'web:${_id(8)}');
+        expect(store.hasFile(lostWebMsg), isFalse);
+      },
+    );
   });
 }

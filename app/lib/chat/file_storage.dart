@@ -34,8 +34,8 @@ class ReceivedFileStore {
     required this.sodium,
     Future<Directory> Function()? directory,
     FileBackend? backend,
-  })  : _backend = backend ?? defaultFileBackend(directory),
-        _directory = directory ?? _defaultDirectory;
+  }) : _backend = backend ?? defaultFileBackend(directory),
+       _directory = directory ?? _defaultDirectory;
 
   final Sodium sodium;
   final FileBackend _backend;

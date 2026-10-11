@@ -7,7 +7,7 @@ import 'file_backend.dart';
 
 class IoFileBackend implements FileBackend {
   IoFileBackend([Future<Directory> Function()? directory])
-      : _directory = directory ?? _defaultDirectory;
+    : _directory = directory ?? _defaultDirectory;
 
   final Future<Directory> Function() _directory;
 

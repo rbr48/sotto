@@ -415,10 +415,7 @@ class CallController extends ChangeNotifier {
       if (contacts != null) {
         final chat = _chat = ChatManager(
           myId: identity.id,
-          store: ChatStore(
-            _settings,
-            files: ReceivedFileStore(sodium: sodium),
-          ),
+          store: ChatStore(_settings, files: ReceivedFileStore(sodium: sodium)),
           isContact: _isContactId,
           send: _sendChatEnvelope,
           iceServers: _iceServersForCall,

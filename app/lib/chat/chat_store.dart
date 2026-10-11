@@ -1768,7 +1768,10 @@ class ChatStore {
     final store = files;
     final name = message.filePath;
     final key = message.fileKey;
-    if (store == null || name == null || key == null || name.startsWith('web:')) {
+    if (store == null ||
+        name == null ||
+        key == null ||
+        name.startsWith('web:')) {
       throw const ReceivedFileException('missing');
     }
     final bytes = await store.read(name: name, key: key);
@@ -1791,7 +1794,10 @@ class ChatStore {
     }
     final path = message.filePath;
     final key = message.fileKey;
-    if (files != null && path != null && key != null && !path.startsWith('web:')) {
+    if (files != null &&
+        path != null &&
+        key != null &&
+        !path.startsWith('web:')) {
       return true;
     }
     return false;
@@ -1803,7 +1809,10 @@ class ChatStore {
     if (_browserHeld.containsKey(_voiceKey(message.id))) return true;
     final path = message.filePath;
     final key = message.fileKey;
-    if (files != null && path != null && key != null && !path.startsWith('web:')) {
+    if (files != null &&
+        path != null &&
+        key != null &&
+        !path.startsWith('web:')) {
       return true;
     }
     return false;
