@@ -157,11 +157,13 @@ void main() {
       bool inFront = false,
       bool viewing = false,
       bool locked = false,
+      bool muted = false,
     }) => NoticeRules.chatMessage(
       prefs: prefs.copyWith(notifications: notifications, showNames: showNames),
       inFront: inFront,
       viewing: viewing,
       locked: locked,
+      muted: muted,
     );
 
     expect(
@@ -176,6 +178,12 @@ void main() {
       reason: 'another chat in front still gets a notice',
     );
     expect(kind(notifications: false), ChatNoticeKind.none);
+    expect(
+      kind(muted: true),
+      ChatNoticeKind.none,
+      reason: 'a muted chat raises no notice (D27)',
+    );
+    expect(kind(muted: true, inFront: true), ChatNoticeKind.none);
     expect(kind(showNames: true), ChatNoticeKind.named);
     expect(
       kind(showNames: true, locked: true),

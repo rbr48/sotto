@@ -1116,6 +1116,10 @@ class ChatStore {
   Future<void> setArchived(String contactId, bool archived) =>
       _changeMeta(contactId, (m) => m.copyWith(archived: archived));
 
+  /// Whether the chat with [contactId] (or the group) is muted on this device.
+  Future<bool> isMuted(String contactId) async =>
+      (await _metaOf(contactId)).muted;
+
   /// Mutes or unmutes the chat with [contactId].
   Future<void> setMuted(String contactId, bool muted) =>
       _changeMeta(contactId, (m) => m.copyWith(muted: muted));

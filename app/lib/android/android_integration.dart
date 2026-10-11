@@ -117,6 +117,7 @@ class AndroidIntegration extends ChangeNotifier {
         inFront: _inFront,
         viewing: arrival.viewing,
         locked: app.lock.locked,
+        muted: arrival.muted,
       ),
       senderName: arrival.senderName,
       l10n: localizationsForNotices(),

@@ -174,6 +174,7 @@ class DesktopIntegration with TrayListener, WindowListener {
       inFront: inFront,
       viewing: arrival.viewing,
       locked: app.lock.locked,
+      muted: arrival.muted,
     ),
     senderName: arrival.senderName,
     l10n: localizationsForNotices(),

@@ -570,6 +570,9 @@ class ChatManager {
     _emit(ChatUpdate(contact, const ChatSettingsChanged()));
   }
 
+  /// Whether the chat with [contact] (or the group) is muted on this device.
+  Future<bool> isMuted(String contact) => store.isMuted(contact);
+
   /// Mutes or unmutes the chat with [contact]. Local only, as [setArchived].
   Future<void> setMuted(String contact, bool muted) async {
     await store.setMuted(contact, muted);

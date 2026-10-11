@@ -675,10 +675,20 @@ class CallController extends ChangeNotifier {
   /// and whether that chat is on screen. The text never leaves the chat, and a
   /// group message is named by its sender only (see [ChatArrival.of]).
   void _onChatEvent(ChatManagerEvent event) {
+    unawaited(_announceChat(event));
+  }
+
+  Future<void> _announceChat(ChatManagerEvent event) async {
+    final chat = _chat;
+    if (chat == null || event is! ChatUpdate) return;
+    final muted = event.event is MessageReceived
+        ? await chat.isMuted(event.contact)
+        : false;
     final arrival = ChatArrival.of(
       event,
       nameOf: _contactName,
-      isViewing: (scope) => _chat?.isViewing(scope) ?? false,
+      isViewing: (scope) => chat.isViewing(scope),
+      muted: muted,
     );
     if (arrival == null || _chatArrivals.isClosed) return;
     _chatArrivals.add(arrival);
