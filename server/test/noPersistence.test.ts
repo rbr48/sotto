@@ -30,6 +30,7 @@ describe('no persistence', () => {
         PATH: process.env.PATH,
         PORT: '0',
         HOST: '127.0.0.1',
+        SOTTO_DOMAIN: 'relay.test',
         TMPDIR: watched[1],
         HOME: watched[2],
       },

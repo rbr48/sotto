@@ -3,6 +3,12 @@ import type { IceConfig } from './relay/turn.js';
 export interface Config {
   host: string;
   port: number;
+  /**
+   * The name this relay answers to (SOTTO_DOMAIN). It is sent in each
+   * challenge and signed into each login, so a login for this server can't be
+   * forwarded to another one. Required: the relay refuses to start without it.
+   */
+  publicHost: string;
   /** Largest WebSocket message accepted, in bytes. */
   maxMessageBytes: number;
   /** Interval between heartbeat pings, in milliseconds. */
@@ -20,6 +26,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return {
     host: env.HOST ?? '0.0.0.0',
     port: parseIntOr(env.PORT, 8080, 0),
+    publicHost: (env.SOTTO_DOMAIN ?? '').trim().toLowerCase(),
     maxMessageBytes: parseIntOr(env.SOTTO_MAX_MESSAGE_BYTES, 96 * 1024),
     heartbeatMs: parseIntOr(env.SOTTO_HEARTBEAT_MS, 25_000),
     trustProxy: env.SOTTO_TRUST_PROXY === '1',

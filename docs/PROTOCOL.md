@@ -116,12 +116,12 @@ The relay (`server/src/relay/`) routes envelopes between Sotto IDs over a WebSoc
 ### 5.1 Login
 
 ```
-server → {"type":"challenge","nonce":"<32 random bytes>"}
+server → {"type":"challenge","nonce":"<32 random bytes>","server":"<this relay's name>"}
 client → {"type":"auth","id":"<Sotto ID>","sig":"<signature>"}
 server → {"type":"ready","id":"<Sotto ID>"}            or  {"type":"error","code":"auth-failed"} + close 4001
 ```
 
-`sig = crypto_sign_detached("sotto-relay-auth-v1\0" || nonce || lowercase(host), sign_sk)`, where `host` is the HTTP `Host` the client connected to (`name` or `name:port` for non-default ports). Binding the host stops a malicious relay from forwarding this server's challenge to a victim and reusing the signature. Clients that don't log in within 10 s are disconnected (close 4002).
+`sig = crypto_sign_detached("sotto-relay-auth-v1\0" || nonce || lowercase(server), sign_sk)`, where `server` is the name the relay sends in its challenge: its own name, `SOTTO_DOMAIN` (`name` or `name:port` for non-default ports). The relay signs in and verifies with its own name, never with the `Host` header of the connection, which a malicious relay can set to anything. A client checks that the challenge's `server` is the server it dialed, and signs nothing if it isn't: that stops a relay forwarding another server's challenge to a victim. A relay too old to send `server` gets the host the client dialed, as before; relays that name themselves refuse a signature over any other name. Clients that don't log in within 10 s are disconnected (close 4002).
 
 ### 5.2 Messages
 

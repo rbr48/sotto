@@ -14,7 +14,7 @@ import type { IceServer } from './turn.js';
  *
  * Protocol (JSON text frames):
  *
- *   server → { type: "challenge", nonce }
+ *   server → { type: "challenge", nonce, server }
  *   client → { type: "auth", id, sig }          sig over auth.ts:authMessage
  *   server → { type: "ready", id, ice }          ice = STUN/TURN servers
  *   client → { type: "ice" }                    fresh TURN credentials
@@ -67,7 +67,6 @@ interface Connection {
   ws: WebSocket;
   id: string | null;
   nonce: Buffer;
-  host: string;
   bucket: TokenBucket;
 }
 
@@ -81,7 +80,10 @@ export class Relay {
     private readonly limits: RelayLimits = DEFAULT_LIMITS,
     /** Fresh ICE servers (with new TURN credentials) for each request. */
     private readonly iceServers: () => IceServer[] = () => [],
+    /** This relay's name, signed into every login (see auth.ts). */
+    private readonly serverName: string,
   ) {
+    if (serverName === '') throw new Error('SOTTO_DOMAIN must be set');
     this.queue = new MessageQueue(limits.queue);
     this.addresses = new ConnectionCounter(limits.maxConnectionsPerAddress);
     this.pruneTimer = setInterval(() => this.queue.prune(), 10_000);
@@ -102,11 +104,11 @@ export class Relay {
   }
 
   /**
-   * Takes over a freshly upgraded WebSocket. `host` is the Host header the
-   * client connected with; `address` identifies the client network address
-   * for connection limits only.
+   * Takes over a freshly upgraded WebSocket. `address` identifies the client
+   * network address for connection limits only; the Host header plays no part
+   * in the login (see auth.ts).
    */
-  attach(ws: WebSocket, host: string, address: string): void {
+  attach(ws: WebSocket, address: string): void {
     const handle = this.addresses.acquire(address);
     if (handle === null) {
       send(ws, { type: 'error', code: 'too-many-connections' });
@@ -117,7 +119,6 @@ export class Relay {
       ws,
       id: null,
       nonce: newChallenge(),
-      host,
       bucket: new TokenBucket(this.limits.messagesPerSec, this.limits.messageBurst),
     };
     const authTimer = setTimeout(() => {
@@ -141,7 +142,11 @@ export class Relay {
     });
     ws.on('error', () => ws.terminate());
 
-    send(ws, { type: 'challenge', nonce: conn.nonce.toString('base64url') });
+    send(ws, {
+      type: 'challenge',
+      nonce: conn.nonce.toString('base64url'),
+      server: this.serverName,
+    });
   }
 
   private onMessage(conn: Connection, raw: string): void {
@@ -201,7 +206,7 @@ export class Relay {
   }
 
   private authenticate(conn: Connection, id: unknown, sig: unknown): void {
-    if (!verifyAuth(id, sig, conn.nonce, conn.host)) {
+    if (!verifyAuth(id, sig, conn.nonce, this.serverName)) {
       send(conn.ws, { type: 'error', code: 'auth-failed' });
       conn.ws.close(CloseCode.authFailed, 'auth failed');
       return;

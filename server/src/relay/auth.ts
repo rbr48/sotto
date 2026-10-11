@@ -5,11 +5,13 @@ import { decodeBase64Url, isValidId, publicKeyForId } from './ids.js';
  * Challenge-response login. The client proves it holds the private key for
  * its Sotto ID by signing:
  *
- *     "sotto-relay-auth-v1\0" || nonce (32 bytes) || UTF-8(host)
+ *     "sotto-relay-auth-v1\0" || nonce (32 bytes) || UTF-8(server)
  *
- * `host` is the Host header the client connected with, so a malicious relay
- * can't forward a challenge from this server to a victim and reuse the
- * signature here.
+ * `server` is this relay's own name (SOTTO_DOMAIN), never the Host header of
+ * the connection: a malicious relay can open its own connection with any Host
+ * it likes, so a Host would let it forward a challenge from here to a victim
+ * and reuse the signature. The client also checks that the name in the
+ * challenge is the server it dialed.
  */
 export const AUTH_DOMAIN = Buffer.from('sotto-relay-auth-v1\0', 'utf8');
 export const NONCE_BYTES = 32;

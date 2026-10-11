@@ -32,7 +32,7 @@ turnserver -n --listening-ip=127.0.0.1 --listening-port=3478 --use-auth-secret \
 # 1. Relay, handing out that TURN server
 cd server && npm ci && npm run build
 HOST=127.0.0.1 SOTTO_STUN_URLS='stun:127.0.0.1:3478' \
-  SOTTO_TURN_URLS='turn:127.0.0.1:3478?transport=udp' SOTTO_TURN_SECRET=e2e-secret npm start &
+  SOTTO_DOMAIN=localhost:8080 SOTTO_TURN_URLS='turn:127.0.0.1:3478?transport=udp' SOTTO_TURN_SECRET=e2e-secret npm start &
 
 # 2. Web build pointed at the local relay, served on port 8099
 cd app && flutter build web --no-web-resources-cdn --dart-define=SOTTO_RELAY_URL=ws://localhost:8080/relay \

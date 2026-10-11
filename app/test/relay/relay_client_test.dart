@@ -21,6 +21,11 @@ class FakeRelay {
   int iceIssued = 0;
   int pings = 0;
 
+  /// The name this relay answers to, sent in its challenge and signed into
+  /// each login. Null: an older relay that names nothing, so the client
+  /// signs the host it dialed.
+  String? serverName;
+
   /// The current connections stop answering anything, as after a network
   /// change (new connections work).
   void muteExisting() => _muted.addAll(sockets);
@@ -45,7 +50,13 @@ class FakeRelay {
       final socket = await WebSocketTransformer.upgrade(request);
       sockets.add(socket);
       final nonce = sodium.randombytes.buf(32);
-      socket.add(jsonEncode({'type': 'challenge', 'nonce': b64Encode(nonce)}));
+      socket.add(
+        jsonEncode({
+          'type': 'challenge',
+          'nonce': b64Encode(nonce),
+          if (serverName != null) 'server': serverName,
+        }),
+      );
       socket.listen((raw) {
         if (_muted.contains(socket)) return;
         final message = jsonDecode(raw as String) as Map<String, dynamic>;
@@ -63,7 +74,9 @@ class FakeRelay {
           return;
         }
         final ok = sodium.crypto.sign.verifyDetached(
-          message: Uint8List.fromList(RelayClient.authMessage(nonce, host)),
+          message: Uint8List.fromList(
+            RelayClient.authMessage(nonce, serverName ?? host),
+          ),
           signature: b64Decode(message['sig'] as String),
           publicKey: b64Decode(message['id'] as String),
         );
@@ -161,6 +174,25 @@ void main() {
     },
   );
 
+  test('signs in when the relay names the server it dialed', () async {
+    relay.serverName = RelayClient.hostOf(relay.url);
+    final c = newClient();
+    c.start();
+    await eventually(() => c.status == RelayStatus.online);
+    expect(relay.loggedIn, [identity.id]);
+  });
+
+  test('signs nothing when the challenge names another server', () async {
+    // A challenge forwarded from another relay: it names that relay, so this
+    // login must not be signed (it would work on the other relay).
+    relay.serverName = 'other.example';
+    final c = newClient();
+    c.start();
+    await eventually(() => c.lastError == 'wrong-server');
+    expect(c.status, isNot(RelayStatus.online));
+    expect(relay.loggedIn, isEmpty);
+  });
+
   test('holds messages while offline and sends them after login', () async {
     final c = newClient();
     c.send('someone', 'early');
@@ -253,6 +285,19 @@ void main() {
     expect(
       RelayClient.hostOf(Uri.parse('ws://localhost:8080/relay')),
       'localhost:8080',
+    );
+    // A default port is left out, as a Host header leaves it out.
+    expect(
+      RelayClient.hostOf(Uri.parse('wss://sotto.example:443/relay')),
+      'sotto.example',
+    );
+    expect(
+      RelayClient.hostOf(Uri.parse('ws://sotto.example:80/relay')),
+      'sotto.example',
+    );
+    expect(
+      RelayClient.hostOf(Uri.parse('wss://sotto.example:8443/relay')),
+      'sotto.example:8443',
     );
   });
 

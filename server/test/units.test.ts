@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { isValidId } from '../src/relay/ids.js';
 import { TokenBucket } from '../src/relay/limits.js';
 import { MessageQueue } from '../src/relay/queue.js';
+import { loadConfig } from '../src/config.js';
+import { createRelayServer } from '../src/server.js';
 import { newIdentity } from './helpers.js';
 
 describe('isValidId', () => {
@@ -52,6 +54,16 @@ describe('loadConfig', () => {
     expect(loadConfig({ PORT: '0' }).port).toBe(0);
     expect(() => loadConfig({ PORT: '-1' })).toThrow();
     expect(() => loadConfig({ SOTTO_HEARTBEAT_MS: '0' })).toThrow();
+  });
+});
+
+describe('relay name', () => {
+  it('is read from SOTTO_DOMAIN, trimmed and lower-cased', () => {
+    expect(loadConfig({ SOTTO_DOMAIN: ' Call.Example.COM ' }).publicHost).toBe('call.example.com');
+  });
+
+  it('is required: the relay refuses to start without one', () => {
+    expect(() => createRelayServer({ ...loadConfig({}), port: 0 })).toThrow('SOTTO_DOMAIN must be set');
   });
 });
 

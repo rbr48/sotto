@@ -1,8 +1,10 @@
+import { sign } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CloseCode, type RelayLimits } from '../src/relay/relay.js';
+import { authMessage } from '../src/relay/auth.js';
 import type { Config } from '../src/config.js';
 import type { RelayServer } from '../src/server.js';
-import { newIdentity, startServer, TestClient } from './helpers.js';
+import { newIdentity, startServer, TEST_SERVER_NAME, TestClient } from './helpers.js';
 
 describe('relay', () => {
   let server: RelayServer | undefined;
@@ -80,6 +82,32 @@ describe('relay', () => {
       clients.push(client);
       expect(await client.next()).toEqual({ type: 'error', code: 'auth-failed' });
       expect(await client.closed).toBe(CloseCode.authFailed);
+    });
+
+    it('names itself in the challenge, and ignores the Host header of the connection', async () => {
+      const url = await start();
+      const raw = await TestClient.connect(url);
+      clients.push(raw);
+      const challenge = await raw.next();
+      expect(challenge.server).toBe(TEST_SERVER_NAME);
+
+      // A signature over the connection's own Host (what a forwarding relay
+      // would send) is refused: the relay checks its own name.
+      const identity = newIdentity();
+      const nonce = Buffer.from(challenge.nonce as string, 'base64url');
+      const sig = sign(null, authMessage(nonce, new URL(url).host), identity.privateKey).toString(
+        'base64url',
+      );
+      raw.send({ type: 'auth', id: identity.id, sig });
+      expect(await raw.next()).toEqual({ type: 'error', code: 'auth-failed' });
+    });
+
+    it('signs in with a signature over its own name', async () => {
+      const url = await start();
+      const identity = newIdentity();
+      const client = await TestClient.login(url, identity, TEST_SERVER_NAME);
+      clients.push(client);
+      expect(await client.next()).toMatchObject({ type: 'ready', id: identity.id });
     });
 
     it('rejects malformed IDs and signatures', async () => {

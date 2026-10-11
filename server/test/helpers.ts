@@ -5,10 +5,18 @@ import { authMessage } from '../src/relay/auth.js';
 import { DEFAULT_LIMITS, type RelayLimits } from '../src/relay/relay.js';
 import { createRelayServer, type RelayServer } from '../src/server.js';
 
+/** The name the test relay answers to, signed into every login. */
+export const TEST_SERVER_NAME = 'relay.test';
+
 export async function startServer(
   options: { config?: Partial<Config>; limits?: Partial<RelayLimits> } = {},
 ): Promise<{ server: RelayServer; port: number; url: string }> {
-  const config = { ...loadConfig({}), host: '127.0.0.1', port: 0, ...options.config };
+  const config = {
+    ...loadConfig({ SOTTO_DOMAIN: TEST_SERVER_NAME }),
+    host: '127.0.0.1',
+    port: 0,
+    ...options.config,
+  };
   const server = createRelayServer(config, { ...DEFAULT_LIMITS, ...options.limits });
   const port = await server.listen();
   return { server, port, url: `ws://127.0.0.1:${port}/relay` };
@@ -49,12 +57,11 @@ export class TestClient {
   }
 
   /** Connects and completes the challenge-response login. */
-  static async login(url: string, identity: TestIdentity, host?: string): Promise<TestClient> {
+  static async login(url: string, identity: TestIdentity, server = TEST_SERVER_NAME): Promise<TestClient> {
     const client = await TestClient.connect(url);
     const challenge = await client.next();
     const nonce = Buffer.from(challenge.nonce as string, 'base64url');
-    const signedHost = host ?? new URL(url).host;
-    const sig = sign(null, authMessage(nonce, signedHost), identity.privateKey).toString(
+    const sig = sign(null, authMessage(nonce, server), identity.privateKey).toString(
       'base64url',
     );
     client.send({ type: 'auth', id: identity.id, sig });
