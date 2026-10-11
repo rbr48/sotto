@@ -1426,23 +1426,70 @@ class ChatStore {
     DateTime Function()? clock,
   }) => _inOrder(() async {
     final list = await _loadPendingAt(_pendingKeyOf(contactId, memberId));
-    if (memberId == null) return list;
+    final controls = [
+      for (final frame in list)
+        if (frame is ControlFrame) frame,
+    ];
+    if (memberId == null) return controls;
     final nowMs = (clock ?? DateTime.now)().millisecondsSinceEpoch;
     return [
-      for (final control in list)
+      for (final control in controls)
         if (_isLive(control, nowMs)) control,
     ];
   });
 
-  /// Whether [control] is still within its lifetime at [nowMs] (see
-  /// [controlLifetime]), measured from its own ts.
-  static bool _isLive(ControlFrame control, int nowMs) =>
-      nowMs - _controlTs(control) <= controlLifetime.inMilliseconds;
+  /// The group answers and leaves that [memberId] of the group [groupId] has
+  /// not been sent yet, oldest first, left out once they are older than
+  /// [controlLifetime] by their own ts.
+  Future<List<GroupStateFrame>> pendingGroupStates(
+    String groupId, {
+    required String memberId,
+    DateTime Function()? clock,
+  }) => _inOrder(() async {
+    final list = await _loadPendingAt(groupPendingKey(groupId, memberId));
+    final nowMs = (clock ?? DateTime.now)().millisecondsSinceEpoch;
+    return [
+      for (final frame in list)
+        if (frame is GroupStateFrame && _isLive(frame, nowMs)) frame,
+    ];
+  });
 
-  static int _controlTs(ControlFrame control) => switch (control) {
+  /// Keeps [frame], a group answer or leave, until [memberId] of the group
+  /// [groupId] can be sent it. The same frame is kept once. Like a control for
+  /// a member, it is dropped past its lifetime, and the oldest goes past
+  /// [maxPendingControls].
+  Future<void> queueGroupState(
+    String groupId,
+    String memberId,
+    GroupStateFrame frame, {
+    DateTime Function()? clock,
+  }) => _inOrder(() async {
+    final nowMs = (clock ?? DateTime.now)().millisecondsSinceEpoch;
+    if (!_isLive(frame, nowMs)) return;
+    final key = groupPendingKey(groupId, memberId);
+    final encoded = ChatFrames.encode(frame);
+    final list = [
+      for (final older in await _loadPendingAt(key))
+        if (_isLive(older, nowMs) && ChatFrames.encode(older) != encoded) older,
+      frame,
+    ];
+    while (list.length > maxPendingControls) {
+      list.removeAt(0);
+    }
+    await _savePendingAt(key, list);
+  });
+
+  /// Whether [frame] is still within its lifetime at [nowMs] (see
+  /// [controlLifetime]), measured from its own ts.
+  static bool _isLive(ChatFrame frame, int nowMs) =>
+      nowMs - _frameTs(frame) <= controlLifetime.inMilliseconds;
+
+  static int _frameTs(ChatFrame frame) => switch (frame) {
     ReactFrame(:final ts) => ts,
     EditFrame(:final ts) => ts,
     DeleteFrame(:final ts) => ts,
+    GroupStateFrame(:final ts) => ts,
+    _ => throw StateError('not a pending frame'),
   };
 
   /// Keeps [control] until the chat with [contactId] can carry it (see
@@ -1480,7 +1527,7 @@ class ChatStore {
   /// same control is removed, so one queued meanwhile is kept.
   Future<void> removeControl(
     String contactId,
-    ControlFrame control, {
+    ChatFrame control, {
     String? memberId,
   }) => _inOrder(() async {
     final key = _pendingKeyOf(contactId, memberId);
@@ -1492,8 +1539,8 @@ class ChatStore {
   });
 
   /// Whether [newer] replaces [older] in the pending list.
-  static bool _supersedes(ControlFrame newer, ControlFrame older) {
-    if (newer.id != older.id) return false;
+  static bool _supersedes(ControlFrame newer, ChatFrame older) {
+    if (older is! ControlFrame || newer.id != older.id) return false;
     return switch (newer) {
       DeleteFrame() => true,
       ReactFrame() => older is ReactFrame,
@@ -1501,7 +1548,8 @@ class ChatStore {
     };
   }
 
-  Future<List<ControlFrame>> _loadPendingAt(String key) async {
+  /// The frames kept under [key]: controls, and group answers and leaves.
+  Future<List<ChatFrame>> _loadPendingAt(String key) async {
     await _checkMigration();
     final raw = await _store.read(key);
     if (raw == null) return [];
@@ -1512,21 +1560,23 @@ class ChatStore {
       throw const ChatStoreException('unreadable');
     }
     if (json is! List) throw const ChatStoreException('unreadable');
-    final controls = <ControlFrame>[];
+    final frames = <ChatFrame>[];
     for (final item in json) {
       if (item is! String) throw const ChatStoreException('unreadable');
       try {
         final frame = ChatFrames.decode(item);
-        if (frame is! ControlFrame) throw const ChatFrameException('unknown');
-        controls.add(frame);
+        if (frame is! ControlFrame && frame is! GroupStateFrame) {
+          throw const ChatFrameException('unknown');
+        }
+        frames.add(frame);
       } on ChatFrameException {
         throw const ChatStoreException('unreadable');
       }
     }
-    return controls;
+    return frames;
   }
 
-  Future<void> _savePendingAt(String key, List<ControlFrame> list) async {
+  Future<void> _savePendingAt(String key, List<ChatFrame> list) async {
     if (list.isEmpty) {
       await _store.delete(key);
       return;

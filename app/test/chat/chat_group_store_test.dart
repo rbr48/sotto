@@ -973,6 +973,122 @@ void main() {
     );
   });
 
+  group('group answers waiting for a member', () {
+    final group = _id(91);
+    final bob = _member(2);
+    final carol = _member(3);
+    final now = DateTime.fromMillisecondsSinceEpoch(
+      _ts + 10 * 24 * 60 * 60 * 1000,
+    );
+
+    GroupStateFrame leave(int ts) =>
+        GroupStateFrame(kind: GroupStateKind.leave, group: group, ts: ts);
+
+    test('answers are kept per member, in order, and not kept twice', () async {
+      final store = ChatStore(MemorySecretStore());
+      final first = leave(now.millisecondsSinceEpoch - 1000);
+      final second = GroupStateFrame(
+        kind: GroupStateKind.decline,
+        group: group,
+        ts: now.millisecondsSinceEpoch,
+      );
+      await store.queueGroupState(group, bob, first, clock: () => now);
+      await store.queueGroupState(group, bob, second, clock: () => now);
+      await store.queueGroupState(group, bob, first, clock: () => now);
+      await store.queueGroupState(group, carol, second, clock: () => now);
+
+      final forBob = await store.pendingGroupStates(
+        group,
+        memberId: bob,
+        clock: () => now,
+      );
+      expect(
+        [for (final frame in forBob) frame.kind],
+        [GroupStateKind.decline, GroupStateKind.leave],
+      );
+      expect(
+        await store.pendingGroupStates(
+          group,
+          memberId: carol,
+          clock: () => now,
+        ),
+        hasLength(1),
+      );
+    });
+
+    test(
+      'an answer is left out once it is past seven days by its own ts',
+      () async {
+        final store = ChatStore(MemorySecretStore());
+        final eightDaysAgo =
+            now.millisecondsSinceEpoch - 8 * 24 * 60 * 60 * 1000;
+        await store.queueGroupState(
+          group,
+          bob,
+          leave(eightDaysAgo),
+          clock: () => now,
+        );
+        expect(
+          await store.pendingGroupStates(
+            group,
+            memberId: bob,
+            clock: () => now,
+          ),
+          isEmpty,
+        );
+      },
+    );
+
+    test('an answer is taken off the list once it is sent', () async {
+      final store = ChatStore(MemorySecretStore());
+      final frame = leave(now.millisecondsSinceEpoch);
+      await store.queueGroupState(group, bob, frame, clock: () => now);
+      await store.removeControl(group, frame, memberId: bob);
+
+      expect(
+        await store.pendingGroupStates(group, memberId: bob, clock: () => now),
+        isEmpty,
+      );
+    });
+
+    test(
+      'controls and answers share the list without mixing into each other',
+      () async {
+        final store = ChatStore(MemorySecretStore());
+        await store.queueControl(
+          group,
+          ReactFrame(
+            id: _id(1),
+            emoji: '👍',
+            ts: now.millisecondsSinceEpoch,
+            group: group,
+          ),
+          memberId: bob,
+          clock: () => now,
+        );
+        await store.queueGroupState(
+          group,
+          bob,
+          leave(now.millisecondsSinceEpoch),
+          clock: () => now,
+        );
+
+        expect(
+          await store.pendingControls(group, memberId: bob, clock: () => now),
+          hasLength(1),
+        );
+        expect(
+          await store.pendingGroupStates(
+            group,
+            memberId: bob,
+            clock: () => now,
+          ),
+          hasLength(1),
+        );
+      },
+    );
+  });
+
   group('member states on a group message', () {
     final group = _id(90);
     final alice = _member(1);
