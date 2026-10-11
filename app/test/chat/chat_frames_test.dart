@@ -198,6 +198,13 @@ void main() {
       expect(ChatFrames.isId(null), isFalse);
       expect(ChatFrames.isId(12), isFalse);
     });
+
+    test('isId refuses a 22-character string whose last character has bits '
+        'the 16 bytes do not use', () {
+      // 'B' sets a low bit of the final character, which no 16-byte value does.
+      expect(ChatFrames.isId('A' * 21 + 'B'), isFalse);
+      expect(ChatFrames.isId('A' * 22), isTrue);
+    });
   });
 
   group('file frames', () {
@@ -1118,6 +1125,314 @@ void main() {
       expect(ChatFrames.receivedTs(now + 5 * minute, now), now + 5 * minute);
       expect(ChatFrames.receivedTs(now + 5 * minute + 1, now), now);
       expect(ChatFrames.receivedTs(9999999999999, now), now);
+    });
+  });
+
+  group('group frames', () {
+    final group = _id(40);
+
+    /// The size of a group message body with [text] and an empty pad field.
+    int bodySize(String text) => utf8
+        .encode(
+          jsonEncode({
+            't': 'group.msg',
+            'id': _id(1),
+            'ts': 5,
+            'group': group,
+            'text': text,
+            'pad': '',
+          }),
+        )
+        .length;
+
+    String msgWith(Map<String, Object?> changes) => jsonEncode({
+      't': 'group.msg',
+      'id': _id(1),
+      'ts': 5,
+      'group': group,
+      'text': 'Hi',
+      ...changes,
+    });
+
+    test('a group message round-trips with its reply and forwarded mark', () {
+      final frame = ChatFrames.decode(
+        ChatFrames.encode(
+          GroupMsgFrame(
+            id: _id(1),
+            ts: 7,
+            group: group,
+            text: 'Salaam',
+            reply: (id: _id(2), text: 'Hi'),
+            forwarded: true,
+          ),
+        ),
+      ) as GroupMsgFrame;
+      expect(frame.id, _id(1));
+      expect(frame.ts, 7);
+      expect(frame.group, group);
+      expect(frame.text, 'Salaam');
+      expect(frame.reply, (id: _id(2), text: 'Hi'));
+      expect(frame.forwarded, isTrue);
+    });
+
+    test(
+      'a group message omits the reply and the forwarded mark when absent',
+      () {
+        final raw = ChatFrames.encode(
+          GroupMsgFrame(id: _id(1), ts: 7, group: group, text: 'Hi'),
+        );
+        final json = jsonDecode(raw) as Map<String, dynamic>;
+        expect(json['t'], 'group.msg');
+        expect(json.containsKey('reply'), isFalse);
+        expect(json.containsKey('fwd'), isFalse);
+        final frame = ChatFrames.decode(raw) as GroupMsgFrame;
+        expect(frame.reply, isNull);
+        expect(frame.forwarded, isFalse);
+      },
+    );
+
+    test('a group state frame round-trips for each kind', () {
+      for (final kind in GroupStateKind.values) {
+        final raw = ChatFrames.encode(
+          GroupStateFrame(kind: kind, group: group, ts: 9),
+        );
+        final frame = ChatFrames.decode(raw) as GroupStateFrame;
+        expect(frame.kind, kind);
+        expect(frame.group, group);
+        expect(frame.ts, 9);
+      }
+      final json = jsonDecode(
+        ChatFrames.encode(
+          GroupStateFrame(kind: GroupStateKind.decline, group: group, ts: 9),
+        ),
+      ) as Map<String, dynamic>;
+      expect(json['t'], 'group.state');
+      expect(json['type'], 'decline');
+    });
+
+    test('a reaction, an edit or a delete names its group only when it has '
+        'one', () {
+      final react = ChatFrames.decode(
+        ChatFrames.encode(
+          ReactFrame(id: _id(1), emoji: '\u{1F44D}', ts: 3, group: group),
+        ),
+      ) as ReactFrame;
+      expect(react.group, group);
+      final edit = ChatFrames.decode(
+        ChatFrames.encode(
+          EditFrame(id: _id(1), ts: 3, text: 'new', group: group),
+        ),
+      ) as EditFrame;
+      expect(edit.group, group);
+      final delete = ChatFrames.decode(
+        ChatFrames.encode(DeleteFrame(id: _id(1), ts: 3, group: group)),
+      ) as DeleteFrame;
+      expect(delete.group, group);
+      // A one-to-one delete keeps its wire form: no group field, no pad field.
+      expect(
+        ChatFrames.encode(DeleteFrame(id: _id(1), ts: 3)),
+        '{"t":"delete","id":"${_id(1)}","ts":3}',
+      );
+      expect(
+        (ChatFrames.decode(
+          '{"t":"delete","id":"${_id(1)}","ts":3}',
+        ) as DeleteFrame).group,
+        isNull,
+      );
+    });
+
+    test('the group feature is defined and not advertised in hello', () {
+      expect(ChatFrames.featureGroups, 'groups');
+      expect(ChatFrames.features, isNot(contains(ChatFrames.featureGroups)));
+    });
+
+    test('malformed group frames are rejected', () {
+      expect(_refusal(msgWith({})), isNull);
+      expect(_refusal(msgWith({'group': null})), 'malformed');
+      expect(_refusal(msgWith({'group': 'abc'})), 'malformed');
+      expect(_refusal(msgWith({'text': ''})), 'malformed');
+      expect(_refusal(msgWith({'text': '   '})), 'malformed');
+      expect(_refusal(msgWith({'ts': 0})), 'malformed');
+      expect(_refusal(msgWith({'fwd': 'yes'})), 'malformed');
+      expect(_refusal(msgWith({'reply': 'quote'})), 'malformed');
+      expect(
+        _refusal(
+          msgWith({
+            'reply': {'id': _id(2), 'text': _rep(0x61, 201)},
+          }),
+        ),
+        'too-long',
+      );
+      expect(_refusal(msgWith({'text': _rep(0x61, 4001)})), 'too-long');
+      expect(_refusal(msgWith({'text': _rep(0x61, 4000)})), isNull);
+
+      String stateWith(Map<String, Object?> changes) => jsonEncode({
+        't': 'group.state',
+        'type': 'accept',
+        'group': group,
+        'ts': 9,
+        ...changes,
+      });
+      expect(_refusal(stateWith({})), isNull);
+      expect(_refusal(stateWith({'type': 'mute'})), 'malformed');
+      expect(_refusal(stateWith({'type': null})), 'malformed');
+      expect(_refusal(stateWith({'group': null})), 'malformed');
+      expect(_refusal(stateWith({'ts': 0})), 'malformed');
+
+      expect(
+        _refusal('{"t":"react","id":"${_id(1)}","emoji":"x","ts":3,"group":7}'),
+        'malformed',
+      );
+      expect(
+        _refusal(
+          '{"t":"edit","id":"${_id(1)}","ts":3,"text":"x","group":"abc"}',
+        ),
+        'malformed',
+      );
+      expect(
+        _refusal('{"t":"delete","id":"${_id(1)}","ts":3,"group":"abc"}'),
+        'malformed',
+      );
+    });
+
+    test('a group frame over the frame limit is refused on both sides', () {
+      expect(_refusal(msgWith({'pad': ' ' * maxFrameBytes})), 'too-large');
+      final long = GroupMsgFrame(
+        id: _id(1),
+        ts: 5,
+        group: group,
+        text: _rep(0x1F600, 4000),
+        reply: (id: _id(2), text: _rep(0x1F600, 200)),
+      );
+      expect(ChatFrames.fits(long), isFalse);
+      expect(
+        () => ChatFrames.encode(long),
+        throwsA(
+          isA<ChatFrameException>().having(
+            (e) => e.reason,
+            'reason',
+            'too-large',
+          ),
+        ),
+      );
+      final ascii = GroupMsgFrame(
+        id: _id(1),
+        ts: 5,
+        group: group,
+        text: _rep(0x61, 4000),
+        reply: (id: _id(2), text: _rep(0x61, 200)),
+      );
+      expect(ChatFrames.fits(ascii), isTrue);
+    });
+
+    test('a group body pads to the next 1 KiB bucket, and a body on a bucket '
+        'is not padded further', () {
+      final base = bodySize('');
+      final onBucket = ChatFrames.encode(
+        GroupMsgFrame(
+          id: _id(1),
+          ts: 5,
+          group: group,
+          text: _rep(0x61, 2048 - base),
+        ),
+      );
+      expect(utf8.encode(onBucket).length, 2048);
+      final pastBucket = ChatFrames.encode(
+        GroupMsgFrame(
+          id: _id(1),
+          ts: 5,
+          group: group,
+          text: _rep(0x61, 2049 - base),
+        ),
+      );
+      expect(utf8.encode(pastBucket).length, 3072);
+      // Sizes within one bucket look the same on the wire.
+      final short = ChatFrames.encode(
+        GroupMsgFrame(id: _id(1), ts: 5, group: group, text: 'a'),
+      );
+      final longer = ChatFrames.encode(
+        GroupMsgFrame(id: _id(1), ts: 5, group: group, text: _rep(0x61, 500)),
+      );
+      expect(utf8.encode(short).length, utf8.encode(longer).length);
+      for (final count in [1, 37, 500, 1000, 2000, 4000]) {
+        final raw = ChatFrames.encode(
+          GroupMsgFrame(
+            id: _id(1),
+            ts: 5,
+            group: group,
+            text: _rep(0x61, count),
+          ),
+        );
+        expect(utf8.encode(raw).length % padBucketBytes, 0, reason: '$count');
+        expect(utf8.encode(raw).length, lessThanOrEqualTo(maxFrameBytes));
+      }
+    });
+
+    test('a padded body at the frame limit is accepted, and one byte more is '
+        'refused', () {
+      // The filler is a field the decoder does not read, so the body can be
+      // sized to the limit without the text limit getting in the way.
+      Map<String, Object?> body(int filler) => {
+        't': 'group.msg',
+        'id': _id(1),
+        'ts': 5,
+        'group': group,
+        'text': 'a',
+        'filler': _rep(0x78, filler),
+      };
+      final size = utf8.encode(jsonEncode({...body(0), 'pad': ''})).length;
+      final atLimit = ChatFrames.encodeGroupBody(body(maxFrameBytes - size));
+      expect(utf8.encode(atLimit).length, maxFrameBytes);
+      expect(ChatFrames.decode(atLimit), isA<GroupMsgFrame>());
+      // Fifteen KiB of body pads up to the limit, and stops there.
+      final justUnder = ChatFrames.encodeGroupBody(
+        body(maxFrameBytes - size - 1000),
+      );
+      expect(utf8.encode(justUnder).length, maxFrameBytes);
+      expect(
+        () => ChatFrames.encodeGroupBody(body(maxFrameBytes - size + 1)),
+        throwsA(
+          isA<ChatFrameException>().having(
+            (e) => e.reason,
+            'reason',
+            'too-large',
+          ),
+        ),
+      );
+    });
+
+    test('decoding ignores the pad field, whatever it holds', () {
+      final base = {
+        't': 'group.msg',
+        'id': _id(1),
+        'ts': 5,
+        'group': group,
+        'text': 'Hi',
+      };
+      for (final pad in <Object?>[
+        null,
+        7,
+        'x',
+        {'a': 1},
+        [1, 2],
+        ' ' * 3000,
+      ]) {
+        final frame = ChatFrames.decode(
+          jsonEncode({...base, 'pad': pad}),
+        ) as GroupMsgFrame;
+        expect(frame.text, 'Hi', reason: 'pad of ${pad.runtimeType}');
+        expect(frame.group, group);
+      }
+      final state = ChatFrames.decode(
+        jsonEncode({
+          't': 'group.state',
+          'type': 'leave',
+          'group': group,
+          'ts': 9,
+          'pad': '   ',
+        }),
+      ) as GroupStateFrame;
+      expect(state.kind, GroupStateKind.leave);
     });
   });
 }

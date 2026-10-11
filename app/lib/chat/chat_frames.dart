@@ -35,6 +35,10 @@ const int maxReplyChars = 200;
 /// The longest reaction, in UTF-16 code units after trimming.
 const int maxEmojiUnits = 16;
 
+/// A group envelope body is padded to a multiple of this many bytes, so its size
+/// shows only a bucket. The padded size never passes [maxFrameBytes].
+const int padBucketBytes = 1024;
+
 /// How long after a message is sent its sender may edit it, and delete it for
 /// everyone.
 const Duration editWindow = Duration(minutes: 15);
@@ -84,6 +88,37 @@ final class MessageFrame extends ChatFrame {
   final String text;
 
   /// The message this one replies to, if the sender sent the quote.
+  final ChatReply? reply;
+
+  /// Whether the text was forwarded from another chat.
+  final bool forwarded;
+}
+
+/// A message to a group, sent to each member on its own session. [group] names
+/// the group; the session checks that the receiver knows it.
+final class GroupMsgFrame extends ChatFrame {
+  const GroupMsgFrame({
+    required this.id,
+    required this.ts,
+    required this.group,
+    required this.text,
+    this.reply,
+    this.forwarded = false,
+  });
+
+  /// 16 random bytes, unpadded base64url.
+  final String id;
+
+  /// The sender's clock, in milliseconds since the Unix epoch.
+  final int ts;
+
+  /// The group's id: 16 random bytes, unpadded base64url.
+  final String group;
+
+  final String text;
+
+  /// The message this one replies to. In a group, a member quotes only its own
+  /// message (D25); the codec cannot check that, so the sender must.
   final ChatReply? reply;
 
   /// Whether the text was forwarded from another chat.
@@ -151,9 +186,15 @@ sealed class ControlFrame extends ChatFrame {
   int get ts;
 }
 
-/// The sender's reaction on a message. An empty [emoji] removes it.
+/// The sender's reaction on a message. An empty [emoji] removes it. [group] is
+/// set when the message is in a group.
 final class ReactFrame extends ControlFrame {
-  const ReactFrame({required this.id, required this.emoji, required this.ts});
+  const ReactFrame({
+    required this.id,
+    required this.emoji,
+    required this.ts,
+    this.group,
+  });
 
   @override
   final String id;
@@ -163,11 +204,20 @@ final class ReactFrame extends ControlFrame {
 
   @override
   final int ts;
+
+  /// The group of the message, or null for a one-to-one message.
+  final String? group;
 }
 
-/// A new text for the sender's own message.
+/// A new text for the sender's own message. [group] is set when the message is
+/// in a group.
 final class EditFrame extends ControlFrame {
-  const EditFrame({required this.id, required this.ts, required this.text});
+  const EditFrame({
+    required this.id,
+    required this.ts,
+    required this.text,
+    this.group,
+  });
 
   @override
   final String id;
@@ -177,16 +227,45 @@ final class EditFrame extends ControlFrame {
 
   /// The new text after cleaning. Never empty.
   final String text;
+
+  /// The group of the message, or null for a one-to-one message.
+  final String? group;
 }
 
-/// The sender deletes its own message for everyone.
+/// The sender deletes its own message for everyone. [group] is set when the
+/// message is in a group.
 final class DeleteFrame extends ControlFrame {
-  const DeleteFrame({required this.id, required this.ts});
+  const DeleteFrame({required this.id, required this.ts, this.group});
 
   @override
   final String id;
 
   @override
+  final int ts;
+
+  /// The group of the message, or null for a one-to-one message.
+  final String? group;
+}
+
+/// What a member did with a group invite, or does on leaving: the names are the
+/// wire names.
+enum GroupStateKind { accept, decline, leave }
+
+/// A member's answer to a group invite, or its leaving, sent to the other
+/// member on a direct session. [group] names the group.
+final class GroupStateFrame extends ChatFrame {
+  const GroupStateFrame({
+    required this.kind,
+    required this.group,
+    required this.ts,
+  });
+
+  final GroupStateKind kind;
+
+  /// The group's id: 16 random bytes, unpadded base64url.
+  final String group;
+
+  /// The sender's clock, in milliseconds since the Unix epoch.
   final int ts;
 }
 
@@ -284,6 +363,10 @@ abstract final class ChatFrames {
     featureDelete,
   };
 
+  /// The group feature. Its frames are defined here, but it is not in
+  /// [features]: a device is not told that a peer groups until groups ship.
+  static const featureGroups = 'groups';
+
   /// Cleans a reaction. The result is empty (remove the reaction) or 1 to
   /// [maxEmojiUnits] UTF-16 code units, with no control characters (U+0000 to
   /// U+001F and U+007F), no direction controls (U+202A to U+202E and U+2066 to
@@ -373,6 +456,18 @@ abstract final class ChatFrames {
     return (id: id, text: quoted);
   }
 
+  /// The forwarded mark of a message: absent, false or true. Anything else is
+  /// malformed.
+  static bool _forwarded(Object? raw) {
+    if (raw != null && raw is! bool) {
+      throw const ChatFrameException('malformed');
+    }
+    return raw == true;
+  }
+
+  /// The id a control names for its group, when it names one.
+  static String? _optionalId(Object? raw) => raw == null ? null : _id(raw);
+
   /// Encodes [frame] as the text of one data-channel message.
   static String encode(ChatFrame frame) {
     final json = switch (frame) {
@@ -398,19 +493,50 @@ abstract final class ChatFrames {
             'reply': {'id': quote.id, 'text': quote.text},
           if (forwarded) 'fwd': true,
         },
-      ReactFrame(:final id, :final emoji, :final ts) => {
+      GroupMsgFrame(
+        :final id,
+        :final ts,
+        :final group,
+        :final text,
+        :final reply,
+        :final forwarded,
+      ) =>
+        {
+          't': 'group.msg',
+          'id': id,
+          'ts': ts,
+          'group': group,
+          'text': text,
+          if (reply case final quote?)
+            'reply': {'id': quote.id, 'text': quote.text},
+          if (forwarded) 'fwd': true,
+        },
+      GroupStateFrame(:final kind, :final group, :final ts) => {
+        't': 'group.state',
+        'type': kind.name,
+        'group': group,
+        'ts': ts,
+      },
+      ReactFrame(:final id, :final emoji, :final ts, :final group) => {
         't': 'react',
         'id': id,
         'emoji': emoji,
         'ts': ts,
+        'group': ?group,
       },
-      EditFrame(:final id, :final ts, :final text) => {
+      EditFrame(:final id, :final ts, :final text, :final group) => {
         't': 'edit',
         'id': id,
         'ts': ts,
         'text': text,
+        'group': ?group,
       },
-      DeleteFrame(:final id, :final ts) => {'t': 'delete', 'id': id, 'ts': ts},
+      DeleteFrame(:final id, :final ts, :final group) => {
+        't': 'delete',
+        'id': id,
+        'ts': ts,
+        'group': ?group,
+      },
       AckFrame(:final id) => {'t': 'ack', 'id': id},
       TypingFrame(:final typing) => {'t': 'typing', 'typing': typing},
       ReadFrame(:final ids) => {'t': 'read', 'ids': ids},
@@ -445,11 +571,31 @@ abstract final class ChatFrames {
       },
       ByeFrame() => {'t': 'bye'},
     };
-    final text = jsonEncode(json);
+    // A body that names a group is a group envelope body, and is padded.
+    final text = json.containsKey('group')
+        ? encodeGroupBody(json)
+        : jsonEncode(json);
     if (utf8.encode(text).length > maxFrameBytes) {
       throw const ChatFrameException('too-large');
     }
     return text;
+  }
+
+  /// Encodes a group envelope body, adding a `pad` field of spaces so the text
+  /// is the smallest multiple of [padBucketBytes] that holds it, and at most
+  /// [maxFrameBytes]. The field is always present, empty when no padding is
+  /// needed, so its presence reveals nothing. Decoding ignores the field.
+  ///
+  /// Throws [ChatFrameException] when the body alone, with the empty field,
+  /// is over the frame limit.
+  static String encodeGroupBody(Map<String, Object?> body) {
+    final size = utf8.encode(jsonEncode({...body, 'pad': ''})).length;
+    if (size > maxFrameBytes) throw const ChatFrameException('too-large');
+    final bucket = min(
+      ((size + padBucketBytes - 1) ~/ padBucketBytes) * padBucketBytes,
+      maxFrameBytes,
+    );
+    return jsonEncode({...body, 'pad': ' ' * (bucket - size)});
   }
 
   /// Decodes one data-channel message. Throws [ChatFrameException] for
@@ -484,17 +630,47 @@ abstract final class ChatFrames {
         if (cleaned.runes.length > maxTextChars) {
           throw const ChatFrameException('too-long');
         }
-        final fwd = json['fwd'];
-        if (fwd != null && fwd is! bool) {
-          throw const ChatFrameException('malformed');
-        }
+        final forwarded = _forwarded(json['fwd']);
         return MessageFrame(
           id: id,
           ts: ts,
           text: cleaned,
           reply: _reply(json['reply']),
-          forwarded: fwd == true,
+          forwarded: forwarded,
         );
+      case 'group.msg':
+        final id = _id(json['id']);
+        final group = _id(json['group']);
+        final ts = json['ts'];
+        final raw = json['text'];
+        if (ts is! int || ts <= 0 || raw is! String) {
+          throw const ChatFrameException('malformed');
+        }
+        final cleaned = cleanText(raw);
+        if (cleaned.isEmpty) throw const ChatFrameException('malformed');
+        if (cleaned.runes.length > maxTextChars) {
+          throw const ChatFrameException('too-long');
+        }
+        final forwarded = _forwarded(json['fwd']);
+        return GroupMsgFrame(
+          id: id,
+          ts: ts,
+          group: group,
+          text: cleaned,
+          reply: _reply(json['reply']),
+          forwarded: forwarded,
+        );
+      case 'group.state':
+        final kind = switch (json['type']) {
+          'accept' => GroupStateKind.accept,
+          'decline' => GroupStateKind.decline,
+          'leave' => GroupStateKind.leave,
+          _ => throw const ChatFrameException('malformed'),
+        };
+        final group = _id(json['group']);
+        final ts = json['ts'];
+        if (ts is! int || ts <= 0) throw const ChatFrameException('malformed');
+        return GroupStateFrame(kind: kind, group: group, ts: ts);
       case 'react':
         final id = _id(json['id']);
         final emoji = json['emoji'];
@@ -502,7 +678,12 @@ abstract final class ChatFrames {
         if (emoji is! String || ts is! int || ts <= 0) {
           throw const ChatFrameException('malformed');
         }
-        return ReactFrame(id: id, emoji: cleanEmoji(emoji), ts: ts);
+        return ReactFrame(
+          id: id,
+          emoji: cleanEmoji(emoji),
+          ts: ts,
+          group: _optionalId(json['group']),
+        );
       case 'edit':
         final id = _id(json['id']);
         final ts = json['ts'];
@@ -515,12 +696,17 @@ abstract final class ChatFrames {
         if (cleaned.runes.length > maxTextChars) {
           throw const ChatFrameException('too-long');
         }
-        return EditFrame(id: id, ts: ts, text: cleaned);
+        return EditFrame(
+          id: id,
+          ts: ts,
+          text: cleaned,
+          group: _optionalId(json['group']),
+        );
       case 'delete':
         final id = _id(json['id']);
         final ts = json['ts'];
         if (ts is! int || ts <= 0) throw const ChatFrameException('malformed');
-        return DeleteFrame(id: id, ts: ts);
+        return DeleteFrame(id: id, ts: ts, group: _optionalId(json['group']));
       case 'ack':
         return AckFrame(id: _id(json['id']));
       case 'typing':
@@ -888,8 +1074,17 @@ abstract final class ChatFrames {
   }
 
   /// Whether [value] is an id made by [newId]: 16 bytes, unpadded base64url.
-  static bool isId(Object? value) =>
-      value is String && _idPattern.hasMatch(value);
+  /// The last character must carry no bits beyond the sixteenth byte, so each
+  /// id has one text form (the same rule [b64Decode] applies).
+  static bool isId(Object? value) {
+    if (value is! String || !_idPattern.hasMatch(value)) return false;
+    try {
+      b64Decode(value);
+      return true;
+    } on FormatException {
+      return false;
+    }
+  }
 
   static String _id(Object? value) {
     if (!isId(value)) throw const ChatFrameException('malformed');
