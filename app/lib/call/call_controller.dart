@@ -672,17 +672,16 @@ class CallController extends ChangeNotifier {
   }
 
   /// A message from a contact was stored: tell the notifications who sent it
-  /// and whether that chat is on screen. The text never leaves the chat.
+  /// and whether that chat is on screen. The text never leaves the chat, and a
+  /// group message is named by its sender only (see [ChatArrival.of]).
   void _onChatEvent(ChatManagerEvent event) {
-    if (event case ChatUpdate(:final contact, event: MessageReceived())) {
-      if (_chatArrivals.isClosed) return;
-      _chatArrivals.add(
-        ChatArrival(
-          senderName: _contactName(contact),
-          viewing: _chat?.isViewing(contact) ?? false,
-        ),
-      );
-    }
+    final arrival = ChatArrival.of(
+      event,
+      nameOf: _contactName,
+      isViewing: (scope) => _chat?.isViewing(scope) ?? false,
+    );
+    if (arrival == null || _chatArrivals.isClosed) return;
+    _chatArrivals.add(arrival);
   }
 
   void _rememberChatSender(PublicIdentity sender) {
