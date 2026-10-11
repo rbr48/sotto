@@ -80,7 +80,7 @@ The features planned for the product. Phase numbers refer to [ROADMAP.md](ROADMA
 | Switch camera / audio output (Android) | Front ↔ back camera; speaker, earpiece, Bluetooth or wired headphones | 6 | Free |
 | Call timer | Shows how long the session has lasted | 6 | Free |
 | Call quality indicator | Signal-bars style icon, calculated on your device only | 6 | Free |
-| Screen sharing (PC) | Share the whole screen or a window, for example to go through a document with a client | 11 | Pro |
+| Screen sharing (PC and browser) | In a video call, send your screen in place of your camera, for example to go through a document with a client. Your camera is off while you share; press *Stop* to send it again. If the system stops the capture, press *Stop* too. Built behind a build flag (`SOTTO_SCREEN_SHARE`), so release builds don't offer it until billing exists | 11 | Pro |
 
 ## 5. Professional tools
 

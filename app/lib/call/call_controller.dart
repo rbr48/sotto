@@ -23,6 +23,7 @@ import 'call_manager.dart';
 import 'devices.dart';
 import 'media_engine.dart';
 import 'screen_awake.dart';
+import 'screen_share.dart';
 import 'video_adapter.dart';
 import 'webrtc_media_engine.dart';
 import '../chat/chat_arrival.dart';
@@ -1020,6 +1021,22 @@ class CallController extends ChangeNotifier {
   }
 
   Future<void> switchCamera() async => _manager?.media?.switchCamera();
+
+  /// Whether this device offers screen sharing (see [screenShareOffered]).
+  bool get screenShareOfferedHere =>
+      screenShareOffered(web: kIsWeb, desktop: WebRTC.platformIsDesktop);
+
+  bool get sharingScreen => _manager?.media?.sharingScreen ?? false;
+
+  /// Starts or stops sharing the screen in this call. Returns false if it
+  /// could not change (see [changeScreenShare]).
+  Future<bool> toggleScreenShare() async {
+    final media = _manager?.media;
+    if (media == null || !call.active) return false;
+    final changed = await changeScreenShare(media);
+    notifyListeners();
+    return changed;
+  }
 
   @override
   void dispose() {

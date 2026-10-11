@@ -424,6 +424,17 @@ class _CallControls extends StatelessWidget {
 
   final CallController controller;
 
+  static Future<void> _toggleScreenShare(
+    BuildContext context,
+    CallController controller,
+  ) async {
+    if (await controller.toggleScreenShare()) return;
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Screen sharing could not start.')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final call = controller.call;
@@ -485,6 +496,20 @@ class _CallControls extends StatelessWidget {
                               : Icons.videocam_off,
                           active: !controller.cameraEnabled,
                           onPressed: controller.toggleCamera,
+                        ),
+                      if (video && controller.screenShareOfferedHere)
+                        RoundCallButton(
+                          tooltip: controller.sharingScreen
+                              ? 'Stop sharing your screen'
+                              : 'Share your screen',
+                          label: controller.sharingScreen ? 'Stop' : 'Share',
+                          icon: controller.sharingScreen
+                              ? Icons.stop_screen_share
+                              : Icons.screen_share,
+                          active: controller.sharingScreen,
+                          onPressed: () => unawaited(
+                            _toggleScreenShare(context, controller),
+                          ),
                         ),
                       if (video &&
                           Theme.of(context).platform == TargetPlatform.android)
