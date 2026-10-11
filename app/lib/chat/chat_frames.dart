@@ -125,10 +125,14 @@ final class GroupMsgFrame extends ChatFrame {
   final bool forwarded;
 }
 
-/// The receiver has stored the message with this [id] and verified it.
+/// The receiver has stored the message with this [id] and verified it. [group]
+/// is set when the message is in a group.
 final class AckFrame extends ChatFrame {
-  const AckFrame({required this.id});
+  const AckFrame({required this.id, this.group});
   final String id;
+
+  /// The group of the message, or null for a one-to-one message.
+  final String? group;
 }
 
 /// Ephemeral indication of whether the sender is currently typing.
@@ -137,10 +141,14 @@ final class TypingFrame extends ChatFrame {
   final bool typing;
 }
 
-/// The receiver has viewed the messages with these [ids].
+/// The receiver has viewed the messages with these [ids]. [group] is set when
+/// the messages are in a group.
 final class ReadFrame extends ChatFrame {
-  const ReadFrame({required this.ids});
+  const ReadFrame({required this.ids, this.group});
   final List<String> ids;
+
+  /// The group of the messages, or null for one-to-one messages.
+  final String? group;
 }
 
 /// Offer to send a file or photo directly to the peer.
@@ -247,6 +255,30 @@ final class DeleteFrame extends ControlFrame {
   final String? group;
 }
 
+/// A group invite sent to the member on a direct session, as well as through
+/// the relay. The fields are those of the invite body (see
+/// `ChatGroups.encodeInvite`); the receiver checks them (D24).
+final class GroupInviteFrame extends ChatFrame {
+  const GroupInviteFrame({
+    required this.group,
+    required this.name,
+    required this.members,
+    required this.ts,
+  });
+
+  /// The group's id: 16 random bytes, unpadded base64url.
+  final String group;
+
+  /// The name as the inviter sent it. The receiver cleans it.
+  final String name;
+
+  /// Every member, the inviter and the receiver included.
+  final List<String> members;
+
+  /// The inviter's clock, in milliseconds since the Unix epoch.
+  final int ts;
+}
+
 /// What a member did with a group invite, or does on leaving: the names are the
 /// wire names.
 enum GroupStateKind { accept, decline, leave }
@@ -258,7 +290,11 @@ final class GroupStateFrame extends ChatFrame {
     required this.kind,
     required this.group,
     required this.ts,
-  });
+    this.inviteTs,
+  }) : assert(
+         kind == GroupStateKind.leave || inviteTs != null,
+         'an accept or a decline names the invite it answers',
+       );
 
   final GroupStateKind kind;
 
@@ -267,6 +303,12 @@ final class GroupStateFrame extends ChatFrame {
 
   /// The sender's clock, in milliseconds since the Unix epoch.
   final int ts;
+
+  /// The ts of the invite an accept or a decline answers, in milliseconds
+  /// since the Unix epoch. Every receiver judges the answer against this
+  /// invite, not its own idea of when the member was invited (D11). A leave
+  /// answers no invite, so it has none.
+  final int? inviteTs;
 }
 
 /// The receiver accepts the offered file transfer.
@@ -511,12 +553,22 @@ abstract final class ChatFrames {
             'reply': {'id': quote.id, 'text': quote.text},
           if (forwarded) 'fwd': true,
         },
-      GroupStateFrame(:final kind, :final group, :final ts) => {
-        't': 'group.state',
-        'type': kind.name,
-        'group': group,
-        'ts': ts,
-      },
+      GroupInviteFrame(:final group, :final name, :final members, :final ts) =>
+        {
+          't': 'group.invite',
+          'group': group,
+          'name': name,
+          'members': members,
+          'ts': ts,
+        },
+      GroupStateFrame(:final kind, :final group, :final ts, :final inviteTs) =>
+        {
+          't': 'group.state',
+          'type': kind.name,
+          'group': group,
+          'ts': ts,
+          'inviteTs': ?inviteTs,
+        },
       ReactFrame(:final id, :final emoji, :final ts, :final group) => {
         't': 'react',
         'id': id,
@@ -537,9 +589,17 @@ abstract final class ChatFrames {
         'ts': ts,
         'group': ?group,
       },
-      AckFrame(:final id) => {'t': 'ack', 'id': id},
+      AckFrame(:final id, :final group) => {
+        't': 'ack',
+        'id': id,
+        'group': ?group,
+      },
       TypingFrame(:final typing) => {'t': 'typing', 'typing': typing},
-      ReadFrame(:final ids) => {'t': 'read', 'ids': ids},
+      ReadFrame(:final ids, :final group) => {
+        't': 'read',
+        'ids': ids,
+        'group': ?group,
+      },
       FileOfferFrame(
         :final id,
         :final name,
@@ -660,6 +720,26 @@ abstract final class ChatFrames {
           reply: _reply(json['reply']),
           forwarded: forwarded,
         );
+      case 'group.invite':
+        final group = _id(json['group']);
+        final name = json['name'];
+        final ts = json['ts'];
+        final rawMembers = json['members'];
+        if (name is! String || ts is! int || ts <= 0) {
+          throw const ChatFrameException('malformed');
+        }
+        if (rawMembers is! List) throw const ChatFrameException('malformed');
+        final members = <String>[];
+        for (final member in rawMembers) {
+          if (member is! String) throw const ChatFrameException('malformed');
+          members.add(member);
+        }
+        return GroupInviteFrame(
+          group: group,
+          name: name,
+          members: members,
+          ts: ts,
+        );
       case 'group.state':
         final kind = switch (json['type']) {
           'accept' => GroupStateKind.accept,
@@ -670,7 +750,21 @@ abstract final class ChatFrames {
         final group = _id(json['group']);
         final ts = json['ts'];
         if (ts is! int || ts <= 0) throw const ChatFrameException('malformed');
-        return GroupStateFrame(kind: kind, group: group, ts: ts);
+        // An accept or a decline names the invite it answers; a leave does
+        // not, and any it carries is ignored.
+        if (kind == GroupStateKind.leave) {
+          return GroupStateFrame(kind: kind, group: group, ts: ts);
+        }
+        final inviteTs = json['inviteTs'];
+        if (inviteTs is! int || inviteTs <= 0) {
+          throw const ChatFrameException('malformed');
+        }
+        return GroupStateFrame(
+          kind: kind,
+          group: group,
+          ts: ts,
+          inviteTs: inviteTs,
+        );
       case 'react':
         final id = _id(json['id']);
         final emoji = json['emoji'];
@@ -708,7 +802,7 @@ abstract final class ChatFrames {
         if (ts is! int || ts <= 0) throw const ChatFrameException('malformed');
         return DeleteFrame(id: id, ts: ts, group: _optionalId(json['group']));
       case 'ack':
-        return AckFrame(id: _id(json['id']));
+        return AckFrame(id: _id(json['id']), group: _optionalId(json['group']));
       case 'typing':
         final typing = json['typing'];
         if (typing is! bool) throw const ChatFrameException('malformed');
@@ -722,7 +816,7 @@ abstract final class ChatFrames {
         for (final item in rawIds) {
           ids.add(_id(item));
         }
-        return ReadFrame(ids: ids);
+        return ReadFrame(ids: ids, group: _optionalId(json['group']));
       case 'file.offer':
         final id = _id(json['id']);
         final rawName = json['name'];

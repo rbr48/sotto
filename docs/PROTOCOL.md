@@ -244,7 +244,8 @@ reply   = envelope (§3) of type "profile", body {n, o?, av?}      sealed, signe
 
 A chat is set up with envelopes and then runs over a WebRTC data channel
 labelled `sotto-chat`, directly between the two devices (see
-`MESSAGING_PLAN.md`). The relay carries only the envelopes below.
+`MESSAGING_PLAN.md`). The relay carries only the envelopes below and the group
+envelopes in "Groups".
 
 Envelope types. `callId` is the session id: 16 random bytes.
 
@@ -258,7 +259,7 @@ Envelope types. `callId` is the session id: 16 random bytes.
 | `chat.ice` | either, with the winning device | `{"tag", "candidate", "sdpMid", "sdpMLineIndex"}` |
 | `chat.close` | either | `{}` |
 | `chat.text` | sender → contact | `{"id", "ts", "text"}`: a text message, when no direct chat is ready |
-| `chat.text.ack` | contact → sender | `{"id"}`: the text is stored |
+| `chat.text.ack` | contact → sender | `{"id", "group"?}`: the text is stored. `group` is set for a group text (see "Groups"). |
 
 - Only contacts can open a chat. Others get `chat.decline` with `not-contact`.
 - Every logged-in device of the contact answers `chat.open` with its own tag.
@@ -294,10 +295,10 @@ and the ends are trimmed.
 |---|---|
 | `{"t":"hello","v":1,"features":[…]}` | First frame from each side. Another version ends the session. `features` lists the optional features this side supports (below), and is left out when there are none. |
 | `{"t":"msg","id","ts","text","reply"?,"fwd"?}` | A message. `id`: 16 random bytes. `ts`: sender's clock, ms (see "Clocks" below). `reply`: `{"id","text"}`, the message replied to and a copy of its text. `fwd`: `true` for a forwarded text. |
-| `{"t":"react","id","emoji","ts"}` | The sender's reaction on message `id`. An empty `emoji` removes it. |
-| `{"t":"edit","id","ts","text"}` | New text for the sender's own message `id`, made at `ts`. |
-| `{"t":"delete","id","ts"}` | The sender's own message `id` is deleted for everyone, at `ts`. |
-| `{"t":"ack","id"}` | The message is stored on the receiving device. Sent for every copy received. |
+| `{"t":"react","id","emoji","ts","group"?}` | The sender's reaction on message `id`. An empty `emoji` removes it. `group` is set for a message in a group (see "Groups"). |
+| `{"t":"edit","id","ts","text","group"?}` | New text for the sender's own message `id`, made at `ts`. `group` is set for a message in a group (see "Groups"). |
+| `{"t":"delete","id","ts","group"?}` | The sender's own message `id` is deleted for everyone, at `ts`. `group` is set for a message in a group (see "Groups"). |
+| `{"t":"ack","id","group"?}` | The message is stored on the receiving device. Sent for every copy received. `group` is set for a group message. |
 | `{"t":"bye"}` | The session is ending. |
 
 Messages are sent only after the other side's `hello`. A message received
@@ -318,6 +319,7 @@ version stays 1, and the version check is unchanged.
 | `react` | the `react` frame |
 | `edit` | the `edit` frame |
 | `delete` | the `delete` frame |
+| `groups` | the group frames, and the `group` field of `ack`, `read`, `react`, `edit` and `delete` (see "Groups"). Listed only when groups are on. |
 
 A side sends a field or frame only when the other side's `hello` lists its
 feature. A `hello` with no `features`, or with a `features` value that is not
@@ -432,6 +434,175 @@ copy at once. It is sent to the contact over the chat, never through the relay:
   or delete made in that time; its copy stays as it was.
   A message it has not stored yet is the exception: it goes with its newest
   text (see above).
+
+### Groups
+
+A group has three or four people, the device's own person included. Every
+member is a contact of every other member, so the members form a full mesh:
+each pair has one direct session, the one the one-to-one chat with that person
+uses. A group is named by its id, 16 random bytes in unpadded base64url, and
+its members by their Sotto IDs. No member forwards another's messages, so each
+message comes from its author's session. There are no admins and no renaming.
+The name is cleaned as a message is (control characters, line separators,
+direction controls and lone surrogates removed, ends trimmed), with line breaks
+removed too, and it must be 1 to 64 characters. A group of two stays active
+when the others leave.
+
+What the relay learns: the key of each recipient, the member set (from each
+invite and each pair's session), and the timing and size of each copy. It never
+sees message text or names.
+
+**Off by default.** Groups are on only in a build with `SOTTO_GROUPS` set. With
+groups on, `hello` lists the feature `groups`. With groups off, a device sends
+no group envelope or group frame, ignores those it receives, and does not list
+`groups`.
+
+**Envelopes.** A group envelope goes through the relay like the envelopes above,
+sealed to its recipient, with body `{"body": text}`. `text` is the JSON object
+in the table, padded as described under "Padding". The envelope type names the
+kind, and the `t` in the text repeats it; a text with another `t` is dropped.
+Unlike the envelopes above, group envelopes do not wait for a `hello`. An
+envelope from anyone who is not a contact is dropped.
+
+| `type` | Sent by, to | `text` fields |
+|---|---|---|
+| `group.invite` | the inviter, to each invitee | `t`, `group`, `name`, `members`, `ts` |
+| `group.accept` | the member who accepts, to every other member | `t`, `group`, `ts`, `inviteTs` |
+| `group.decline` | the member who declines, to every other member | `t`, `group`, `ts`, `inviteTs` |
+| `group.leave` | the member who leaves, to every other member | `t`, `group`, `ts` |
+| `group.reinvite` | the member who sends a new invite, to every other member | `t`, `group`, `member`, `ts` |
+| `group.text` | the sender, to each member with no ready session | `t`, `group`, `id`, `ts`, `text` |
+
+- `group` is the group id. `ts` is the sender's clock, in milliseconds.
+- `members` in an invite lists every member, the inviter and the invitee
+  included. `ts` is the inviter's time for that invitee's invite.
+- `inviteTs` in an accept or a decline is the `ts` of the invite it answers, in
+  milliseconds: the invite the answering member holds for itself. It is
+  required; an accept or a decline without a positive integer `inviteTs` is
+  dropped. A leave answers no invite and has no `inviteTs`; one it carries is
+  ignored.
+- `member` in `group.reinvite` is the member the new invite is for, and `ts` is
+  the time of that invite.
+- `id` and `ts` in `group.text` are the message's own, as in a one-to-one relay
+  text. `text` is cleaned and limited as a message is, and may not be empty.
+- A copy of a group text is acknowledged with `chat.text.ack` and body
+  `{"id", "group"}`. Without `group`, it is the one-to-one acknowledgement.
+
+**Invites.** A receiver drops an invite, without change and without an answer,
+when an id, the name, the ts or the member list is malformed; when the list
+does not hold three or four distinct members, including the inviter and the
+receiver; when the inviter is the receiver; or when the inviter is not a
+contact. An invite to a group the receiver does not hold makes it: the inviter
+is accepted, and every other member is invited at the invite's ts. An invite
+for a group the receiver holds counts only from a member of that group, and
+only as a new invite to the receiver (see "New invites").
+
+**New invites.** An accepted member may invite a member again: one that
+declined, let an invite expire, or has not answered yet. The member gets a new
+`group.invite`, dated now, and every other member gets a `group.reinvite`
+naming it. A device takes a `group.reinvite` only from an accepted member of
+the group, and applies it only when its `ts` is later than the invite it holds
+for that member. Then a declined or expired member is invited again, and a
+member that has not answered starts a new window from that `ts`. An accepted
+member, or one that has left, does not change.
+
+**Answers.**
+
+- Each device holds, for each member, the ts of the invite it knows of: the
+  first invite, or a later one it has learned of from a `group.invite` or a
+  `group.reinvite`. An accept or a decline names the invite it answers by
+  `inviteTs`. A device applies it only when `inviteTs` equals the invite it
+  holds for that member, and drops it otherwise: an answer to an earlier invite
+  no longer counts, and an answer to a later invite the device has not learned
+  of yet is applied when it is sent again after the device has learned of it.
+- An accept counts when its `ts` is within 15 minutes after its `inviteTs`, with
+  each end widened by the clock-skew allowance (`clockSkew`, 5 minutes). Only
+  those two ts values are compared, never the time of arrival or the device's
+  own idea of the invite, so every device that applies the accept reaches the
+  same result. An accept outside the window marks the member expired.
+- A decline is final until a new invite.
+- A leave counts from an accepted member and is final: a member who has left
+  is not invited again. It names no invite.
+- On the inviter's device, an invite with no answer by the end of its window
+  (its ts plus 15 minutes, on that device's own clock) shows as expired. The
+  other devices do not expire it by their clocks. An accept that is still in
+  the window joins the member on every device.
+
+**Direct frames.** Sent on a ready session when the peer lists `groups`:
+
+| Frame | Fields |
+|---|---|
+| `{"t":"group.invite", …}` | The `group.invite` text fields, as a frame. It goes with the relay copy, so the invitee gets it from either. |
+| `{"t":"group.state", …}` | `type` (`accept`, `decline` or `leave`), `group`, `ts`, and `inviteTs` for an accept or a decline, as in the `group.accept`, `group.decline` and `group.leave` texts. Applied under the same rules (see "Answers"), once; a repeat changes nothing. |
+| `{"t":"group.msg", …}` | The `msg` fields, plus `group`. Accepted only from an accepted member of a group that is active here. Acknowledged with `{"t":"ack","id","group"}`. A message already held is acknowledged again and not stored twice. |
+
+- `react`, `edit` and `delete` take the `group` field for a message in a group.
+  The receiver accepts them only from an accepted member, under the one-to-one
+  rules. An edit or delete applies only to a message the member wrote. A
+  reaction may be on any message in the group, and each member has one reaction
+  per message.
+- `read` takes `group` for group messages. The ids are messages the receiver
+  wrote; any other id is ignored. A device sends a group read receipt to a
+  member only for that member's own messages, so no member learns of a read of
+  another member's message.
+
+**Quotes.** A reply in a group quotes only the replier's own message. The sender
+refuses a quote of another member's message. A receiver keeps the quote only
+when the quoted message is held and the replier wrote it. A quote of a message
+that is not held cannot be checked, so it is dropped too, and the reply is
+stored without it. The 200-character limit of "Reply" applies.
+
+**Padding.** A frame or envelope body with a `group` field gets a `pad` field of
+spaces. Its text is the smallest multiple of 1024 bytes that holds it, at most
+16 KiB. The field is always present, empty when no padding is needed, and
+receivers ignore it. A body that is over 16 KiB even with the empty field is
+refused. Padding hides size only. It does not hide membership or timing.
+
+**Relay copies.**
+
+- A text to a group reaches a member through the relay only when that member has
+  no ready session, and only when it is a plain text. A reply or a forwarded
+  text goes only on a direct session, and a message deleted for everyone is not
+  sent again.
+- Until the member acknowledges it, the copy is sent again every 30 seconds
+  while the sender's app is open, for 15 minutes from the message's `ts`. At
+  most 20 copies go per check, across all groups. A member still waiting when
+  the 15 minutes end is marked not sent.
+- An invite is sent again through the relay every 30 seconds until it is
+  answered or its window ends. An accept, a decline and a `group.reinvite` are
+  sent again every 30 seconds for 15 minutes plus the allowed clock skew, as
+  long as an accept can still count, so a member offline for most of
+  that time still learns of them. These repeats run while the sender's app is
+  open and are not kept across a restart. A leave is sent once.
+- A receiver stores a relay text once, by id, and acknowledges every copy. A
+  text from a member that is not accepted in an active group is dropped without
+  an acknowledgement.
+
+**Pending.**
+
+- An answer (`group.state`) and a group control (`react`, `edit`, `delete`) wait
+  for each member separately, in the vault under
+  `sotto.groups.pending.<group id>.<member id>`. They go on the member's ready
+  session, after its messages, once the member lists `groups`. The one-to-one
+  rules apply: a newer reaction or edit replaces the older one on the same
+  message, a delete replaces both, and a reaction or edit on one of this
+  device's messages waits until the member has stored that message. An
+  identical state frame is kept once.
+  At most 100 frames wait per member, and the oldest is dropped past that.
+- A frame is dropped after 7 days, by its own `ts`.
+- A ready session also sends the group messages this device wrote in the last
+  15 minutes that the member has not acknowledged.
+
+**Contacts and leaving.**
+
+- A member removed as a contact on this device keeps its place in the group.
+  This device sends it nothing further: no message, relay copy, invite, answer
+  or control. Membership does not change, and no message is sent to say so.
+- A device cannot accept an invite while a member is not its contact. Nothing is
+  sent, and the reason shows on that device only.
+- A creator can invite only contacts, and each invitee must be one.
+- A leaver's copy of the history stays on its device, read-only. Senders skip a
+  member who has left.
 
 ## 6. Test vectors
 

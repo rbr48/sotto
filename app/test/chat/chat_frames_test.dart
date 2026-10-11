@@ -1191,23 +1191,70 @@ void main() {
       },
     );
 
-    test('a group state frame round-trips for each kind', () {
+    test('a group invite frame round-trips and is padded to a bucket', () {
+      final raw = ChatFrames.encode(
+        GroupInviteFrame(
+          group: group,
+          name: 'Trip',
+          members: [_id(1), _id(2), _id(3)],
+          ts: 11,
+        ),
+      );
+      expect(utf8.encode(raw).length % padBucketBytes, 0);
+      final frame = ChatFrames.decode(raw) as GroupInviteFrame;
+      expect(frame.group, group);
+      expect(frame.name, 'Trip');
+      expect(frame.members, [_id(1), _id(2), _id(3)]);
+      expect(frame.ts, 11);
+    });
+
+    test('a group invite frame with a member that is not text is refused', () {
+      final raw = jsonEncode({
+        't': 'group.invite',
+        'group': group,
+        'name': 'Trip',
+        'members': [1, 2],
+        'ts': 11,
+      });
+      expect(() => ChatFrames.decode(raw), throwsA(isA<ChatFrameException>()));
+    });
+
+    test('a group state frame round-trips for each kind; an answer names '
+        'its invite and a leave does not', () {
       for (final kind in GroupStateKind.values) {
+        final inviteTs = kind == GroupStateKind.leave ? null : 7;
         final raw = ChatFrames.encode(
-          GroupStateFrame(kind: kind, group: group, ts: 9),
+          GroupStateFrame(kind: kind, group: group, ts: 9, inviteTs: inviteTs),
         );
         final frame = ChatFrames.decode(raw) as GroupStateFrame;
         expect(frame.kind, kind);
         expect(frame.group, group);
         expect(frame.ts, 9);
+        expect(frame.inviteTs, inviteTs);
       }
       final json = jsonDecode(
         ChatFrames.encode(
-          GroupStateFrame(kind: GroupStateKind.decline, group: group, ts: 9),
+          GroupStateFrame(
+            kind: GroupStateKind.decline,
+            group: group,
+            ts: 9,
+            inviteTs: 7,
+          ),
         ),
       ) as Map<String, dynamic>;
       expect(json['t'], 'group.state');
       expect(json['type'], 'decline');
+      expect(json['inviteTs'], 7);
+      final leave = jsonDecode(
+        ChatFrames.encode(
+          GroupStateFrame(kind: GroupStateKind.leave, group: group, ts: 9),
+        ),
+      ) as Map<String, dynamic>;
+      expect(leave.containsKey('inviteTs'), isFalse);
+      final leaveWithInvite = ChatFrames.decode(
+        jsonEncode({...leave, 'inviteTs': 7}),
+      ) as GroupStateFrame;
+      expect(leaveWithInvite.inviteTs, isNull);
     });
 
     test('a reaction, an edit or a delete names its group only when it has '
@@ -1241,7 +1288,8 @@ void main() {
       );
     });
 
-    test('the group feature is defined and not advertised in hello', () {
+    test('the default feature set leaves groups out; a session adds it only '
+        'with groups on', () {
       expect(ChatFrames.featureGroups, 'groups');
       expect(ChatFrames.features, isNot(contains(ChatFrames.featureGroups)));
     });
@@ -1271,9 +1319,18 @@ void main() {
         'type': 'accept',
         'group': group,
         'ts': 9,
+        'inviteTs': 7,
         ...changes,
       });
       expect(_refusal(stateWith({})), isNull);
+      expect(_refusal(stateWith({'inviteTs': null})), 'malformed');
+      expect(_refusal(stateWith({'inviteTs': 0})), 'malformed');
+      expect(_refusal(stateWith({'inviteTs': '7'})), 'malformed');
+      expect(
+        _refusal(stateWith({'type': 'decline', 'inviteTs': null})),
+        'malformed',
+      );
+      expect(_refusal(stateWith({'type': 'leave', 'inviteTs': null})), isNull);
       expect(_refusal(stateWith({'type': 'mute'})), 'malformed');
       expect(_refusal(stateWith({'type': null})), 'malformed');
       expect(_refusal(stateWith({'group': null})), 'malformed');
@@ -1433,6 +1490,44 @@ void main() {
         }),
       ) as GroupStateFrame;
       expect(state.kind, GroupStateKind.leave);
+    });
+
+    test('an ack and a read carry their group only when it is set', () {
+      final ack = ChatFrames.decode(
+        ChatFrames.encode(AckFrame(id: _id(1), group: group)),
+      ) as AckFrame;
+      expect(ack.id, _id(1));
+      expect(ack.group, group);
+
+      final read = ChatFrames.decode(
+        ChatFrames.encode(ReadFrame(ids: [_id(1)], group: group)),
+      ) as ReadFrame;
+      expect(read.ids, [_id(1)]);
+      expect(read.group, group);
+
+      final plain = ChatFrames.decode(ChatFrames.encode(AckFrame(id: _id(1))));
+      expect((plain as AckFrame).group, isNull);
+      final plainRead = ChatFrames.decode(
+        ChatFrames.encode(ReadFrame(ids: [_id(1)])),
+      );
+      expect((plainRead as ReadFrame).group, isNull);
+    });
+
+    test('an ack or read with a malformed group is rejected', () {
+      for (final raw in [
+        jsonEncode({'t': 'ack', 'id': _id(1), 'group': 'short'}),
+        jsonEncode({
+          't': 'read',
+          'ids': [_id(1)],
+          'group': 7,
+        }),
+      ]) {
+        expect(
+          () => ChatFrames.decode(raw),
+          throwsA(isA<ChatFrameException>()),
+          reason: raw,
+        );
+      }
     });
   });
 }

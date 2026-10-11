@@ -387,7 +387,7 @@ void main() {
       final recent = await store.recentChats();
       expect(recent, hasLength(2));
       expect(recent.first.contactId, 'carol');
-      expect(recent.first.lastMessage.state, ChatState.queued);
+      expect(recent.first.lastMessage!.state, ChatState.queued);
       expect(recent.first.unreadCount, 0);
 
       expect(recent.last.contactId, 'bob');
@@ -1554,7 +1554,7 @@ void main() {
       expect(
         [
           for (final c in fromOld)
-            (c.contactId, c.lastMessage.id, c.unreadCount),
+            (c.contactId, c.lastMessage!.id, c.unreadCount),
         ],
         [('bob', _id(5), 2), ('alice', _id(2), 1), ('carol', _id(6), 0)],
       );
@@ -1564,11 +1564,11 @@ void main() {
       expect(
         [
           for (final c in fromNew)
-            (c.contactId, c.lastMessage.id, c.unreadCount),
+            (c.contactId, c.lastMessage!.id, c.unreadCount),
         ],
         [
           for (final c in fromOld)
-            (c.contactId, c.lastMessage.id, c.unreadCount),
+            (c.contactId, c.lastMessage!.id, c.unreadCount),
         ],
       );
       for (final contactId in fixture.keys) {
@@ -1681,7 +1681,7 @@ void main() {
 
       final recent = await list.recentChats();
       expect(recent.map((c) => c.contactId), ['bob']);
-      expect(recent.single.lastMessage.id, _id(1));
+      expect(recent.single.lastMessage!.id, _id(1));
       expect(recent.single.unreadCount, 1);
       expect(await list.totalUnreadCount(), 1);
       expect(events, ['chat summary cannot be saved']);
@@ -1709,7 +1709,7 @@ void main() {
         ]);
         await _expectSummaryInStep(secrets, 'bob');
         expect(
-          (await ChatStore(secrets).recentChats()).single.lastMessage.id,
+          (await ChatStore(secrets).recentChats()).single.lastMessage!.id,
           _id(1),
         );
 

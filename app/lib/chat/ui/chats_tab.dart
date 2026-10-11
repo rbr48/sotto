@@ -73,8 +73,15 @@ class _ChatsTabState extends State<ChatsTab> {
   Future<void> _refresh() async {
     final chat = widget.calls.chat;
     if (chat == null) return;
-    final list = await chat.store.recentChats();
-    final archived = await chat.store.archivedChats();
+    // Group rows come with the group screens. Until then, groups are not listed.
+    final list = [
+      for (final c in await chat.store.recentChats())
+        if (c.groupId == null) c,
+    ];
+    final archived = [
+      for (final c in await chat.store.archivedChats())
+        if (c.groupId == null) c,
+    ];
     if (mounted) {
       setState(() {
         _summaries = list;
@@ -91,7 +98,8 @@ class _ChatsTabState extends State<ChatsTab> {
         .firstOrNull;
     final name = contact?.name ?? summary.contactId;
     return name.toLowerCase().contains(_searchQuery) ||
-        summary.lastMessage.text.toLowerCase().contains(_searchQuery);
+        (summary.lastMessage?.text.toLowerCase().contains(_searchQuery) ??
+            false);
   }
 
   /// Pins or unpins [summary]. A pin past the limit is refused, and says so.
@@ -521,6 +529,7 @@ class _ChatsTabState extends State<ChatsTab> {
             ? l10n.chatsUnknownContact(summary.contactId.substring(0, 8))
             : summary.contactId);
     final last = summary.lastMessage;
+    if (last == null) return const SizedBox.shrink();
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),

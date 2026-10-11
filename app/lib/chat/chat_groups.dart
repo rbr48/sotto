@@ -172,6 +172,120 @@ abstract final class ChatGroups {
     );
   }
 
+  /// The relay body of a group envelope: the padded text of [body] (see
+  /// [ChatFrames.encodeGroupBody]), under `body`. The envelope type names the
+  /// kind of envelope, and the text repeats it as `t`, so a body of another
+  /// kind is refused.
+  static Map<String, Object?> envelope(String text) => {'body': text};
+
+  /// The text of a relay body, or null when the body has none.
+  static String? textOf(Map<String, dynamic> body) {
+    final text = body['body'];
+    return text is String ? text : null;
+  }
+
+  /// Decodes the text of a relay body of [type] (`group.accept`, and so on).
+  /// Throws [ChatFrameException] for anything else, or for a text too long.
+  static Map<String, dynamic> _envelopeJson(String text, String type) {
+    if (utf8.encode(text).length > maxFrameBytes) {
+      throw const ChatFrameException('too-large');
+    }
+    final Object? json;
+    try {
+      json = jsonDecode(text);
+    } on FormatException {
+      throw const ChatFrameException('malformed');
+    }
+    if (json is! Map<String, dynamic> || json['t'] != type) {
+      throw const ChatFrameException('malformed');
+    }
+    return json;
+  }
+
+  /// The text of a group answer or leave, dated [ts] (`group.accept`,
+  /// `group.decline` or `group.leave`). An accept or a decline carries the ts
+  /// of the invite it answers as `inviteTs` (D11); a leave answers no invite,
+  /// so it has none.
+  static String encodeAnswer(
+    GroupStateKind kind, {
+    required String group,
+    required int ts,
+    int? inviteTs,
+  }) {
+    if (kind != GroupStateKind.leave && inviteTs == null) {
+      throw ArgumentError.notNull('inviteTs');
+    }
+    return ChatFrames.encodeGroupBody({
+      't': 'group.${kind.name}',
+      'group': group,
+      'ts': ts,
+      if (kind != GroupStateKind.leave) 'inviteTs': inviteTs,
+    });
+  }
+
+  /// Reads the text of a group answer of [kind]: its group, its ts, and for an
+  /// accept or a decline the ts of the invite it answers. A leave's [inviteTs]
+  /// is null, whatever the text carries.
+  static ({String group, int ts, int? inviteTs}) decodeAnswer(
+    String text,
+    GroupStateKind kind,
+  ) {
+    final json = _envelopeJson(text, 'group.${kind.name}');
+    final group = json['group'];
+    final ts = json['ts'];
+    if (!ChatFrames.isId(group) || ts is! int || ts <= 0) {
+      throw const ChatFrameException('malformed');
+    }
+    if (kind == GroupStateKind.leave) {
+      return (group: group as String, ts: ts, inviteTs: null);
+    }
+    final inviteTs = json['inviteTs'];
+    if (inviteTs is! int || inviteTs <= 0) {
+      throw const ChatFrameException('malformed');
+    }
+    return (group: group as String, ts: ts, inviteTs: inviteTs);
+  }
+
+  /// The text of a message to [group] for the relay (`group.text`). Its id and
+  /// ts are the message's own, as a one-to-one relay text carries them.
+  static String encodeRelayText({
+    required String group,
+    required String id,
+    required int ts,
+    required String text,
+  }) => ChatFrames.encodeGroupBody({
+    't': 'group.text',
+    'group': group,
+    'id': id,
+    'ts': ts,
+    'text': text,
+  });
+
+  /// Reads the text of a relay message to a group. The text is cleaned and
+  /// checked as a direct message is (see [ChatFrames.decode]).
+  static ({String group, String id, int ts, String text}) decodeRelayText(
+    String text,
+  ) {
+    final json = _envelopeJson(text, 'group.text');
+    final group = json['group'];
+    final id = json['id'];
+    final ts = json['ts'];
+    final raw = json['text'];
+    if (!ChatFrames.isId(group) ||
+        !ChatFrames.isId(id) ||
+        ts is! int ||
+        ts <= 0 ||
+        raw is! String) {
+      throw const ChatFrameException('malformed');
+    }
+    final cleaned = ChatFrames.cleanText(raw);
+    if (cleaned.isEmpty) throw const ChatFrameException('malformed');
+    if (cleaned.runes.length > maxTextChars) {
+      throw const ChatFrameException('too-long');
+    }
+    return (group: group as String, id: id as String, ts: ts, text: cleaned);
+  }
+
   /// A new group made on this device. [invitees] are two or three other
   /// contacts (D24), each of them one of [contacts]. The creator is accepted,
   /// and each invitee is invited at [ts]. The group id is 16 random bytes.
@@ -331,6 +445,82 @@ abstract final class ChatGroups {
       MemberState.invited,
       invitedAt: ts,
     );
+  }
+
+  /// Applies a group answer of [kind] from [memberId], dated [ts], to [group]
+  /// (see [accept], [decline] and [leave]).
+  ///
+  /// An accept or a decline names the invite it answers by its ts,
+  /// [inviteTs]. It counts only when that is the invite this device holds for
+  /// the member: the first one, or a later one it has learned of (see
+  /// [renew]). Any other answer is dropped: one to an earlier invite no longer
+  /// counts, and one to a later invite this device has not learned of yet is
+  /// judged when it comes again after that. So an accept is judged against
+  /// the same invite on every device, and every device reaches the same
+  /// verdict (D11). A leave answers no invite, so [inviteTs] is not read.
+  static ChatGroup applyAnswer(
+    ChatGroup group,
+    String memberId,
+    GroupStateKind kind,
+    int ts, {
+    int? inviteTs,
+  }) {
+    final member = group.memberOf(memberId);
+    if (member == null) return group;
+    if (kind != GroupStateKind.leave && inviteTs != member.invitedAt) {
+      return group;
+    }
+    return switch (kind) {
+      GroupStateKind.accept => accept(group, memberId, ts),
+      GroupStateKind.decline => decline(group, memberId),
+      GroupStateKind.leave => leave(group, memberId),
+    };
+  }
+
+  /// A new invite to [memberId] as the other members learn of it, dated [ts]:
+  /// a member who has not answered yet, or has declined or let an invite
+  /// expire, starts a new window from [ts] (see [reinvite]). An accepted or a
+  /// left member does not change, and nor does a ts that is not later than the
+  /// invite it would replace.
+  static ChatGroup renew(ChatGroup group, String memberId, int ts) {
+    final member = group.memberOf(memberId);
+    if (member == null || ts <= member.invitedAt) return group;
+    if (member.state != MemberState.invited) {
+      return reinvite(group, memberId, ts);
+    }
+    return _set(
+      group,
+      memberId,
+      {MemberState.invited},
+      MemberState.invited,
+      invitedAt: ts,
+    );
+  }
+
+  /// The text of a new invite to [member] of [group], dated [ts], that the
+  /// inviter sends to the other members (`group.reinvite`).
+  static String encodeRenewal({
+    required String group,
+    required String member,
+    required int ts,
+  }) => ChatFrames.encodeGroupBody({
+    't': 'group.reinvite',
+    'group': group,
+    'member': member,
+    'ts': ts,
+  });
+
+  /// Reads the text of a new invite to a member, as [encodeRenewal] writes it.
+  static ({String group, String member, int ts}) decodeRenewal(String text) {
+    final json = _envelopeJson(text, 'group.reinvite');
+    final group = json['group'];
+    final member = json['member'];
+    final ts = json['ts'];
+    if (!ChatFrames.isId(group) || !isMemberId(member) || ts is! int) {
+      throw const ChatFrameException('malformed');
+    }
+    if (ts <= 0) throw const ChatFrameException('malformed');
+    return (group: group as String, member: member as String, ts: ts);
   }
 
   /// A member who has accepted leaves. Any other state does not change.

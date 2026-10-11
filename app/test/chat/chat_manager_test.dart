@@ -110,6 +110,7 @@ void main() {
     bool Function()? readReceiptsEnabled,
     bool Function()? autoDownloadFiles,
     int maxFileBytes = maxFileSizeNative,
+    bool groupsEnabled = groupsBuildEnabled,
   }) {
     final manager = ChatManager(
       myId: myId,
@@ -137,6 +138,7 @@ void main() {
       autoDownloadFiles: autoDownloadFiles ?? () => false,
       maxFileBytes: maxFileBytes,
       offerReadyWait: Duration.zero,
+      groupsEnabled: groupsEnabled,
     );
     managers.add(manager);
     (net.managers[myId] ??= []).add(manager);
@@ -1948,6 +1950,38 @@ void main() {
     });
   });
 
+  group('the groups flag', () {
+    /// The features of the hellos [device] has sent.
+    Iterable<Set<String>> helloFeatures(String device) => net.rtcs[device]!
+        .expand((rtc) => rtc.sentFrames)
+        .map(ChatFrames.decode)
+        .whereType<HelloFrame>()
+        .map((hello) => hello.features);
+
+    test('with groups on, the group feature is listed in hello', () async {
+      final alice = device('alice', contacts: {'bob'}, groupsEnabled: true);
+      device('bob', contacts: {'alice'}, groupsEnabled: true);
+
+      await alice.sendText('bob', 'hello');
+      await _settle();
+
+      expect(helloFeatures('alice').single, contains(ChatFrames.featureGroups));
+    });
+
+    test('with groups off, the group feature is not listed in hello', () async {
+      final alice = device('alice', contacts: {'bob'}, groupsEnabled: false);
+      device('bob', contacts: {'alice'}, groupsEnabled: false);
+
+      await alice.sendText('bob', 'hello');
+      await _settle();
+
+      expect(
+        helloFeatures('alice').single,
+        isNot(contains(ChatFrames.featureGroups)),
+      );
+    });
+  });
+
   group('archive, mute, pin and star', () {
     test(
       'settings are set on this device and announced to its listeners',
@@ -2236,6 +2270,7 @@ String _frameTypeName(ChatFrame frame) => switch (frame) {
   EditFrame() => 'edit',
   DeleteFrame() => 'delete',
   GroupMsgFrame() => 'group.msg',
+  GroupInviteFrame() => 'group.invite',
   GroupStateFrame() => 'group.state',
   FileAcceptFrame() => 'file.accept',
   FileDeclineFrame() => 'file.decline',

@@ -809,4 +809,307 @@ void main() {
       },
     );
   });
+
+  group('relay bodies of group envelopes', () {
+    test('a text to a group round-trips, padded to a bucket', () {
+      final text = ChatGroups.encodeRelayText(
+        group: _group(40),
+        id: _group(7),
+        ts: _now,
+        text: 'Hi  there',
+      );
+      expect(utf8.encode(text).length % padBucketBytes, 0);
+      final read = ChatGroups.decodeRelayText(text);
+      expect(read.group, _group(40));
+      expect(read.id, _group(7));
+      expect(read.ts, _now);
+      expect(read.text, 'Hi  there');
+    });
+
+    test('a relay text is refused when it is another kind, has no id, or has '
+        'no text', () {
+      final body = {
+        't': 'group.text',
+        'group': _group(40),
+        'id': _group(7),
+        'ts': _now,
+        'text': 'Hi',
+      };
+      String refused(Map<String, Object?> json) =>
+          _refusedBy(() => ChatGroups.decodeRelayText(jsonEncode(json)))!;
+      expect(refused({...body, 't': 'group.msg'}), 'malformed');
+      expect(refused({...body, 'id': 'short'}), 'malformed');
+      expect(refused({...body, 'ts': 0}), 'malformed');
+      expect(refused({...body, 'text': '   '}), 'malformed');
+      expect(refused({...body, 'text': 'x' * (maxTextChars + 1)}), 'too-long');
+    });
+
+    test('an answer round-trips for its kind, and another kind is refused', () {
+      final text = ChatGroups.encodeAnswer(
+        GroupStateKind.decline,
+        group: _group(40),
+        ts: _now,
+        inviteTs: _now - _minute,
+      );
+      final read = ChatGroups.decodeAnswer(text, GroupStateKind.decline);
+      expect(read.group, _group(40));
+      expect(read.ts, _now);
+      expect(read.inviteTs, _now - _minute);
+      expect(
+        _refusedBy(() => ChatGroups.decodeAnswer(text, GroupStateKind.accept)),
+        'malformed',
+      );
+    });
+
+    test('an accept or a decline names the invite it answers; a leave does '
+        'not need to', () {
+      final body = {'group': _group(40), 'ts': _now, 'inviteTs': _now};
+      for (final kind in [GroupStateKind.accept, GroupStateKind.decline]) {
+        final type = 'group.${kind.name}';
+        String? refused(Map<String, Object?> json) => _refusedBy(
+          () => ChatGroups.decodeAnswer(jsonEncode({'t': type, ...json}), kind),
+        );
+        expect(refused(body), isNull);
+        expect(refused({...body, 'inviteTs': null}), 'malformed');
+        expect(refused({...body, 'inviteTs': 0}), 'malformed');
+        expect(refused({...body, 'inviteTs': '1'}), 'malformed');
+        expect(
+          () => ChatGroups.encodeAnswer(kind, group: _group(40), ts: _now),
+          throwsArgumentError,
+        );
+      }
+      final leave = ChatGroups.encodeAnswer(
+        GroupStateKind.leave,
+        group: _group(40),
+        ts: _now,
+      );
+      expect(jsonDecode(leave), isNot(contains('inviteTs')));
+      expect(
+        ChatGroups.decodeAnswer(leave, GroupStateKind.leave).inviteTs,
+        isNull,
+      );
+    });
+
+    test('the envelope body carries the text under body, and nothing else', () {
+      expect(ChatGroups.envelope('x'), {'body': 'x'});
+      expect(ChatGroups.textOf({'body': 'x'}), 'x');
+      expect(ChatGroups.textOf({'body': 1}), isNull);
+      expect(ChatGroups.textOf(const {}), isNull);
+    });
+  });
+
+  group('a new invite as the other members learn it', () {
+    ChatGroup threeWay() => ChatGroups.create(
+      selfId: _member(1),
+      name: 'Trip',
+      invitees: [_member(2), _member(3)],
+      contacts: {_member(2), _member(3)},
+      ts: _now,
+      random: Random(1),
+    );
+
+    test('a new invite restarts the window of a member who declined, let the '
+        'invite expire, or has not answered yet', () {
+      final group = threeWay();
+      final declined = ChatGroups.decline(group, _member(2));
+      final again = ChatGroups.renew(declined, _member(2), _now + _minute);
+      expect(again.memberOf(_member(2))!.state, MemberState.invited);
+      expect(again.memberOf(_member(2))!.invitedAt, _now + _minute);
+
+      final expired = ChatGroups.expire(group, _member(3));
+      final renewed = ChatGroups.renew(expired, _member(3), _now + _minute);
+      expect(renewed.memberOf(_member(3))!.state, MemberState.invited);
+
+      final waiting = ChatGroups.renew(group, _member(2), _now + _minute);
+      expect(waiting.memberOf(_member(2))!.invitedAt, _now + _minute);
+    });
+
+    test('a new invite does not change an accepted or a left member, or one '
+        'that is not later than the invite it replaces', () {
+      final group = threeWay();
+      final accepted = ChatGroups.accept(group, _member(2), _now);
+      expect(
+        identical(
+          ChatGroups.renew(accepted, _member(2), _now + _minute),
+          accepted,
+        ),
+        isTrue,
+      );
+      final left = ChatGroups.leave(accepted, _member(2));
+      expect(
+        identical(ChatGroups.renew(left, _member(2), _now + _minute), left),
+        isTrue,
+      );
+      expect(
+        identical(ChatGroups.renew(group, _member(2), _now), group),
+        isTrue,
+      );
+    });
+
+    test(
+      'a new invite to a member who is not in the group changes nothing',
+      () {
+        final group = threeWay();
+        expect(
+          identical(ChatGroups.renew(group, _member(9), _now + _minute), group),
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'the text of a new invite round-trips, and another kind is refused',
+      () {
+        final text = ChatGroups.encodeRenewal(
+          group: _group(40),
+          member: _member(2),
+          ts: _now,
+        );
+        final read = ChatGroups.decodeRenewal(text);
+        expect(read.group, _group(40));
+        expect(read.member, _member(2));
+        expect(read.ts, _now);
+        expect(
+          _refusedBy(
+            () => ChatGroups.decodeRenewal(
+              ChatGroups.encodeAnswer(
+                GroupStateKind.leave,
+                group: _group(40),
+                ts: _now,
+              ),
+            ),
+          ),
+          'malformed',
+        );
+        expect(
+          _refusedBy(
+            () => ChatGroups.decodeRenewal(
+              ChatGroups.encodeRenewal(
+                group: _group(40),
+                member: 'short',
+                ts: _now,
+              ),
+            ),
+          ),
+          'malformed',
+        );
+      },
+    );
+  });
+
+  group('applying an answer', () {
+    ChatGroup threeWay() => ChatGroups.create(
+      selfId: _member(1),
+      name: 'Trip',
+      invitees: [_member(2), _member(3)],
+      contacts: {_member(2), _member(3)},
+      ts: _now,
+      random: Random(1),
+    );
+
+    test('an answer to an invite other than the one held does not count, '
+        'an earlier one or a later one', () {
+      final group = threeWay();
+      for (final kind in [GroupStateKind.accept, GroupStateKind.decline]) {
+        for (final inviteTs in [_now - _minute, _now + _minute]) {
+          final applied = ChatGroups.applyAnswer(
+            group,
+            _member(2),
+            kind,
+            _now + 2 * _minute,
+            inviteTs: inviteTs,
+          );
+          expect(identical(applied, group), isTrue, reason: '$kind $inviteTs');
+        }
+        expect(
+          identical(
+            ChatGroups.applyAnswer(group, _member(2), kind, _now),
+            group,
+          ),
+          isTrue,
+          reason: '$kind with no invite named',
+        );
+      }
+    });
+
+    test('an accept is judged from the invite ts it carries, so devices that '
+        'hold that invite reach the same verdict', () {
+      final group = threeWay();
+      // Another device learned a later invite to member 2, ten minutes on.
+      final renewed = ChatGroups.renew(group, _member(2), _now + 10 * _minute);
+      final late = _now + 21 * _minute;
+      expect(
+        ChatGroups.applyAnswer(
+          renewed,
+          _member(2),
+          GroupStateKind.accept,
+          late,
+          inviteTs: _now + 10 * _minute,
+        ).memberOf(_member(2))!.state,
+        MemberState.accepted,
+      );
+      expect(
+        identical(
+          ChatGroups.applyAnswer(
+            group,
+            _member(2),
+            GroupStateKind.accept,
+            late,
+            inviteTs: _now + 10 * _minute,
+          ),
+          group,
+        ),
+        isTrue,
+        reason: 'a device that has not learned the later invite waits',
+      );
+      expect(
+        ChatGroups.applyAnswer(
+          group,
+          _member(2),
+          GroupStateKind.accept,
+          late,
+          inviteTs: _now,
+        ).memberOf(_member(2))!.state,
+        MemberState.expired,
+      );
+    });
+
+    test('an accept, a decline and a leave apply as their rules say', () {
+      final group = threeWay();
+      final accepted = ChatGroups.applyAnswer(
+        group,
+        _member(2),
+        GroupStateKind.accept,
+        _now,
+        inviteTs: _now,
+      );
+      expect(accepted.memberOf(_member(2))!.state, MemberState.accepted);
+      final declined = ChatGroups.applyAnswer(
+        group,
+        _member(3),
+        GroupStateKind.decline,
+        _now + _minute,
+        inviteTs: _now,
+      );
+      expect(declined.memberOf(_member(3))!.state, MemberState.declined);
+      final left = ChatGroups.applyAnswer(
+        accepted,
+        _member(2),
+        GroupStateKind.leave,
+        _now + 2 * _minute,
+      );
+      expect(left.memberOf(_member(2))!.state, MemberState.left);
+    });
+
+    test('an answer from someone who is not a member changes nothing', () {
+      final group = threeWay();
+      expect(
+        identical(
+          ChatGroups.applyAnswer(group, _member(4), GroupStateKind.leave, _now),
+          group,
+        ),
+        isTrue,
+      );
+    });
+  });
 }
