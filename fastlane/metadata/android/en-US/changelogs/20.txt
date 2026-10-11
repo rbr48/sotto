@@ -1,0 +1,3 @@
+Group chats: make a group with two or three of your contacts. Messages go directly between devices, sealed end to end.
+Reply, react, forward, edit and delete for everyone; star, pin, archive and mute chats; message info; export a chat to an encrypted file.
+Messages to someone offline are sent again by themselves while the app is open.
