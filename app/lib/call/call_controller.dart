@@ -417,7 +417,7 @@ class CallController extends ChangeNotifier {
           myId: identity.id,
           store: ChatStore(
             _settings,
-            files: kIsWeb ? null : ReceivedFileStore(sodium: sodium),
+            files: ReceivedFileStore(sodium: sodium),
           ),
           isContact: _isContactId,
           send: _sendChatEnvelope,

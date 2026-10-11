@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sodium/sodium.dart';
 
 import '../crypto/encoding.dart';
+import 'file_backend.dart';
 
 /// A received file that cannot be opened: [reason] is 'missing' (it is no
 /// longer on this device, for example after a restore) or 'damaged'.
@@ -32,9 +33,12 @@ class ReceivedFileStore {
   ReceivedFileStore({
     required this.sodium,
     Future<Directory> Function()? directory,
-  }) : _directory = directory ?? _defaultDirectory;
+    FileBackend? backend,
+  })  : _backend = backend ?? defaultFileBackend(directory),
+        _directory = directory ?? _defaultDirectory;
 
   final Sodium sodium;
+  final FileBackend _backend;
   final Future<Directory> Function() _directory;
 
   /// Names this store gives files: 16 random bytes in hex. Any other stored
@@ -71,13 +75,10 @@ class ReceivedFileStore {
         key: secret,
         additionalData: _aad(name),
       );
-      final dir = await _directory();
-      await dir.create(recursive: true);
-      final sink = File('${dir.path}/$name').openWrite();
-      sink
-        ..add(nonce)
-        ..add(cipher);
-      await sink.close();
+      final sealed = Uint8List(nonce.length + cipher.length);
+      sealed.setRange(0, nonce.length, nonce);
+      sealed.setRange(nonce.length, sealed.length, cipher);
+      await _backend.write(name, sealed);
       return (name: name, key: b64Encode(rawKey));
     } finally {
       secret.dispose();
@@ -90,9 +91,8 @@ class ReceivedFileStore {
     if (!_storedName.hasMatch(name)) {
       throw const ReceivedFileException('missing');
     }
-    final file = File('${(await _directory()).path}/$name');
-    if (!await file.exists()) throw const ReceivedFileException('missing');
-    final sealed = await file.readAsBytes();
+    final sealed = await _backend.read(name);
+    if (sealed == null) throw const ReceivedFileException('missing');
     final aead = sodium.crypto.aeadXChaCha20Poly1305IETF;
     final nonceLength = aead.nonceBytes;
     if (sealed.length < nonceLength + aead.aBytes) {
@@ -124,19 +124,18 @@ class ReceivedFileStore {
     if (stored == null || stored.startsWith('web:')) return;
     try {
       if (_storedName.hasMatch(stored)) {
-        final file = File('${(await _directory()).path}/$stored');
-        if (await file.exists()) {
-          await file.delete();
-        }
+        await _backend.delete(stored);
       } else {
-        final file = File(stored);
-        if (await file.exists()) {
-          await file.delete();
-          // Earlier versions kept each file in its own folder, which is
-          // removed only if nothing else is in it.
-          try {
-            await file.parent.delete();
-          } catch (_) {}
+        if (!kIsWeb) {
+          final file = File(stored);
+          if (await file.exists()) {
+            await file.delete();
+            // Earlier versions kept each file in its own folder, which is
+            // removed only if nothing else is in it.
+            try {
+              await file.parent.delete();
+            } catch (_) {}
+          }
         }
       }
     } catch (_) {}
@@ -198,7 +197,10 @@ class ReceivedFileStore {
   /// Deletes every received file on this device (for "erase everything" and
   /// for a reset after the vault could not be opened).
   Future<void> eraseAll() async {
-    if (kIsWeb) return;
+    if (kIsWeb) {
+      await _backend.deleteAll();
+      return;
+    }
     await clearOpenCopies();
     try {
       final dir = await _directory();

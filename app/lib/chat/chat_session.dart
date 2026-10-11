@@ -1647,16 +1647,12 @@ class ChatSession {
       _events.add(FileTransferFailed(id, 'damaged'));
       return;
     }
-    // The browser keeps nothing on disk, so it holds in memory with `web:` path.
     final files = store.files;
     final kept = files == null ? null : await files.save(fullBytes);
-    if (kept == null) {
-      // Held once: a voice note as one, any other file as a file.
-      if (transfer.voice) {
-        store.rememberVoice(id, fullBytes);
-      } else {
-        store.rememberFile(id, fullBytes);
-      }
+    if (transfer.voice) {
+      store.rememberVoice(id, fullBytes);
+    } else {
+      store.rememberFile(id, fullBytes);
     }
     _write(FileAckFrame(id: id));
     final existing = await store.find(contactId, id);

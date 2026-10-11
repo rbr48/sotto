@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sodium/sodium.dart';
 import 'package:sotto/chat/chat_store.dart';
+import 'package:sotto/chat/file_backend.dart';
 import 'package:sotto/chat/file_storage.dart';
 import 'package:sotto/crypto/encoding.dart';
 import 'package:sotto/crypto/sotto_crypto.dart';
@@ -206,6 +207,40 @@ void main() {
       final message = (await store.find('bob', _id(5)))!;
       expect(message.filePath, missing);
       expect(message.fileKey, isNull);
+    });
+
+    test('ReceivedFileStore works with memory backend', () async {
+      final memBackend = MemoryFileBackend();
+      final memStore = ReceivedFileStore(sodium: sodium, backend: memBackend);
+      final saved = await memStore.save(_text('in-memory encrypted file'));
+      expect(saved.name, matches(_storedName));
+      expect(
+        await memStore.read(name: saved.name, key: saved.key),
+        _text('in-memory encrypted file'),
+      );
+      await memStore.remove(saved.name);
+      await expectLater(
+        memStore.read(name: saved.name, key: saved.key),
+        throwsA(_reason('missing')),
+      );
+    });
+
+    test('hasFile accurately distinguishes present vs missing web files', () async {
+      final store = ChatStore(MemorySecretStore(), files: files);
+      // In-memory web file
+      final heldMsg = _file(6, name: 'web.txt', stored: 'web:${_id(6)}');
+      expect(store.hasFile(heldMsg), isFalse);
+      store.rememberFile(_id(6), _text('hello web'));
+      expect(store.hasFile(heldMsg), isTrue);
+
+      // Stored file with key
+      final saved = await files.save(_text('stored'));
+      final storedMsg = _file(7, name: 'stored.txt', stored: saved.name, key: saved.key);
+      expect(store.hasFile(storedMsg), isTrue);
+
+      // Reloaded web file whose in-memory hold is gone
+      final lostWebMsg = _file(8, name: 'lost.txt', stored: 'web:${_id(8)}');
+      expect(store.hasFile(lostWebMsg), isFalse);
     });
   });
 }

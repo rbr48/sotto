@@ -1758,44 +1758,64 @@ class ChatStore {
   /// The decrypted bytes of a received file. Throws [ReceivedFileException]
   /// when the file is not on this device or cannot be opened.
   Future<Uint8List> readFile(ChatMessage message) async {
+    final fileId = message.fileId ?? message.id;
+    final held =
+        _held(_fileKey(fileId)) ??
+        _held(_fileKey(message.id)) ??
+        _held(_voiceKey(message.id));
+    if (held != null) return held;
+
     final store = files;
     final name = message.filePath;
     final key = message.fileKey;
-    final fileId = message.fileId ?? message.id;
-    if (store == null || name == null || key == null) {
-      final held =
-          _held(_fileKey(fileId)) ??
-          _held(_fileKey(message.id)) ??
-          _held(_voiceKey(message.id));
-      if (held != null) return held;
+    if (store == null || name == null || key == null || name.startsWith('web:')) {
       throw const ReceivedFileException('missing');
     }
-    return store.read(name: name, key: key);
+    final bytes = await store.read(name: name, key: key);
+    if (message.voiceNote) {
+      rememberVoice(message.id, bytes);
+    } else {
+      rememberFile(fileId, bytes);
+    }
+    return bytes;
   }
 
   /// Whether the bytes of a file are still here: in the file
   /// store, or held by the browser for this tab.
   bool hasFile(ChatMessage message) {
     final fileId = message.fileId ?? message.id;
-    return _browserHeld.containsKey(_fileKey(fileId)) ||
+    if (_browserHeld.containsKey(_fileKey(fileId)) ||
         _browserHeld.containsKey(_fileKey(message.id)) ||
-        _browserHeld.containsKey(_voiceKey(message.id)) ||
-        (files != null && message.filePath != null && message.fileKey != null);
+        _browserHeld.containsKey(_voiceKey(message.id))) {
+      return true;
+    }
+    final path = message.filePath;
+    final key = message.fileKey;
+    if (files != null && path != null && key != null && !path.startsWith('web:')) {
+      return true;
+    }
+    return false;
   }
 
   /// Whether the bytes of a voice note are still here to play: in the file
   /// store, or held by the browser for this tab.
-  bool hasVoice(ChatMessage message) =>
-      _browserHeld.containsKey(_voiceKey(message.id)) ||
-      (files != null && message.filePath != null && message.fileKey != null);
+  bool hasVoice(ChatMessage message) {
+    if (_browserHeld.containsKey(_voiceKey(message.id))) return true;
+    final path = message.filePath;
+    final key = message.fileKey;
+    if (files != null && path != null && key != null && !path.startsWith('web:')) {
+      return true;
+    }
+    return false;
+  }
 
   /// Keeps the bytes of a voice note the sender offered, so its own bubble
   /// can play it. Native: an encrypted file, like a received one. Browser:
   /// memory for this tab. Returns the message with its file recorded.
   Future<ChatMessage> keepVoice(ChatMessage message, Uint8List bytes) async {
+    rememberVoice(message.id, bytes);
     final store = files;
     if (store == null) {
-      rememberVoice(message.id, bytes);
       return message;
     }
     try {
@@ -1839,14 +1859,14 @@ class ChatStore {
     ChatMessage message,
     Uint8List bytes,
   ) async {
-    final store = files;
     final id = message.fileId ?? message.id;
+    if (message.voiceNote) {
+      rememberVoice(message.id, bytes);
+    } else {
+      rememberFile(id, bytes);
+    }
+    final store = files;
     if (store == null) {
-      if (message.voiceNote) {
-        rememberVoice(message.id, bytes);
-      } else {
-        rememberFile(id, bytes);
-      }
       return message.copyWith(filePath: 'web:$id');
     }
     final kept = await store.save(bytes);

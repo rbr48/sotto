@@ -1181,7 +1181,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     try {
       if (kIsWeb) {
         final bytes = await widget.chat.store.readFile(message);
-        downloadWebFile(bytes, message.fileName ?? 'file', message.fileMime);
+        openWebFile(bytes, message.fileName ?? 'file', message.fileMime);
         return;
       }
       final copy = await widget.chat.store.openCopy(message);
@@ -3396,7 +3396,7 @@ class _FileCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (isImg && isDone) ...[
+        if (isImg && isDone && store.hasFile(message)) ...[
           _ImageThumbnail(
             message: message,
             store: store,
@@ -3417,7 +3417,7 @@ class _FileCard extends StatelessWidget {
         ],
         ExcludeSemantics(
           child: InkWell(
-            onTap: isDone ? onOpen : null,
+            onTap: (isDone && store.hasFile(message)) ? onOpen : null,
             borderRadius: BorderRadius.circular(10),
             child: Row(
               children: [
@@ -3541,6 +3541,17 @@ class _FileCard extends StatelessWidget {
           ),
         );
       case 'completed':
+        if (!store.hasFile(message)) {
+          return ExcludeSemantics(
+            child: Text(
+              l10n.chatFileUnavailable,
+              style: label?.copyWith(
+                color: secondary,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          );
+        }
         return Wrap(
           spacing: 8,
           runSpacing: 4,
