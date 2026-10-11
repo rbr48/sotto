@@ -1744,6 +1744,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           calls: widget.calls,
           sendTyping: widget.sendTyping,
           sendReadReceipts: widget.sendReadReceipts,
+          groupsEnabled: widget.groupsEnabled,
         ),
       ),
     );

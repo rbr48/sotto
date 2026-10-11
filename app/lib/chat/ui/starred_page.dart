@@ -6,6 +6,7 @@ import '../../call/call_controller.dart';
 import '../../contacts/contact_book.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/ui_kit.dart';
+import '../chat_group.dart';
 import '../chat_manager.dart';
 import '../chat_store.dart';
 import 'chat_page.dart';
@@ -14,8 +15,9 @@ import 'message_info_sheet.dart';
 /// The starred messages on this device, across every chat, newest first.
 ///
 /// Each chat's messages are read and scanned for the star. That is linear in
-/// all messages, which is fine while chats are small. Group chats join this
-/// scan when they arrive, so the scan stays the one place the star is found.
+/// all messages, which is fine while chats are small. Group chats are in the
+/// same scan, so the scan stays the one place the star is found; with groups
+/// off ([groupsEnabled]) their messages are left out.
 class StarredPage extends StatefulWidget {
   const StarredPage({
     super.key,
@@ -24,7 +26,12 @@ class StarredPage extends StatefulWidget {
     this.calls,
     this.sendTyping = true,
     this.sendReadReceipts = true,
+    this.groupsEnabled = groupsBuildEnabled,
   });
+
+  /// Whether the group screens are on (see [groupsBuildEnabled]). Off, a
+  /// starred group message is not listed, so no group is opened from here.
+  final bool groupsEnabled;
 
   final ChatManager chat;
 
@@ -43,6 +50,9 @@ class StarredPage extends StatefulWidget {
 
 class _StarredPageState extends State<StarredPage> {
   List<ChatMessage> _starred = const [];
+
+  /// The groups of the starred group messages, by id, for their names.
+  Map<String, ChatGroup> _groups = const {};
   bool _loaded = false;
   StreamSubscription<void>? _sub;
 
@@ -65,10 +75,18 @@ class _StarredPageState extends State<StarredPage> {
       for (final chat in await store.recentChats()) chat.contactId,
       for (final chat in await store.archivedChats()) chat.contactId,
     ];
+    final groups = <String, ChatGroup>{
+      if (widget.groupsEnabled)
+        for (final group in await store.groups()) group.id: group,
+    };
     final found = <ChatMessage>[];
     for (final id in ids) {
       try {
         for (final message in await store.messages(id)) {
+          if (message.groupId case final group?
+              when !groups.containsKey(group)) {
+            continue;
+          }
           if (message.starred && !message.deletedForAll) found.add(message);
         }
       } on ChatStoreException {
@@ -79,6 +97,7 @@ class _StarredPageState extends State<StarredPage> {
     if (mounted) {
       setState(() {
         _starred = found;
+        _groups = groups;
         _loaded = true;
       });
     }
@@ -88,6 +107,7 @@ class _StarredPageState extends State<StarredPage> {
       widget.contacts?.contacts.where((c) => c.id == contactId).firstOrNull;
 
   String _nameFor(AppLocalizations l10n, String contactId) =>
+      _groups[contactId]?.name ??
       _contactFor(contactId)?.name ??
       (contactId.length > 8
           ? l10n.chatsUnknownContact(contactId.substring(0, 8))
@@ -113,6 +133,8 @@ class _StarredPageState extends State<StarredPage> {
           contacts: widget.contacts,
           avatar: contact?.avatar,
           focusMessageId: message.id,
+          groupId: message.groupId,
+          groupsEnabled: widget.groupsEnabled,
         ),
       ),
     );

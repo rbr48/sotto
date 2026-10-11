@@ -5,20 +5,33 @@ import 'package:intl/intl.dart';
 
 import '../../app/app_controller.dart';
 import '../../call/call_controller.dart';
+import '../../chat/chat_group.dart';
+import '../../chat/chat_manager.dart';
 import '../../chat/chat_store.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/ui_kit.dart';
 import 'chat_page.dart';
 import 'chat_tokens.dart';
 import 'contact_picker.dart';
+import 'group_create_page.dart';
+import 'group_ui.dart';
 
 /// The dedicated Chats tab: full conversation inbox, search, unread filters,
 /// and direct confidential message threading.
 class ChatsTab extends StatefulWidget {
-  const ChatsTab({super.key, required this.app, required this.calls});
+  const ChatsTab({
+    super.key,
+    required this.app,
+    required this.calls,
+    this.groupsEnabled = groupsBuildEnabled,
+  });
 
   final AppController app;
   final CallController calls;
+
+  /// Whether the group screens are on (see [groupsBuildEnabled]). Off, no
+  /// group is listed and no new group can be made from here.
+  final bool groupsEnabled;
 
   @override
   State<ChatsTab> createState() => _ChatsTabState();
@@ -29,6 +42,9 @@ class _ChatsTabState extends State<ChatsTab> {
 
   /// The archived chats, listed only under the Archived row.
   List<ChatThreadSummary> _archived = const [];
+
+  /// The groups listed, by id, for their names and members.
+  Map<String, ChatGroup> _groups = const {};
   bool _archivedOpen = false;
   StreamSubscription<void>? _sub;
   final _searchController = TextEditingController();
@@ -73,19 +89,26 @@ class _ChatsTabState extends State<ChatsTab> {
   Future<void> _refresh() async {
     final chat = widget.calls.chat;
     if (chat == null) return;
-    // Group rows come with the group screens. Until then, groups are not listed.
+    // With groups off, groups are not listed.
+    final groups = <String, ChatGroup>{
+      if (widget.groupsEnabled)
+        for (final group in await chat.store.groups()) group.id: group,
+    };
+    bool shown(ChatThreadSummary c) =>
+        c.groupId == null || groups.containsKey(c.groupId);
     final list = [
       for (final c in await chat.store.recentChats())
-        if (c.groupId == null) c,
+        if (shown(c)) c,
     ];
     final archived = [
       for (final c in await chat.store.archivedChats())
-        if (c.groupId == null) c,
+        if (shown(c)) c,
     ];
     if (mounted) {
       setState(() {
         _summaries = list;
         _archived = archived;
+        _groups = groups;
         // The row goes when its last chat leaves, so it opens closed next time.
         if (archived.isEmpty) _archivedOpen = false;
       });
@@ -93,6 +116,11 @@ class _ChatsTabState extends State<ChatsTab> {
   }
 
   bool _matchesSearch(ChatThreadSummary summary) {
+    if (_groups[summary.groupId] case final group?) {
+      return group.name.toLowerCase().contains(_searchQuery) ||
+          (summary.lastMessage?.text.toLowerCase().contains(_searchQuery) ??
+              false);
+    }
     final contact = widget.app.contacts.contacts
         .where((c) => c.identity.id == summary.contactId)
         .firstOrNull;
@@ -238,6 +266,73 @@ class _ChatsTabState extends State<ChatsTab> {
     );
   }
 
+  /// The new-chat sheet with groups on: a chat with one contact, or a new
+  /// group.
+  Future<void> _showNewSheet() async {
+    final l10n = AppLocalizations.of(context);
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.chat_bubble_outline),
+              title: Text(l10n.chatsNewChat),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                unawaited(_startNewChat());
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.group_add_outlined),
+              title: Text(l10n.chatsNewGroup),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                unawaited(_startNewGroup());
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Opens the new-group page, then the group it made.
+  Future<void> _startNewGroup() async {
+    final chat = widget.calls.chat;
+    if (chat == null) return;
+    final group = await Navigator.of(context).push<ChatGroup>(
+      MaterialPageRoute(
+        builder: (_) =>
+            GroupCreatePage(chat: chat, contacts: widget.app.contacts.contacts),
+      ),
+    );
+    if (group == null || !mounted) return;
+    _openGroup(group);
+  }
+
+  void _openGroup(ChatGroup group) {
+    final chat = widget.calls.chat;
+    if (chat == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ChatPage(
+          chat: chat,
+          contactId: group.id,
+          name: group.name,
+          groupId: group.id,
+          groupsEnabled: widget.groupsEnabled,
+          sendTyping: widget.calls.sendTyping,
+          sendReadReceipts: widget.calls.sendReadReceipts,
+          calls: widget.calls,
+          contacts: widget.app.contacts,
+        ),
+      ),
+    );
+  }
+
   void _openChat(
     String contactId,
     String name, {
@@ -296,7 +391,7 @@ class _ChatsTabState extends State<ChatsTab> {
 
     return Scaffold(
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _startNewChat,
+        onPressed: widget.groupsEnabled ? _showNewSheet : _startNewChat,
         icon: const Icon(Icons.chat_bubble_outline),
         label: Text(l10n.chatsNewChat),
       ),
@@ -517,6 +612,11 @@ class _ChatsTabState extends State<ChatsTab> {
     ThemeData theme,
     ChatThreadSummary summary,
   ) {
+    if (summary.groupId != null) {
+      final group = _groups[summary.groupId];
+      if (group == null) return const SizedBox.shrink();
+      return _buildGroupTile(context, theme, summary, group);
+    }
     final scheme = theme.colorScheme;
     final contact = widget.app.contacts.contacts
         .where((c) => c.identity.id == summary.contactId)
@@ -674,6 +774,145 @@ class _ChatsTabState extends State<ChatsTab> {
         verified: contact?.verified ?? false,
         avatar: contact?.avatar,
       ),
+      onLongPress: () => unawaited(_showChatMenu(summary)),
+    );
+  }
+
+  /// A group's row: its name, how many are in it, and its last message with
+  /// who wrote it. Unread, pin, mute and archive work as for a chat.
+  Widget _buildGroupTile(
+    BuildContext context,
+    ThemeData theme,
+    ChatThreadSummary summary,
+    ChatGroup group,
+  ) {
+    final scheme = theme.colorScheme;
+    final l10n = AppLocalizations.of(context);
+    final last = summary.lastMessage;
+    final unread = summary.unreadCount > 0;
+    final self = group.memberOf(group.selfId)?.state;
+    final invited = self == MemberState.invited || self == MemberState.expired;
+    final String preview;
+    if (last == null) {
+      preview = invited ? l10n.groupInvitationPreview : '';
+    } else {
+      final text = last.deletedForAll ? l10n.chatMessageDeleted : last.text;
+      preview = last.outgoing
+          ? '${l10n.chatsYouPrefix}$text'
+          : '${groupMemberName(l10n, widget.app.contacts.contacts, last.authorId ?? '')}: $text';
+    }
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: CircleAvatar(
+        radius: 24,
+        backgroundColor: scheme.secondaryContainer,
+        child: Icon(Icons.groups_outlined, color: scheme.onSecondaryContainer),
+      ),
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              group.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontWeight: unread ? FontWeight.bold : FontWeight.w600,
+                fontSize: 15,
+              ),
+            ),
+          ),
+          if (summary.meta.pinnedAt != null) ...[
+            const SizedBox(width: 6),
+            Icon(
+              Icons.push_pin,
+              size: 14,
+              color: scheme.onSurfaceVariant,
+              semanticLabel: l10n.chatsPinned,
+            ),
+          ],
+          if (summary.meta.muted) ...[
+            const SizedBox(width: 6),
+            Icon(
+              Icons.notifications_off_outlined,
+              size: 14,
+              color: scheme.onSurfaceVariant,
+              semanticLabel: l10n.chatMuted,
+            ),
+          ],
+          const SizedBox(width: 8),
+          Text(
+            _formatTime(context, summary.sortMs),
+            style: TextStyle(
+              fontSize: 12,
+              color: unread ? scheme.primary : scheme.onSurfaceVariant,
+              fontWeight: unread ? FontWeight.bold : FontWeight.normal,
+            ),
+          ),
+        ],
+      ),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 3),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              l10n.groupMemberCount(groupMemberCount(group)),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+            ),
+            if (preview.isNotEmpty || unread)
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      preview,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: unread
+                            ? scheme.onSurface
+                            : scheme.onSurfaceVariant,
+                        fontWeight: unread
+                            ? FontWeight.w600
+                            : FontWeight.normal,
+                      ),
+                    ),
+                  ),
+                  if (unread) ...[
+                    const SizedBox(width: 8),
+                    // A muted group's badge is grey, as a muted chat's is.
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: summary.meta.muted
+                            ? scheme.surfaceContainerHighest
+                            : scheme.primary,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '${summary.unreadCount}',
+                        style: TextStyle(
+                          color: summary.meta.muted
+                              ? scheme.onSurfaceVariant
+                              : scheme.onPrimary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+          ],
+        ),
+      ),
+      onTap: () => _openGroup(group),
       onLongPress: () => unawaited(_showChatMenu(summary)),
     );
   }
