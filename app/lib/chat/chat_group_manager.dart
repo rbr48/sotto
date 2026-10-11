@@ -20,8 +20,8 @@ typedef GroupEmit = void Function(
   String? group,
 });
 
-/// How often an invite, an accept or a decline is sent again through the
-/// relay, while the app is open.
+/// How often an invite, an accept, a decline or a renewal is sent again through
+/// the relay, while the app is open.
 const Duration groupResendEvery = Duration(seconds: 30);
 
 /// How long a text to a group is sent through the relay, from its own ts,
@@ -107,7 +107,7 @@ class ChatGroupManager {
   /// Whether groups are on (see `ChatManager.groupsEnabled`).
   final bool groupsEnabled;
 
-  /// Answers (accept and decline) still being sent through the relay.
+  /// Invite answers and renewals still being sent through the relay.
   final _resends = <_Resend>[];
 
   int get _now => clock().millisecondsSinceEpoch;
@@ -796,11 +796,11 @@ class ChatGroupManager {
         if (member != myId) await _flushMember(member);
       }
     }
-    _resendAnswers(now);
+    _resendEnvelopes(now);
     await _resendTexts(now);
   }
 
-  void _resendAnswers(int now) {
+  void _resendEnvelopes(int now) {
     _resends.removeWhere((r) => now >= r.until);
     for (final resend in _resends) {
       if (now < resend.nextAt || !isContact(resend.to)) continue;
