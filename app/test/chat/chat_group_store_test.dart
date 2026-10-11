@@ -991,6 +991,7 @@ void main() {
         kind: GroupStateKind.decline,
         group: group,
         ts: now.millisecondsSinceEpoch,
+        inviteTs: now.millisecondsSinceEpoch - 1000,
       );
       await store.queueGroupState(group, bob, first, clock: () => now);
       await store.queueGroupState(group, bob, second, clock: () => now);

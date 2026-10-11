@@ -1152,8 +1152,9 @@ class ChatSession {
   }
 
   /// Applies a group answer or leave from this session's member to this device's
-  /// table of the group. A decline dated before the invite it would answer
-  /// belongs to an earlier invite, so it does not count (see [ChatGroups.reinvite]).
+  /// table of the group. An accept or a decline counts only for the invite this
+  /// device holds for the member, judged by the invite ts it carries (see
+  /// [ChatGroups.applyAnswer]).
   /// An answer that changes nothing, such as a repeat, is not saved again, so each
   /// one is applied once and reported once.
   Future<void> _onGroupState(GroupStateFrame answer) async {
@@ -1172,6 +1173,7 @@ class ChatSession {
         contactId,
         answer.kind,
         answer.ts,
+        inviteTs: answer.inviteTs,
       );
       changed = !identical(next, current);
       return changed ? next : null;

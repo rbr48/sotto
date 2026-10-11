@@ -527,8 +527,15 @@ void main() {
     /// A group in which bob is [bob] (invited at [_ts] by default).
     ChatGroup withBob(MemberState bob) => _groupWith(bob: bob);
 
-    GroupStateFrame answer(GroupStateKind kind, int ts) =>
-        GroupStateFrame(kind: kind, group: _group, ts: ts);
+    /// An answer of [kind] dated [ts]. An accept or a decline names the
+    /// invite it answers, by default the one at [_ts] this device holds.
+    GroupStateFrame answer(GroupStateKind kind, int ts, {int? inviteTs}) =>
+        GroupStateFrame(
+          kind: kind,
+          group: _group,
+          ts: ts,
+          inviteTs: kind == GroupStateKind.leave ? null : inviteTs ?? _ts,
+        );
 
     test(
       'an accept inside the window accepts the member on this device',
@@ -579,21 +586,22 @@ void main() {
       },
     );
 
-    test(
-      'a decline dated before the invite it would answer is ignored',
-      () async {
-        final device = await _open(_bob, group: withBob(MemberState.invited));
+    test('an answer to an invite other than the one this device holds is '
+        'ignored, an earlier one or a later one', () async {
+      final device = await _open(_bob, group: withBob(MemberState.invited));
 
-        device.receive(answer(GroupStateKind.decline, _ts - 1000));
-        await _settle();
+      device.receive(answer(GroupStateKind.decline, _ts, inviteTs: _ts - 1000));
+      device.receive(
+        answer(GroupStateKind.accept, _ts + 2000, inviteTs: _ts + 1000),
+      );
+      await _settle();
 
-        expect(
-          (await device.store.group(_group))!.memberOf(_bob)!.state,
-          MemberState.invited,
-        );
-        expect(device.ofType<GroupStateChanged>(), isEmpty);
-      },
-    );
+      expect(
+        (await device.store.group(_group))!.memberOf(_bob)!.state,
+        MemberState.invited,
+      );
+      expect(device.ofType<GroupStateChanged>(), isEmpty);
+    });
 
     test('a leave from an accepted member is applied once', () async {
       final device = await _open(_bob, group: _groupWith());

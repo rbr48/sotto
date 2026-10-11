@@ -320,9 +320,19 @@ class ChatGroupManager {
     if (next == null || !ChatGroups.isActive(next)) {
       return GroupJoinResult.expired;
     }
+    // The invite this accept answers: every member judges it against this
+    // one (D11).
+    final inviteTs = next.memberOf(myId)!.invitedAt;
     for (final member in next.memberIds) {
       if (member != myId) {
-        await _answer(next, member, GroupStateKind.accept, ts, retry: true);
+        await _answer(
+          next,
+          member,
+          GroupStateKind.accept,
+          ts,
+          inviteTs: inviteTs,
+          retry: true,
+        );
       }
     }
     return GroupJoinResult.joined;
@@ -344,10 +354,18 @@ class ChatGroupManager {
       groupId,
       (current) => current == null ? null : ChatGroups.decline(current, myId),
     );
-    if (next == null) return false;
+    final inviteTs = next?.memberOf(myId)?.invitedAt;
+    if (next == null || inviteTs == null) return false;
     for (final member in next.memberIds) {
       if (member != myId) {
-        await _answer(next, member, GroupStateKind.decline, ts, retry: true);
+        await _answer(
+          next,
+          member,
+          GroupStateKind.decline,
+          ts,
+          inviteTs: inviteTs,
+          retry: true,
+        );
       }
     }
     return true;
@@ -376,16 +394,23 @@ class ChatGroupManager {
 
   /// Sends an answer or a leave to [member]: through the relay (repeated for
   /// [retry]), and kept as a direct frame until that member's session takes
-  /// it. A member who is not a contact gets nothing (D22).
+  /// it. An answer names the invite it answers by [inviteTs]; a leave has
+  /// none. A member who is not a contact gets nothing (D22).
   Future<void> _answer(
     ChatGroup group,
     String member,
     GroupStateKind kind,
     int ts, {
+    int? inviteTs,
     required bool retry,
   }) async {
     if (!isContact(member)) return;
-    final text = ChatGroups.encodeAnswer(kind, group: group.id, ts: ts);
+    final text = ChatGroups.encodeAnswer(
+      kind,
+      group: group.id,
+      ts: ts,
+      inviteTs: inviteTs,
+    );
     final type = 'group.${kind.name}';
     final body = ChatGroups.envelope(text);
     send(member, type, body, null);
@@ -403,7 +428,7 @@ class ChatGroupManager {
     await store.queueGroupState(
       group.id,
       member,
-      GroupStateFrame(kind: kind, group: group.id, ts: ts),
+      GroupStateFrame(kind: kind, group: group.id, ts: ts, inviteTs: inviteTs),
       clock: clock,
     );
     await _flushMember(member);
@@ -793,7 +818,13 @@ class ChatGroupManager {
     if (group == null || group.memberOf(from) == null) return;
     final next = await _apply(answer.group, (current) {
       if (current == null || current.memberOf(from) == null) return null;
-      return ChatGroups.applyAnswer(current, from, kind, answer.ts);
+      return ChatGroups.applyAnswer(
+        current,
+        from,
+        kind,
+        answer.ts,
+        inviteTs: answer.inviteTs,
+      );
     });
     if (kind == GroupStateKind.leave &&
         next?.memberOf(from)?.state == MemberState.left) {

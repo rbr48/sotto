@@ -1219,23 +1219,42 @@ void main() {
       expect(() => ChatFrames.decode(raw), throwsA(isA<ChatFrameException>()));
     });
 
-    test('a group state frame round-trips for each kind', () {
+    test('a group state frame round-trips for each kind; an answer names '
+        'its invite and a leave does not', () {
       for (final kind in GroupStateKind.values) {
+        final inviteTs = kind == GroupStateKind.leave ? null : 7;
         final raw = ChatFrames.encode(
-          GroupStateFrame(kind: kind, group: group, ts: 9),
+          GroupStateFrame(kind: kind, group: group, ts: 9, inviteTs: inviteTs),
         );
         final frame = ChatFrames.decode(raw) as GroupStateFrame;
         expect(frame.kind, kind);
         expect(frame.group, group);
         expect(frame.ts, 9);
+        expect(frame.inviteTs, inviteTs);
       }
       final json = jsonDecode(
         ChatFrames.encode(
-          GroupStateFrame(kind: GroupStateKind.decline, group: group, ts: 9),
+          GroupStateFrame(
+            kind: GroupStateKind.decline,
+            group: group,
+            ts: 9,
+            inviteTs: 7,
+          ),
         ),
       ) as Map<String, dynamic>;
       expect(json['t'], 'group.state');
       expect(json['type'], 'decline');
+      expect(json['inviteTs'], 7);
+      final leave = jsonDecode(
+        ChatFrames.encode(
+          GroupStateFrame(kind: GroupStateKind.leave, group: group, ts: 9),
+        ),
+      ) as Map<String, dynamic>;
+      expect(leave.containsKey('inviteTs'), isFalse);
+      final leaveWithInvite = ChatFrames.decode(
+        jsonEncode({...leave, 'inviteTs': 7}),
+      ) as GroupStateFrame;
+      expect(leaveWithInvite.inviteTs, isNull);
     });
 
     test('a reaction, an edit or a delete names its group only when it has '
@@ -1300,9 +1319,18 @@ void main() {
         'type': 'accept',
         'group': group,
         'ts': 9,
+        'inviteTs': 7,
         ...changes,
       });
       expect(_refusal(stateWith({})), isNull);
+      expect(_refusal(stateWith({'inviteTs': null})), 'malformed');
+      expect(_refusal(stateWith({'inviteTs': 0})), 'malformed');
+      expect(_refusal(stateWith({'inviteTs': '7'})), 'malformed');
+      expect(
+        _refusal(stateWith({'type': 'decline', 'inviteTs': null})),
+        'malformed',
+      );
+      expect(_refusal(stateWith({'type': 'leave', 'inviteTs': null})), isNull);
       expect(_refusal(stateWith({'type': 'mute'})), 'malformed');
       expect(_refusal(stateWith({'type': null})), 'malformed');
       expect(_refusal(stateWith({'group': null})), 'malformed');

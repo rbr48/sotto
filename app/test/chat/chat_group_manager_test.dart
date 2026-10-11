@@ -224,6 +224,77 @@ void main() {
       );
     });
 
+    test('members whose invite time for a member differs still agree on its '
+        'late accept, judged by the invite ts the accept carries', () async {
+      final alice = device(_alice, contacts: {_bob, _carol});
+      final bob = device(_bob, contacts: {_alice, _carol});
+      final carol = device(_carol, contacts: {_alice, _bob});
+      final group = await alice.groups.create(
+        name: 'Trip',
+        invitees: [_bob, _carol],
+      );
+      await _settle();
+      final firstInvite = now.millisecondsSinceEpoch;
+
+      // Alice invites Bob again 6 minutes on. Carol is away, so she does not
+      // learn of it yet, and still holds Bob as invited by the first invite.
+      final carolDevices = net.managers.remove(_carol)!;
+      now = now.add(const Duration(minutes: 6));
+      final secondInvite = now.millisecondsSinceEpoch;
+      await alice.groups.invite(group.id, _bob);
+      await _settle();
+      net.managers[_carol] = carolDevices;
+      expect(
+        (await held(alice, group.id)).memberOf(_bob)!.invitedAt,
+        secondInvite,
+      );
+      expect(
+        (await held(carol, group.id)).memberOf(_bob)!.invitedAt,
+        firstInvite,
+      );
+
+      // 20.5 minutes after the first invite: late for it, even with the clock
+      // skew, but in the window of the second one, which Bob answers.
+      now = DateTime.fromMillisecondsSinceEpoch(
+        firstInvite,
+        isUtc: true,
+      ).add(const Duration(minutes: 20, seconds: 30));
+      expect(await bob.groups.accept(group.id), GroupJoinResult.joined);
+      await _settle();
+      expect(
+        (await held(alice, group.id)).memberOf(_bob)!.state,
+        MemberState.accepted,
+      );
+      expect(
+        (await held(carol, group.id)).memberOf(_bob)!.state,
+        MemberState.invited,
+        reason:
+            'Carol does not hold the invite the accept answers, so she '
+            'leaves it for later instead of judging it against her own',
+      );
+
+      // The new invite reaches Carol when Alice sends it again, and then so
+      // does the accept when Bob sends it again. Carol judges it as Alice did.
+      now = now.add(const Duration(seconds: 15));
+      await alice.tick();
+      await _settle();
+      expect(
+        (await held(carol, group.id)).memberOf(_bob)!.invitedAt,
+        secondInvite,
+      );
+      now = now.add(const Duration(seconds: 15));
+      await bob.tick();
+      await _settle();
+      expect(
+        (await held(carol, group.id)).memberOf(_bob)!.state,
+        MemberState.accepted,
+      );
+      expect(
+        (await held(alice, group.id)).memberOf(_bob)!.state,
+        MemberState.accepted,
+      );
+    });
+
     test('an invite with one other, or with five others, is dropped', () async {
       final bob = device(_bob, contacts: {_alice, _carol});
       device(_alice, contacts: {_bob});
@@ -695,6 +766,7 @@ void main() {
             GroupStateKind.accept,
             group: group.id,
             ts: now.millisecondsSinceEpoch,
+            inviteTs: group.createdAt,
           ),
         );
         alice.handle(

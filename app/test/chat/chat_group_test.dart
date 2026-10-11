@@ -849,13 +849,44 @@ void main() {
         GroupStateKind.decline,
         group: _group(40),
         ts: _now,
+        inviteTs: _now - _minute,
       );
       final read = ChatGroups.decodeAnswer(text, GroupStateKind.decline);
       expect(read.group, _group(40));
       expect(read.ts, _now);
+      expect(read.inviteTs, _now - _minute);
       expect(
         _refusedBy(() => ChatGroups.decodeAnswer(text, GroupStateKind.accept)),
         'malformed',
+      );
+    });
+
+    test('an accept or a decline names the invite it answers; a leave does '
+        'not need to', () {
+      final body = {'group': _group(40), 'ts': _now, 'inviteTs': _now};
+      for (final kind in [GroupStateKind.accept, GroupStateKind.decline]) {
+        final type = 'group.${kind.name}';
+        String? refused(Map<String, Object?> json) => _refusedBy(
+          () => ChatGroups.decodeAnswer(jsonEncode({'t': type, ...json}), kind),
+        );
+        expect(refused(body), isNull);
+        expect(refused({...body, 'inviteTs': null}), 'malformed');
+        expect(refused({...body, 'inviteTs': 0}), 'malformed');
+        expect(refused({...body, 'inviteTs': '1'}), 'malformed');
+        expect(
+          () => ChatGroups.encodeAnswer(kind, group: _group(40), ts: _now),
+          throwsArgumentError,
+        );
+      }
+      final leave = ChatGroups.encodeAnswer(
+        GroupStateKind.leave,
+        group: _group(40),
+        ts: _now,
+      );
+      expect(jsonDecode(leave), isNot(contains('inviteTs')));
+      expect(
+        ChatGroups.decodeAnswer(leave, GroupStateKind.leave).inviteTs,
+        isNull,
       );
     });
 
@@ -976,15 +1007,71 @@ void main() {
       random: Random(1),
     );
 
-    test('a decline dated before the invite it answers does not count', () {
+    test('an answer to an invite other than the one held does not count, '
+        'an earlier one or a later one', () {
       final group = threeWay();
-      final applied = ChatGroups.applyAnswer(
-        group,
-        _member(2),
-        GroupStateKind.decline,
-        _now - _minute,
+      for (final kind in [GroupStateKind.accept, GroupStateKind.decline]) {
+        for (final inviteTs in [_now - _minute, _now + _minute]) {
+          final applied = ChatGroups.applyAnswer(
+            group,
+            _member(2),
+            kind,
+            _now + 2 * _minute,
+            inviteTs: inviteTs,
+          );
+          expect(identical(applied, group), isTrue, reason: '$kind $inviteTs');
+        }
+        expect(
+          identical(
+            ChatGroups.applyAnswer(group, _member(2), kind, _now),
+            group,
+          ),
+          isTrue,
+          reason: '$kind with no invite named',
+        );
+      }
+    });
+
+    test('an accept is judged from the invite ts it carries, so devices that '
+        'hold that invite reach the same verdict', () {
+      final group = threeWay();
+      // Another device learned a later invite to member 2, ten minutes on.
+      final renewed = ChatGroups.renew(group, _member(2), _now + 10 * _minute);
+      final late = _now + 21 * _minute;
+      expect(
+        ChatGroups.applyAnswer(
+          renewed,
+          _member(2),
+          GroupStateKind.accept,
+          late,
+          inviteTs: _now + 10 * _minute,
+        ).memberOf(_member(2))!.state,
+        MemberState.accepted,
       );
-      expect(identical(applied, group), isTrue);
+      expect(
+        identical(
+          ChatGroups.applyAnswer(
+            group,
+            _member(2),
+            GroupStateKind.accept,
+            late,
+            inviteTs: _now + 10 * _minute,
+          ),
+          group,
+        ),
+        isTrue,
+        reason: 'a device that has not learned the later invite waits',
+      );
+      expect(
+        ChatGroups.applyAnswer(
+          group,
+          _member(2),
+          GroupStateKind.accept,
+          late,
+          inviteTs: _now,
+        ).memberOf(_member(2))!.state,
+        MemberState.expired,
+      );
     });
 
     test('an accept, a decline and a leave apply as their rules say', () {
@@ -994,6 +1081,7 @@ void main() {
         _member(2),
         GroupStateKind.accept,
         _now,
+        inviteTs: _now,
       );
       expect(accepted.memberOf(_member(2))!.state, MemberState.accepted);
       final declined = ChatGroups.applyAnswer(
@@ -1001,6 +1089,7 @@ void main() {
         _member(3),
         GroupStateKind.decline,
         _now + _minute,
+        inviteTs: _now,
       );
       expect(declined.memberOf(_member(3))!.state, MemberState.declined);
       final left = ChatGroups.applyAnswer(

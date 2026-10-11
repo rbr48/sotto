@@ -203,19 +203,30 @@ abstract final class ChatGroups {
   }
 
   /// The text of a group answer or leave, dated [ts] (`group.accept`,
-  /// `group.decline` or `group.leave`).
+  /// `group.decline` or `group.leave`). An accept or a decline carries the ts
+  /// of the invite it answers as `inviteTs` (D11); a leave answers no invite,
+  /// so it has none.
   static String encodeAnswer(
     GroupStateKind kind, {
     required String group,
     required int ts,
-  }) => ChatFrames.encodeGroupBody({
-    't': 'group.${kind.name}',
-    'group': group,
-    'ts': ts,
-  });
+    int? inviteTs,
+  }) {
+    if (kind != GroupStateKind.leave && inviteTs == null) {
+      throw ArgumentError.notNull('inviteTs');
+    }
+    return ChatFrames.encodeGroupBody({
+      't': 'group.${kind.name}',
+      'group': group,
+      'ts': ts,
+      if (kind != GroupStateKind.leave) 'inviteTs': inviteTs,
+    });
+  }
 
-  /// Reads the text of a group answer of [kind]: its group and its ts.
-  static ({String group, int ts}) decodeAnswer(
+  /// Reads the text of a group answer of [kind]: its group, its ts, and for an
+  /// accept or a decline the ts of the invite it answers. A leave's [inviteTs]
+  /// is null, whatever the text carries.
+  static ({String group, int ts, int? inviteTs}) decodeAnswer(
     String text,
     GroupStateKind kind,
   ) {
@@ -225,7 +236,14 @@ abstract final class ChatGroups {
     if (!ChatFrames.isId(group) || ts is! int || ts <= 0) {
       throw const ChatFrameException('malformed');
     }
-    return (group: group as String, ts: ts);
+    if (kind == GroupStateKind.leave) {
+      return (group: group as String, ts: ts, inviteTs: null);
+    }
+    final inviteTs = json['inviteTs'];
+    if (inviteTs is! int || inviteTs <= 0) {
+      throw const ChatFrameException('malformed');
+    }
+    return (group: group as String, ts: ts, inviteTs: inviteTs);
   }
 
   /// The text of a message to [group] for the relay (`group.text`). Its id and
@@ -430,19 +448,30 @@ abstract final class ChatGroups {
   }
 
   /// Applies a group answer of [kind] from [memberId], dated [ts], to [group]
-  /// (see [accept], [decline] and [leave]). A decline dated before the invite
-  /// it would answer belongs to an earlier invite, so it does not count.
+  /// (see [accept], [decline] and [leave]).
+  ///
+  /// An accept or a decline names the invite it answers by its ts,
+  /// [inviteTs]. It counts only when that is the invite this device holds for
+  /// the member: the first one, or a later one it has learned of (see
+  /// [renew]). Any other answer is dropped: one to an earlier invite no longer
+  /// counts, and one to a later invite this device has not learned of yet is
+  /// judged when it comes again after that. So an accept is judged against
+  /// the same invite on every device, and every device reaches the same
+  /// verdict (D11). A leave answers no invite, so [inviteTs] is not read.
   static ChatGroup applyAnswer(
     ChatGroup group,
     String memberId,
     GroupStateKind kind,
-    int ts,
-  ) {
+    int ts, {
+    int? inviteTs,
+  }) {
     final member = group.memberOf(memberId);
     if (member == null) return group;
+    if (kind != GroupStateKind.leave && inviteTs != member.invitedAt) {
+      return group;
+    }
     return switch (kind) {
       GroupStateKind.accept => accept(group, memberId, ts),
-      GroupStateKind.decline when ts < member.invitedAt => group,
       GroupStateKind.decline => decline(group, memberId),
       GroupStateKind.leave => leave(group, memberId),
     };

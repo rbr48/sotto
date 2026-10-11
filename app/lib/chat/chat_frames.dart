@@ -290,7 +290,11 @@ final class GroupStateFrame extends ChatFrame {
     required this.kind,
     required this.group,
     required this.ts,
-  });
+    this.inviteTs,
+  }) : assert(
+         kind == GroupStateKind.leave || inviteTs != null,
+         'an accept or a decline names the invite it answers',
+       );
 
   final GroupStateKind kind;
 
@@ -299,6 +303,12 @@ final class GroupStateFrame extends ChatFrame {
 
   /// The sender's clock, in milliseconds since the Unix epoch.
   final int ts;
+
+  /// The ts of the invite an accept or a decline answers, in milliseconds
+  /// since the Unix epoch. Every receiver judges the answer against this
+  /// invite, not its own idea of when the member was invited (D11). A leave
+  /// answers no invite, so it has none.
+  final int? inviteTs;
 }
 
 /// The receiver accepts the offered file transfer.
@@ -551,12 +561,14 @@ abstract final class ChatFrames {
           'members': members,
           'ts': ts,
         },
-      GroupStateFrame(:final kind, :final group, :final ts) => {
-        't': 'group.state',
-        'type': kind.name,
-        'group': group,
-        'ts': ts,
-      },
+      GroupStateFrame(:final kind, :final group, :final ts, :final inviteTs) =>
+        {
+          't': 'group.state',
+          'type': kind.name,
+          'group': group,
+          'ts': ts,
+          'inviteTs': ?inviteTs,
+        },
       ReactFrame(:final id, :final emoji, :final ts, :final group) => {
         't': 'react',
         'id': id,
@@ -738,7 +750,21 @@ abstract final class ChatFrames {
         final group = _id(json['group']);
         final ts = json['ts'];
         if (ts is! int || ts <= 0) throw const ChatFrameException('malformed');
-        return GroupStateFrame(kind: kind, group: group, ts: ts);
+        // An accept or a decline names the invite it answers; a leave does
+        // not, and any it carries is ignored.
+        if (kind == GroupStateKind.leave) {
+          return GroupStateFrame(kind: kind, group: group, ts: ts);
+        }
+        final inviteTs = json['inviteTs'];
+        if (inviteTs is! int || inviteTs <= 0) {
+          throw const ChatFrameException('malformed');
+        }
+        return GroupStateFrame(
+          kind: kind,
+          group: group,
+          ts: ts,
+          inviteTs: inviteTs,
+        );
       case 'react':
         final id = _id(json['id']);
         final emoji = json['emoji'];
