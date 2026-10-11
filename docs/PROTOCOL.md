@@ -568,9 +568,10 @@ refused. Padding hides size only. It does not hide membership or timing.
   while the sender's app is open, for 15 minutes from the message's `ts`. At
   most 20 copies go per check, across all groups. A member still waiting when
   the 15 minutes end is marked not sent.
-- An invite, an accept, a decline and a `group.reinvite` are sent again
-  through the relay every 30 seconds for 15 minutes plus the allowed clock
-  skew, as long as an accept can still count, so a member offline for most of
+- An invite is sent again through the relay every 30 seconds until it is
+  answered or its window ends. An accept, a decline and a `group.reinvite` are
+  sent again every 30 seconds for 15 minutes plus the allowed clock skew, as
+  long as an accept can still count, so a member offline for most of
   that time still learns of them. These repeats run while the sender's app is
   open and are not kept across a restart. A leave is sent once.
 - A receiver stores a relay text once, by id, and acknowledges every copy. A
