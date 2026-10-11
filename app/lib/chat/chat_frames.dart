@@ -125,10 +125,14 @@ final class GroupMsgFrame extends ChatFrame {
   final bool forwarded;
 }
 
-/// The receiver has stored the message with this [id] and verified it.
+/// The receiver has stored the message with this [id] and verified it. [group]
+/// is set when the message is in a group.
 final class AckFrame extends ChatFrame {
-  const AckFrame({required this.id});
+  const AckFrame({required this.id, this.group});
   final String id;
+
+  /// The group of the message, or null for a one-to-one message.
+  final String? group;
 }
 
 /// Ephemeral indication of whether the sender is currently typing.
@@ -137,10 +141,14 @@ final class TypingFrame extends ChatFrame {
   final bool typing;
 }
 
-/// The receiver has viewed the messages with these [ids].
+/// The receiver has viewed the messages with these [ids]. [group] is set when
+/// the messages are in a group.
 final class ReadFrame extends ChatFrame {
-  const ReadFrame({required this.ids});
+  const ReadFrame({required this.ids, this.group});
   final List<String> ids;
+
+  /// The group of the messages, or null for one-to-one messages.
+  final String? group;
 }
 
 /// Offer to send a file or photo directly to the peer.
@@ -537,9 +545,17 @@ abstract final class ChatFrames {
         'ts': ts,
         'group': ?group,
       },
-      AckFrame(:final id) => {'t': 'ack', 'id': id},
+      AckFrame(:final id, :final group) => {
+        't': 'ack',
+        'id': id,
+        'group': ?group,
+      },
       TypingFrame(:final typing) => {'t': 'typing', 'typing': typing},
-      ReadFrame(:final ids) => {'t': 'read', 'ids': ids},
+      ReadFrame(:final ids, :final group) => {
+        't': 'read',
+        'ids': ids,
+        'group': ?group,
+      },
       FileOfferFrame(
         :final id,
         :final name,
@@ -708,7 +724,7 @@ abstract final class ChatFrames {
         if (ts is! int || ts <= 0) throw const ChatFrameException('malformed');
         return DeleteFrame(id: id, ts: ts, group: _optionalId(json['group']));
       case 'ack':
-        return AckFrame(id: _id(json['id']));
+        return AckFrame(id: _id(json['id']), group: _optionalId(json['group']));
       case 'typing':
         final typing = json['typing'];
         if (typing is! bool) throw const ChatFrameException('malformed');
@@ -722,7 +738,7 @@ abstract final class ChatFrames {
         for (final item in rawIds) {
           ids.add(_id(item));
         }
-        return ReadFrame(ids: ids);
+        return ReadFrame(ids: ids, group: _optionalId(json['group']));
       case 'file.offer':
         final id = _id(json['id']);
         final rawName = json['name'];

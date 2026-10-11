@@ -1434,5 +1434,43 @@ void main() {
       ) as GroupStateFrame;
       expect(state.kind, GroupStateKind.leave);
     });
+
+    test('an ack and a read carry their group only when it is set', () {
+      final ack = ChatFrames.decode(
+        ChatFrames.encode(AckFrame(id: _id(1), group: group)),
+      ) as AckFrame;
+      expect(ack.id, _id(1));
+      expect(ack.group, group);
+
+      final read = ChatFrames.decode(
+        ChatFrames.encode(ReadFrame(ids: [_id(1)], group: group)),
+      ) as ReadFrame;
+      expect(read.ids, [_id(1)]);
+      expect(read.group, group);
+
+      final plain = ChatFrames.decode(ChatFrames.encode(AckFrame(id: _id(1))));
+      expect((plain as AckFrame).group, isNull);
+      final plainRead = ChatFrames.decode(
+        ChatFrames.encode(ReadFrame(ids: [_id(1)])),
+      );
+      expect((plainRead as ReadFrame).group, isNull);
+    });
+
+    test('an ack or read with a malformed group is rejected', () {
+      for (final raw in [
+        jsonEncode({'t': 'ack', 'id': _id(1), 'group': 'short'}),
+        jsonEncode({
+          't': 'read',
+          'ids': [_id(1)],
+          'group': 7,
+        }),
+      ]) {
+        expect(
+          () => ChatFrames.decode(raw),
+          throwsA(isA<ChatFrameException>()),
+          reason: raw,
+        );
+      }
+    });
   });
 }
