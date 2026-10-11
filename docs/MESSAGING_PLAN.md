@@ -184,9 +184,14 @@ sender of every frame against the owner of the message it changes.
 - `react`: `{"id", "emoji"}`, where `id` is the message reacted to. Each person
   has at most one reaction on a message.
 - `edit`: `{"id", "ts", "text"}`. Accepted only for the sender's own text
-  message, within 15 minutes of its `ts`.
+  message, within 15 minutes of its `ts`. An edit to a message the contact has
+  not stored yet changes the text of the copies still waiting to go, so the
+  contact gets the newest text. The contact keeps no edit history, so that
+  message has no edited mark when it arrives. The `edit` control is still sent,
+  as for any edit.
 - `delete`: `{"id"}`. Accepted only for the sender's own text message, within
-  one hour of its `ts`.
+  one hour of its `ts`. A message deleted for everyone before the contact had
+  it is never sent again; only the delete goes out.
 - Forwarding uses an ordinary `msg`, so nothing new is needed.
 - Groups use envelope types through the relay, as `chat.text` does:
   `group.invite` `{"group", "name", "members"}`, answered by `group.accept` or

@@ -2317,6 +2317,75 @@ void main() {
       );
     });
   });
+
+  group('a message deleted for everyone before it went out', () {
+    test(
+      'a session that starts with an older copy of it sends none of its text',
+      () async {
+        final aliceStore = ChatStore(MemorySecretStore());
+        final deleted = ChatMessage(
+          id: _id(1),
+          contactId: 'bob',
+          outgoing: true,
+          ts: now.millisecondsSinceEpoch,
+          text: '',
+          state: ChatState.notSent,
+          reason: 'no-answer',
+          deletedForAll: true,
+        );
+        await aliceStore.add(deleted);
+        final (a, b) = _pair();
+        _Side('alice', 'bob', a, clock: clock, sharedStore: aliceStore).start(
+          resend: [deleted.copyWith(text: 'top secret', deletedForAll: false)],
+        );
+        final bob = _Side('bob', 'alice', b, clock: clock)..start();
+        await _settle();
+
+        expect(
+          a.sentFrames.map(ChatFrames.decode).whereType<MessageFrame>(),
+          isEmpty,
+        );
+        expect(await bob.store.messages('alice'), isEmpty);
+        final after = (await aliceStore.find('bob', _id(1)))!;
+        expect(after.deletedForAll, isTrue);
+        expect(after.text, isEmpty);
+      },
+    );
+  });
+
+  group('an edit to a message not yet delivered', () {
+    test('a text goes out as the store holds it when the session starts, not as an older copy', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      // The store holds the edited text; the copy resent was made before it.
+      final stored = ChatMessage(
+        id: _id(1),
+        contactId: 'bob',
+        outgoing: true,
+        ts: now.millisecondsSinceEpoch,
+        text: 'second try',
+        state: ChatState.notSent,
+        reason: 'no-answer',
+      );
+      await aliceStore.add(stored);
+      final (a, b) = _pair();
+      _Side(
+        'alice',
+        'bob',
+        a,
+        clock: clock,
+        sharedStore: aliceStore,
+      ).start(resend: [stored.copyWith(text: 'first try')]);
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+
+      final sent = a.sentFrames
+          .map(ChatFrames.decode)
+          .whereType<MessageFrame>()
+          .map((f) => f.text);
+      expect(sent, ['second try']);
+      expect((await bob.store.messages('alice')).single.text, 'second try');
+    });
+  });
 }
 
 /// A JPEG segment: its marker, its length, then its payload.

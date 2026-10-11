@@ -394,6 +394,20 @@ copy at once. It is sent to the contact over the chat, never through the relay:
   the contact would receive it first and ignore it. A delete does not wait:
   the message's text is taken off the outbox at once, so it is not sent after
   the delete, and an unknown id is ignored.
+- A message deleted for everyone is final on the sending device. It is never
+  sent again: not by Retry, a queue flush, a relay copy or a new chat. Its
+  state is not moved back to sending, queued or not sent, so it is not counted
+  as unsent, and a queued one is not offered. Only its `delete` goes out, and a
+  contact that never stored the message ignores it.
+- An edit to a message the contact has not stored yet replaces the text of
+  every copy of it still waiting to go: the outbox and the copies waiting for
+  a chat. Relay retries read the stored text, so they carry the edit too. A
+  relay copy already sent cannot be taken back. So whatever is delivered
+  carries the newest text. The message frame has no edit mark, because the
+  contact keeps no edit history: a message delivered after an edit shows no
+  `editedAt` from it. The `edit` control is still sent as above. The contact
+  applies it if it arrives within the message's 15 minutes, so the message can
+  then show as edited, and an edit more than seven days old is dropped.
 - A control that cannot be sent (no ready chat, or the contact does not list
   its feature, or the message has not been stored yet) is kept in the vault
   under `sotto.chats.pending.<contact id>`, as a list of the frames above in
@@ -408,11 +422,16 @@ copy at once. It is sent to the contact over the chat, never through the relay:
   when its message is gone, when a reaction or edit is on a message deleted
   for everyone, or when an edit or delete is more than seven days old by its
   own `ts` on the sender's clock, since the contact would refuse it (see
-  "Current" above). The windows are not checked again when the control is
-  sent: an edit or delete made within its window is sent when a chat opens,
-  even after the window has closed, because the contact checks the control's
-  `ts`, not the time it arrives. A contact offline for longer than seven days
-  does not get an edit or delete made in that time; its copy stays as it was.
+  "Current" above). A delete is the exception to "its message is gone": it is
+  sent even when this device no longer holds the message (for example, after
+  it was deleted for me), because the contact may still hold it. The windows
+  are not checked again when the control is sent: an edit or delete made
+  within its window is sent when a chat opens, even after the window has
+  closed, because the contact checks the control's `ts`, not the time it
+  arrives. A contact offline for longer than seven days does not get an edit
+  or delete made in that time; its copy stays as it was.
+  A message it has not stored yet is the exception: it goes with its newest
+  text (see above).
 
 ## 6. Test vectors
 

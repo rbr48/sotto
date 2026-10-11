@@ -282,4 +282,26 @@ void main() {
       expect(badgeColor('cy'), scheme.primary);
     });
   });
+
+  group('a message deleted for everyone', () {
+    testWidgets('shows no status in the chat list', (tester) async {
+      await tester.runAsync(
+        () => store.add(
+          ChatMessage(
+            id: ChatFrames.newId(),
+            contactId: 'bob',
+            outgoing: true,
+            ts: 3000,
+            text: '',
+            state: ChatState.queued,
+            deletedForAll: true,
+          ),
+        ),
+      );
+      await pumpTab(tester);
+
+      expect(find.text('bob'), findsOneWidget);
+      expect(find.byIcon(Icons.hourglass_top), findsNothing);
+    });
+  });
 }

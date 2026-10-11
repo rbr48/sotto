@@ -354,12 +354,14 @@ class ChatSession {
     _lastActivity = clock();
     for (final message in resend) {
       // A file is never sent as a text: queued files are offered once the
-      // other side is ready (see [offerStoredFile]). A message deleted for
-      // everyone is not sent again, with its old text.
-      if (message.isAttachment || message.deletedForAll) continue;
-      await store.setState(contactId, message.id, ChatState.sending);
-      _outbox[message.id] = message.withState(ChatState.sending);
-      _unsent.add(message.id);
+      // other side is ready (see [offerStoredFile]). The text sent is the one
+      // the store holds now, so a message deleted for everyone is not sent
+      // with its old text, and an edit since the copy was made is not lost.
+      if (message.isAttachment) continue;
+      final stored = await store.markSending(contactId, message.id);
+      if (stored == null) continue;
+      _outbox[stored.id] = stored;
+      _unsent.add(stored.id);
     }
     // Each step is chained on the one before, and an error in one step (a
     // full disk, say) is dropped there, so the later frames and the end of
@@ -769,6 +771,13 @@ class ChatSession {
     }
   }
 
+  /// Gives the outbox copy of message [id] the text [text], when it is edited
+  /// before it goes out. The store is changed by the caller.
+  void setTextOf(String id, String text) {
+    final message = _outbox[id];
+    if (message != null) _outbox[id] = message.copyWith(text: text);
+  }
+
   /// Sends the pending controls (reactions, edits and deletes) for this
   /// contact that can go now. Called when the chat is ready, when a message is
   /// acknowledged, and when a control is made. Calls run one after another.
@@ -783,8 +792,9 @@ class ChatSession {
   /// Sends the pending controls that can go now, and drops those that can
   /// never go:
   ///
-  /// - a control whose message is gone is dropped, and so is a reaction or an
-  ///   edit on a message deleted for everyone;
+  /// - a reaction or an edit whose message is gone is dropped, and so is one on
+  ///   a message deleted for everyone. A delete is sent even when its message
+  ///   is gone here: the other side may still hold the message;
   /// - an edit or a delete more than [controlLifetime] old by its own `ts` is
   ///   dropped, since the other side would refuse it. Its window (15 minutes or
   ///   an hour after the message) was checked when it was made, and it is not
@@ -804,14 +814,19 @@ class ChatSession {
       final tooOld =
           control is! ReactFrame &&
           now - control.ts > controlLifetime.inMilliseconds;
-      if (target == null ||
-          (control is! DeleteFrame && target.deletedForAll) ||
-          tooOld) {
+      // A delete goes even when its message is no longer held here (it may have
+      // been deleted for me since): the other side may still hold the message,
+      // and it ignores a delete for a message it lacks.
+      final dropped = control is DeleteFrame
+          ? tooOld
+          : target == null || target.deletedForAll || tooOld;
+      if (dropped) {
         await store.removeControl(contactId, control);
         continue;
       }
       if (!_peerFeatures.contains(_featureOf(control))) continue;
       final stored =
+          target == null ||
           !target.outgoing ||
           target.state == ChatState.delivered ||
           target.state == ChatState.read;
