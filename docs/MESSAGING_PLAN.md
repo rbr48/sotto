@@ -170,8 +170,9 @@ Approved with the recommended option for each:
 Status: **steps 1 to 4 are built and tested.** Step 5: the two-browser test of
 replies, reactions, forwarding, edits and deletes (`e2e/chat-actions.mjs`) is
 built, and checks that the browser build offers no export. The docs are
-updated. The three-browser group test (`e2e/group.mjs`) is not built yet. Groups are compiled in only with the build
-define `SOTTO_GROUPS`, and release builds turn them on in this release. The
+updated. The three-browser group test (`e2e/group.mjs`) is built and runs in
+CI. Groups are on in every build from version 0.5.0; a build made with
+`--dart-define=SOTTO_GROUPS=false` leaves them out. The
 decisions below are approved, and so are the later decisions D10 to D26 of the
 implementation plan, with their recommended options. Three of them change what
 is written here:

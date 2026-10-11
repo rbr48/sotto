@@ -462,8 +462,8 @@ What the relay learns: the key of each recipient, the member set (from each
 invite and each pair's session), and the timing and size of each copy. It never
 sees message text or names.
 
-**Off by default.** Groups are on only in a build with `SOTTO_GROUPS` set. With
-groups on, `hello` lists the feature `groups`. With groups off, a device sends
+**On by default.** Groups are on in every build except one made with
+`--dart-define=SOTTO_GROUPS=false`. With groups on, `hello` lists the feature `groups`. With groups off, a device sends
 no group envelope or group frame, ignores those it receives, and does not list
 `groups`.
 
