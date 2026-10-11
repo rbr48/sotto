@@ -129,6 +129,11 @@ class AppLock extends ChangeNotifier {
   int _autoLockSeconds = defaultAutoLockSeconds;
   DateTime? _leftAt;
 
+  /// The latest time this lock has seen, saved with its record. A clock that
+  /// reads earlier than this (the device's time was set back) is taken as this
+  /// time, so setting the clock back can't end a wait or unlock the app.
+  DateTime? _seen;
+
   bool get hasPin => _hash != null;
 
   /// Whether the app's screens are hidden behind the lock.
@@ -136,11 +141,19 @@ class AppLock extends ChangeNotifier {
 
   int get autoLockSeconds => _autoLockSeconds;
 
+  /// The current time, never earlier than the latest time seen (see [_seen]).
+  DateTime _now() {
+    final now = _clock();
+    final seen = _seen;
+    if (seen != null && now.isBefore(seen)) return seen;
+    return _seen = now;
+  }
+
   /// How long until another PIN may be tried (zero if now).
   Duration get retryIn {
     final retryAt = _retryAt;
     if (retryAt == null) return Duration.zero;
-    final left = retryAt.difference(_clock());
+    final left = retryAt.difference(_now());
     return left.isNegative ? Duration.zero : left;
   }
 
@@ -162,6 +175,8 @@ class AppLock extends ChangeNotifier {
             ? null
             : DateTime.fromMillisecondsSinceEpoch(retryAt);
         _autoLockSeconds = json['autoLock'] as int? ?? defaultAutoLockSeconds;
+        final seen = json['seen'] as int?;
+        _seen = seen == null ? null : DateTime.fromMillisecondsSinceEpoch(seen);
       } catch (_) {
         // Unreadable: keep whatever we have; never silently drop a PIN.
       }
@@ -179,6 +194,7 @@ class AppLock extends ChangeNotifier {
         'failures': _failures,
         'retryAt': _retryAt?.millisecondsSinceEpoch,
         'autoLock': _autoLockSeconds,
+        'seen': _seen?.millisecondsSinceEpoch,
       }),
     );
   }
@@ -236,7 +252,7 @@ class AppLock extends ChangeNotifier {
     if (_failures >= freeAttempts) {
       final doublings = min(_failures - freeAttempts, 7);
       final delay = firstDelay * (1 << doublings);
-      _retryAt = _clock().add(delay > maxDelay ? maxDelay : delay);
+      _retryAt = _now().add(delay > maxDelay ? maxDelay : delay);
     }
     await _save();
     return retryIn > Duration.zero
@@ -252,13 +268,17 @@ class AppLock extends ChangeNotifier {
   }
 
   /// The app went to the background.
-  void left() => _leftAt = _clock();
+  void left() => _leftAt = _now();
 
   /// The app came back: lock if it was away for the auto-lock time.
   void returned() {
     final leftAt = _leftAt;
     _leftAt = null;
     if (leftAt == null) return;
-    if (_clock().difference(leftAt).inSeconds >= _autoLockSeconds) lock();
+    // A clock that went back while the app was away fails closed: lock.
+    if (_clock().isBefore(leftAt) ||
+        _now().difference(leftAt).inSeconds >= _autoLockSeconds) {
+      lock();
+    }
   }
 }

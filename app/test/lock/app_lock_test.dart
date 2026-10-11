@@ -108,6 +108,48 @@ void main() {
     },
   );
 
+  test('setting the device clock back does not end a PIN wait, even after a restart', () async {
+    var now = DateTime(2026, 10, 7, 12);
+    final store = MemorySecretStore();
+    // The same key across the restart, as the app keeps it in its secrets.
+    final hasher = SessionPinHasher(sodium);
+    AppLock make() => AppLock(store, hasher, clock: () => now);
+    final lock = make();
+    await lock.load();
+    await lock.setPin('111111');
+    lock.lock();
+    for (var i = 0; i < AppLock.freeAttempts; i++) {
+      await lock.unlock('999999');
+    }
+    expect(lock.retryIn, AppLock.firstDelay);
+
+    now = now.subtract(const Duration(hours: 1));
+    expect(await lock.unlock('111111'), UnlockResult.tooManyAttempts);
+    expect(lock.retryIn, greaterThan(Duration.zero));
+
+    // Still waiting after a restart, with the clock set back.
+    final restarted = make();
+    await restarted.load();
+    expect(await restarted.unlock('111111'), UnlockResult.tooManyAttempts);
+
+    now = now.add(const Duration(hours: 1, seconds: 31));
+    expect(await restarted.unlock('111111'), UnlockResult.unlocked);
+  });
+
+  test('a clock set back while the app was away locks it', () async {
+    var now = DateTime(2026, 10, 7, 12);
+    final store = MemorySecretStore();
+    final lock = AppLock(store, SessionPinHasher(sodium), clock: () => now);
+    await lock.load();
+    await lock.setPin('111111');
+    expect(lock.locked, isFalse);
+
+    lock.left();
+    now = now.subtract(const Duration(hours: 1));
+    lock.returned();
+    expect(lock.locked, isTrue, reason: 'the clock went back: fail closed');
+  });
+
   test('auto-lock after leaving the app for the chosen time', () async {
     var now = DateTime(2026, 10, 7, 12);
     final lock = AppLock(
