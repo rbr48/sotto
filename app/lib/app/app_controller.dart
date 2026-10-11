@@ -407,11 +407,18 @@ class AppController extends ChangeNotifier {
     final sumo = SottoCrypto.passwordHashing(sodium);
     // The browser keeps one kind of PIN hash, remembered or not, so a PIN
     // set before "Remember me" still works after it.
+    final argon = sumo == null ? null : Argon2PinHasher(sumo);
     lock = AppLock(
       vault,
-      persistent && !_browser.supported && sumo != null
-          ? Argon2PinHasher(sumo)
-          : SessionPinHasher(sodium, key: await _pinKey()),
+      argon == null
+          ? SessionPinHasher(sodium, key: await _pinKey())
+          : kIsWeb
+          // The browser may hold a PIN from before it had Argon2id.
+          ? MigratingPinHasher(
+              argon,
+              SessionPinHasher(sodium, key: await _pinKey()),
+            )
+          : argon,
     );
     contacts = ContactBook(vault);
     history = CallHistory(vault);

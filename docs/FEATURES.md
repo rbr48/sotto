@@ -65,7 +65,7 @@ The features planned for the product. Phase numbers refer to [ROADMAP.md](ROADMA
 | Edit | Change your own text within 15 minutes of sending it. It is marked *Edited*; no earlier text is kept | Built in | Free |
 | Delete | *Delete for me* removes a message from your device. *Delete for everyone* works on your own text for one hour after sending, and asks the other device to remove it too; it can't make a device that ignores the request remove its copy | Built in | Free |
 | Star and message info | Star messages and see them in one list. Message info shows when a message was sent, delivered and read, and in a group, where each member's copy stands | Built in | Free |
-| Archive, pin and mute | Archive a chat to move it to an *Archived* row. Pin up to three chats to the top. Mute greys a chat's unread badge; it does not silence notifications. These settings stay on your device | Built in | Free |
+| Archive, pin and mute | Archive a chat to move it to an *Archived* row. Pin up to three chats to the top. Mute silences a chat's notifications and greys its unread badge; messages still arrive and count as unread. These settings stay on your device | Built in | Free |
 | Search | Search the chat list by name and last message, and search the messages loaded in an open chat | Built in | Free |
 | Disappearing messages | Erase a one-to-one chat's messages on your device after 24 hours, 7 days or 30 days. The other person's copy is not affected | Built in | Free |
 | Export a chat | Save one chat to a file you choose: encrypted with a passphrase by default, or plain text after a warning. Nothing is uploaded. Not for groups | Built in | Free |

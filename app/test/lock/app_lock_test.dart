@@ -76,6 +76,38 @@ void main() {
     },
   );
 
+  test(
+    'a PIN set in the browser before Argon2id is stored again on unlock',
+    () async {
+      final store = MemorySecretStore();
+      final legacy = SessionPinHasher(sodium);
+      final before = AppLock(store, legacy);
+      await before.load();
+      await before.setPin('482913');
+      expect(await store.read(AppLock.storageKey), contains('session:'));
+
+      final argon = Argon2PinHasher(SottoCrypto.passwordHashing(sodium)!);
+      AppLock after() => AppLock(store, MigratingPinHasher(argon, legacy));
+      final lock = after();
+      await lock.load();
+      expect(await lock.unlock('000000'), UnlockResult.wrongPin);
+      expect(
+        await store.read(AppLock.storageKey),
+        contains('session:'),
+        reason: 'a wrong PIN changes nothing',
+      );
+
+      expect(await lock.unlock('482913'), UnlockResult.unlocked);
+      final stored = await store.read(AppLock.storageKey);
+      expect(stored, contains(r'$argon2id$'));
+      expect(stored, isNot(contains('session:')));
+
+      final again = after();
+      await again.load();
+      expect(await again.unlock('482913'), UnlockResult.unlocked);
+    },
+  );
+
   test('auto-lock after leaving the app for the chosen time', () async {
     var now = DateTime(2026, 10, 7, 12);
     final lock = AppLock(

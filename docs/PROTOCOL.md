@@ -781,7 +781,7 @@ plaintext = JSON {"v":1, "values": {"<key>": "<string>", …}}
 | `sotto.settings.send_typing` | Send typing notices: `0` when off. On unless switched off |
 | `sotto.settings.auto_download_files` | Download files automatically: `1` when on. Off unless switched on |
 | `sotto.guest_links.v1` | Guest links (§5.7) |
-| `sotto.lock.v1` | App lock: PIN verifier (Argon2id `crypto_pwhash_str` in the apps; keyed BLAKE2b in the browser, §9.1), failed attempts, auto-lock time. Device-only |
+| `sotto.lock.v1` | App lock: PIN verifier (Argon2id `crypto_pwhash_str` on every platform; a PIN set before the browser had Argon2id is stored again on its next successful unlock, §9.1), failed attempts, auto-lock time. Device-only |
 | `sotto.devices.v1` | Chosen camera, microphone and speaker. Device-only |
 | `sotto.settings.hide_ip` | "Hide my IP address" |
 | `sotto.settings.sounds` | Ringtone and chimes on/off |
@@ -803,7 +803,7 @@ Off by default. When on, the browser keeps what the OS keystore and the vault fi
 | `secret:<name>` | Each keystore entry (`sotto.identity.master.v1`, `sotto.vault.key.v1`, `sotto.lock.key.v1`) as `iv (12) || AES-GCM(value, wrapping-key)` |
 | `vault` | The vault file's bytes, as above (already encrypted with the vault key) |
 
-- `sotto.lock.key.v1` is the 32-byte key of the browser's PIN verifier (keyed BLAKE2b; the web build has no Argon2id). It is kept with the secrets so that the PIN still works after reloading.
+- `sotto.lock.key.v1` is the 32-byte key of the browser's older PIN verifier (keyed BLAKE2b), kept with the secrets so that a PIN set before the browser had Argon2id still checks after reloading. The first successful unlock stores the PIN as Argon2id; the key is not used for new PINs.
 - Turning it on copies the session's identity, PIN key and vault into this storage; *Forget this browser* copies them back to memory and deletes the database (the tab keeps working until it is closed). Erasing everything deletes it too.
 - Non-extractable means a script can't copy the key out; it does not protect against someone who can use this browser profile or read its files. The option is meant for one's own computer.
 
