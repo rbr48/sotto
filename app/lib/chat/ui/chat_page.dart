@@ -2968,7 +2968,7 @@ class _Bubble extends StatelessWidget {
   /// A file's state in words, for the screen reader. The card shows it too.
   String? _fileStateWord() => switch (message.fileStatus) {
     'offered' =>
-      message.outgoing ? l10n.chatFileOffer(message.fileName ?? '') : null,
+      message.outgoing ? l10n.chatStatusSending : l10n.chatStatusReceiving,
     'transferring' =>
       message.outgoing ? l10n.chatStatusSending : l10n.chatStatusReceiving,
     'declined' => l10n.chatFileDeclined,
@@ -3499,9 +3499,23 @@ class _FileCard extends StatelessWidget {
           );
         }
         return ExcludeSemantics(
-          child: Text(
-            l10n.chatFileOffer(message.fileName ?? ''),
-            style: label?.copyWith(color: secondary),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                outgoing ? l10n.chatStatusSending : l10n.chatStatusReceiving,
+                style: label?.copyWith(color: secondary),
+              ),
+              const SizedBox(height: 4),
+              SizedBox(
+                width: 140,
+                child: LinearProgressIndicator(
+                  color: outgoing ? tokens.sentText : tokens.receivedLink,
+                  backgroundColor: secondary.withValues(alpha: 0.3),
+                ),
+              ),
+            ],
           ),
         );
       case 'transferring':
@@ -3950,10 +3964,9 @@ class _VoiceCardState extends State<_VoiceCard> {
         return _playRow(tokens, textTheme, fg, secondary);
       case 'offered':
         if (outgoing) {
-          // Offered, and waiting for the contact to accept: not yet sent.
           return ExcludeSemantics(
             child: Text(
-              l10n.chatFileOffer(message.fileName ?? ''),
+              l10n.chatStatusSending,
               style: label?.copyWith(color: secondary),
             ),
           );

@@ -268,7 +268,7 @@ class ChatSession {
     this.idleTimeout = const Duration(minutes: 5),
     this.isContact,
     this.maxFileBytes = platformMaxFileBytes,
-    this.autoAcceptFiles = _never,
+    this.autoAcceptFiles = _always,
     Future<void> Function()? bufferWait,
     this.groupsEnabled = false,
   }) : _newId = newId ?? ChatFrames.newId,
@@ -282,17 +282,17 @@ class ChatSession {
   /// offer waits to be accepted by hand. Voice notes always download.
   final bool Function() autoAcceptFiles;
 
-  static bool _never() => false;
+  static bool _always() => true;
 
   /// The largest file that downloads without asking.
-  static const autoAcceptMaxBytes = 25 * 1024 * 1024;
+  static const autoAcceptMaxBytes = platformMaxFileBytes;
 
   /// At most this many incoming transfers run when a file would download
   /// without asking.
   static const autoAcceptMaxConcurrent = 2;
 
   /// The bytes that may download without asking in one session, in all.
-  static const autoAcceptBudgetBytes = 200 * 1024 * 1024;
+  static const autoAcceptBudgetBytes = 500 * 1024 * 1024;
 
   /// Bytes downloaded without asking in this session so far.
   int _autoAcceptedBytes = 0;
@@ -1675,6 +1675,7 @@ class ChatSession {
       store.forgetVoice(id);
     }
     _events.add(FileTransferCompleted(id, kept?.name));
+    unawaited(_checkPendingIncomingAutoAccept());
   }
 
   /// Marks a file message as [status] and tells the screens why.
@@ -1684,6 +1685,21 @@ class ChatSession {
       await store.updateMessage(existing.copyWith(fileStatus: status));
     }
     _emit(FileTransferFailed(id, reason));
+    unawaited(_checkPendingIncomingAutoAccept());
+  }
+
+  Future<void> _checkPendingIncomingAutoAccept() async {
+    if (_ended) return;
+    for (final message in await store.messages(contactId)) {
+      if (_ended) return;
+      if (!message.outgoing &&
+          message.isAttachment &&
+          message.fileStatus == 'offered' &&
+          _mayAutoAccept(message.fileSize ?? 0)) {
+        _autoAcceptedBytes += message.fileSize ?? 0;
+        await acceptFile(message.id);
+      }
+    }
   }
 
   /// Whether a file offered by the contact downloads without asking: the

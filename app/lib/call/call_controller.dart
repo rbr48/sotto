@@ -239,7 +239,7 @@ class CallController extends ChangeNotifier {
   /// Whether to send read receipts when viewing chat messages.
   bool get sendReadReceipts => _sendReadReceipts;
 
-  bool _autoDownloadFiles = false;
+  bool _autoDownloadFiles = true;
 
   /// Whether files from contacts download without asking (within the limits
   /// of [ChatSession.autoAcceptFiles]). Voice notes download either way.
@@ -337,7 +337,7 @@ class CallController extends ChangeNotifier {
       _soundsOn = await _readSetting(soundsSetting) != '0';
       _sendTyping = await _readSetting(sendTypingSetting) != '0';
       _sendReadReceipts = await _readSetting(sendReadReceiptsSetting) != '0';
-      _autoDownloadFiles = await _readSetting(autoDownloadFilesSetting) == '1';
+      _autoDownloadFiles = await _readSetting(autoDownloadFilesSetting) != '0';
       _codec = EnvelopeCodec(sodium, identity);
       await localRenderer.initialize();
       await remoteRenderer.initialize();

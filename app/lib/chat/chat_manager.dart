@@ -64,7 +64,7 @@ class ChatManager {
     String Function()? newId,
     this.connectTimeout = const Duration(seconds: 30),
     this.readReceiptsEnabled = _readReceiptsAlwaysOn,
-    this.autoDownloadFiles = _autoDownloadOff,
+    this.autoDownloadFiles = _autoDownloadOn,
     this.maxFileBytes = platformMaxFileBytes,
     this.offerReadyWait = const Duration(seconds: 5),
     this.groupsEnabled = groupsBuildEnabled,
@@ -138,7 +138,7 @@ class ChatManager {
   /// download either way. See [ChatSession.autoAcceptFiles] for the limits.
   final bool Function() autoDownloadFiles;
 
-  static bool _autoDownloadOff() => false;
+  static bool _autoDownloadOn() => true;
 
   /// The largest file this device sends or accepts (the browser's is
   /// smaller, see [platformMaxFileBytes]).
