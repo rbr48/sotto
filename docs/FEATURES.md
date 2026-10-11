@@ -49,7 +49,27 @@ The features planned for the product. Phase numbers refer to [ROADMAP.md](ROADMA
 | Ringing and call states | Clear "Calling…", "Ringing…", "Connecting…", "Connected" and "Reconnecting…" screens | 3 | Free |
 | Busy handling | Colleagues get "busy"; clients who knock during another call see "please wait" | 3, 11 | Free |
 | Works on any network | Direct device-to-device when possible; otherwise relayed through TURN (strict routers, mobile networks, office and hotel firewalls) | 4 | Free (self-hosted) / Pro (hosted TURN) |
-| Text messages with contacts | Chat with a colleague app to app. Messages go directly between the two devices, encrypted, and never pass through the server. Both need Sotto open: a message that doesn't arrive is marked *Not sent*, with Retry. Notifications show "New message" (the name only if you allow names). History stays on your device until you delete the chat | Built in | Free |
+| Text messages with contacts | Chat with a colleague app to app; see section 3A | Built in | Free |
+
+## 3A. Messages
+
+| Feature | Description | Phase | Plan |
+|---|---|---|---|
+| Text messages with contacts | Messages go directly between the two devices, encrypted. When no direct connection is ready, a plain text also goes through the server sealed, so the server can't read it, and it holds it in memory for at most 60 seconds. Notifications show "New message" (the name only if you allow names), never the text. History stays on your device until you delete the chat, or until its messages disappear (below) | Built in | Free |
+| Retry and queue | The sender's app sends a plain text again through the server every 30 seconds for 15 minutes while it is open. A message that doesn't arrive is marked *Not sent*, with Retry, or Queue to keep sending it while the app is open | Built in | Free |
+| Delivered and read | "Delivered" when one of the other person's devices has stored the message; "Read" when they have opened it, unless they turn read receipts off | Built in | Free |
+| Files and voice notes | Send files and voice notes to a contact over the direct connection. A file waits until the receiver accepts it, unless they turn on automatic downloads; a voice note downloads at once | Built in | Free |
+| Reply | Reply to a message; the reply shows a quote of up to 200 characters | Built in | Free |
+| Reactions | One emoji per person on each message; you can change or remove yours | Built in | Free |
+| Forward | Forward a text to one contact. The copy is marked *Forwarded* and keeps no link to the original | Built in | Free |
+| Edit | Change your own text within 15 minutes of sending it. It is marked *Edited*; no earlier text is kept | Built in | Free |
+| Delete | *Delete for me* removes a message from your device. *Delete for everyone* works on your own text for one hour after sending, and asks the other device to remove it too; it can't make a device that ignores the request remove its copy | Built in | Free |
+| Star and message info | Star messages and see them in one list. Message info shows when a message was sent, delivered and read, and in a group, where each member's copy stands | Built in | Free |
+| Archive, pin and mute | Archive a chat to move it to an *Archived* row. Pin up to three chats to the top. Mute greys a chat's unread badge; it does not silence notifications. These settings stay on your device | Built in | Free |
+| Search | Search the chat list by name and last message, and search the messages loaded in an open chat | Built in | Free |
+| Disappearing messages | Erase a one-to-one chat's messages on your device after 24 hours, 7 days or 30 days. The other person's copy is not affected | Built in | Free |
+| Export a chat | Save one chat to a file you choose: encrypted with a passphrase by default, or plain text after a warning. Nothing is uploaded. Not in the browser, and not for groups | Built in | Free |
+| Group chats | Groups of three or four people, made from your contacts; every member must be a contact of every other member. An invite is answered with Accept or Decline within 15 minutes; a member who declined or did not answer can be invited again. Members can leave; there are no admins and no renaming. Text, replies to your own messages, reactions, edits and deletes work as in a one-to-one chat; files are not sent in groups. A message shows "Delivered to all" or "Sent to X of Y". The server sees who is in a group with whom (`THREAT_MODEL.md`, limitation 16). Groups are in the app; release builds turn them on from this release | Built in | Free |
 
 ## 4. In-call controls
 
@@ -114,13 +134,13 @@ The features planned for the product. Phase numbers refer to [ROADMAP.md](ROADMA
 | Team features | An admin shares a signed team roster, server settings and branding with colleagues end to end encrypted; nothing stored on the server (Business) |
 | Linked devices | Use the same identity on phone and PC; history and contacts sync device-to-device, end to end encrypted |
 | Small group calls (up to 4) | For example family therapy, or a lawyer with two clients |
-| File sharing and in-call chat | Send a document to a client during a call, end to end encrypted (text messages between contacts are already built) |
+| File sharing and in-call chat | Send a document to a client during a call, end to end encrypted (messages, files and voice notes between contacts are already built) |
 | Compliance pack | GDPR documentation and a HIPAA-readiness assessment for the chosen market |
 | Larger group calls (5+) | Needs a media server plus extra end-to-end encryption (SFrame); a separate project |
 
 ## What the server can still see
 
-The server keeps nothing, but while a call or a chat is being set up it briefly sees, in memory only, which keys are connecting to each other and their IP addresses. Message text never reaches the server. Hiding even that would need Tor-style routing, which is too slow for live calls. Organisations that want to remove even this can **self-host**, so the only server involved is their own.
+The server keeps nothing, but while a call or a chat is being set up it briefly sees, in memory only, which keys are connecting to each other and their IP addresses. For a group, it can also see who is in the group, and when each copy of a message is sent. Message text reaches the server only sealed, so it can't read it. Hiding even that would need Tor-style routing, which is too slow for live calls. Organisations that want to remove even this can **self-host**, so the only server involved is their own.
 
 ## Public launch scope (Milestone M5, ~month 9)
 
