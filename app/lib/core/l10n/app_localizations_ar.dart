@@ -765,4 +765,135 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get chatExportReactionsLabel => 'التفاعلات';
+
+  @override
+  String get chatsNewGroup => 'مجموعة جديدة';
+
+  @override
+  String get groupCreateTitle => 'مجموعة جديدة';
+
+  @override
+  String get groupNameLabel => 'اسم المجموعة';
+
+  @override
+  String get groupNameRequired => 'أدخل اسمًا للمجموعة.';
+
+  @override
+  String groupNameTooLong(int max) {
+    return 'استخدم $max حرفًا على الأكثر.';
+  }
+
+  @override
+  String get groupMembersTitle => 'الأعضاء';
+
+  @override
+  String get groupMembersHint =>
+      'اختر جهتي اتصال أو ثلاثًا. يجب أن يكون كل منهم جهة اتصال لدى الآخرين أيضًا.';
+
+  @override
+  String groupMembersChosen(int count, int max) {
+    return 'تم اختيار $count من $max';
+  }
+
+  @override
+  String get groupCreate => 'إنشاء المجموعة';
+
+  @override
+  String get groupCreateFailed => 'تعذّر إنشاء المجموعة.';
+
+  @override
+  String get groupNeedTwoContacts =>
+      'تحتاج إلى جهتي اتصال على الأقل لإنشاء مجموعة.';
+
+  @override
+  String groupMemberCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count عضو',
+      many: '$count عضوًا',
+      few: '$count أعضاء',
+      two: 'عضوان',
+      one: 'عضو واحد',
+      zero: '$count عضو',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get groupInvitation => 'أنت مدعو إلى هذه المجموعة.';
+
+  @override
+  String get groupInvitationPreview => 'دعوة للانضمام';
+
+  @override
+  String get groupAccept => 'قبول';
+
+  @override
+  String get groupDecline => 'رفض';
+
+  @override
+  String get groupJoinNotContacts =>
+      'لا يمكنك الانضمام: ليس كل الأعضاء من جهات اتصالك.';
+
+  @override
+  String get groupJoinEnded => 'انتهت هذه الدعوة.';
+
+  @override
+  String get groupLeftNote =>
+      'غادرت هذه المجموعة. تبقى رسائلها على هذا الجهاز.';
+
+  @override
+  String get groupDeclinedNote => 'رفضت هذه الدعوة.';
+
+  @override
+  String get groupClosedNote => 'لا يمكنك إرسال رسائل إلى هذه المجموعة.';
+
+  @override
+  String get groupInfo => 'معلومات المجموعة';
+
+  @override
+  String get groupMemberYou => 'أنت';
+
+  @override
+  String get groupMemberJoined => 'انضم';
+
+  @override
+  String get groupMemberInvited => 'مدعو';
+
+  @override
+  String get groupMemberDeclined => 'رفض';
+
+  @override
+  String get groupMemberLeft => 'غادر';
+
+  @override
+  String get groupMemberNoAnswer => 'لا رد';
+
+  @override
+  String get groupMemberNotReachable => 'يتعذّر الوصول إليه';
+
+  @override
+  String get groupInviteAgain => 'ادعُ مرة أخرى';
+
+  @override
+  String get groupLeave => 'مغادرة المجموعة';
+
+  @override
+  String get groupLeaveTitle => 'هل تريد مغادرة هذه المجموعة؟';
+
+  @override
+  String get groupLeaveBody =>
+      'سيرى الآخرون أنك غادرت. تبقى الرسائل على هذا الجهاز، لكن لن يمكنك الإرسال أو الاستلام بعد الآن.';
+
+  @override
+  String get groupDeliveredAll => 'تم التسليم للجميع';
+
+  @override
+  String get groupReadAll => 'قرأها الجميع';
+
+  @override
+  String groupSentToSome(int sent, int total) {
+    return 'أُرسلت إلى $sent من $total';
+  }
 }

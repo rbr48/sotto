@@ -441,5 +441,81 @@
   "chatExportFileLabel": "File",
   "chatExportBytesLabel": "bytes",
   "chatExportReplyLabel": "Reply to",
-  "chatExportReactionsLabel": "Reactions"
+  "chatExportReactionsLabel": "Reactions",
+  "chatsNewGroup": "New group",
+  "groupCreateTitle": "New group",
+  "groupNameLabel": "Group name",
+  "groupNameRequired": "Give the group a name.",
+  "groupNameTooLong": "Use at most {max} characters.",
+  "@groupNameTooLong": {
+    "placeholders": {
+      "max": {
+        "type": "int",
+        "example": "64"
+      }
+    }
+  },
+  "groupMembersTitle": "Members",
+  "groupMembersHint": "Choose two or three contacts. Each of them must also be a contact of the others.",
+  "groupMembersChosen": "{count} of {max} chosen",
+  "@groupMembersChosen": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      },
+      "max": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "groupCreate": "Create group",
+  "groupCreateFailed": "The group could not be made.",
+  "groupNeedTwoContacts": "You need at least two contacts to make a group.",
+  "groupMemberCount": "{count, plural, one {{count} member} other {{count} members}}",
+  "@groupMemberCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "groupInvitation": "You are invited to this group.",
+  "groupInvitationPreview": "Invitation to join",
+  "groupAccept": "Accept",
+  "groupDecline": "Decline",
+  "groupJoinNotContacts": "You can't join: not every member is one of your contacts.",
+  "groupJoinEnded": "This invitation has ended.",
+  "groupLeftNote": "You left this group. Its messages stay on this device.",
+  "groupDeclinedNote": "You declined this invitation.",
+  "groupClosedNote": "You can't send messages to this group.",
+  "groupInfo": "Group info",
+  "groupMemberYou": "You",
+  "groupMemberJoined": "Joined",
+  "groupMemberInvited": "Invited",
+  "groupMemberDeclined": "Declined",
+  "groupMemberLeft": "Left",
+  "groupMemberNoAnswer": "No answer",
+  "groupMemberNotReachable": "Not reachable",
+  "groupInviteAgain": "Invite again",
+  "groupLeave": "Leave group",
+  "groupLeaveTitle": "Leave this group?",
+  "groupLeaveBody": "The others will see that you left. The messages stay on this device, but you can't send or receive any more.",
+  "groupDeliveredAll": "Delivered to all",
+  "groupReadAll": "Read by all",
+  "groupSentToSome": "Sent to {sent} of {total}",
+  "@groupSentToSome": {
+    "placeholders": {
+      "sent": {
+        "type": "int",
+        "example": "1"
+      },
+      "total": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  }
 }
