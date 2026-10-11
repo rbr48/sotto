@@ -238,6 +238,12 @@ class ChatGroupManager {
   /// Sends the other members the new invite to [memberId] of [group], dated
   /// [ts], through the relay, repeated like an invite is. A member who is not a
   /// contact gets nothing (D22).
+  /// How long invites, new invites and answers are sent again through the
+  /// relay: as long as an accept can still count (D11), so a member offline
+  /// for most of that time still learns of them.
+  static final int _answerWindow =
+      inviteWindow.inMilliseconds + clockSkew.inMilliseconds;
+
   void _sendRenewal(ChatGroup group, String to, String memberId, int ts) {
     if (!isContact(to)) return;
     final body = ChatGroups.envelope(
@@ -249,7 +255,7 @@ class ChatGroupManager {
         to: to,
         type: 'group.reinvite',
         body: body,
-        until: _now + inviteWindow.inMilliseconds,
+        until: _now + _answerWindow,
         nextAt: _now + groupResendEvery.inMilliseconds,
       ),
     );
@@ -420,7 +426,7 @@ class ChatGroupManager {
           to: member,
           type: type,
           body: body,
-          until: _now + inviteWindow.inMilliseconds,
+          until: _now + _answerWindow,
           nextAt: _now + groupResendEvery.inMilliseconds,
         ),
       );
