@@ -9,6 +9,10 @@ import 'chat_session.dart';
 import 'chat_signalling.dart';
 import 'chat_store.dart';
 
+/// Whether this build runs group chats. It is set at build time with
+/// `--dart-define=SOTTO_GROUPS=true`, and is off otherwise.
+const bool groupsBuildEnabled = bool.fromEnvironment('SOTTO_GROUPS');
+
 /// Something that happened in chats, for the screens to show.
 sealed class ChatManagerEvent {
   const ChatManagerEvent();
@@ -51,6 +55,7 @@ class ChatManager {
     this.autoDownloadFiles = _autoDownloadOff,
     this.maxFileBytes = platformMaxFileBytes,
     this.offerReadyWait = const Duration(seconds: 5),
+    this.groupsEnabled = groupsBuildEnabled,
     void Function(String event)? log,
   }) : _newId = newId ?? ChatFrames.newId,
        _log = log ?? EventLog.instance.add,
@@ -126,6 +131,11 @@ class ChatManager {
   /// The largest file this device sends or accepts (the browser's is
   /// smaller, see [platformMaxFileBytes]).
   final int maxFileBytes;
+
+  /// Whether group chats are on (see [groupsBuildEnabled]). Each session takes
+  /// it: with it off, a session sends no group frame, ignores a peer's, and does
+  /// not list the group feature in its hello.
+  final bool groupsEnabled;
 
   /// How long [offerFile] waits for a chat being opened to become ready
   /// before it queues the file instead.
@@ -1073,6 +1083,7 @@ class ChatManager {
         isContact: () => isContact(live.contact),
         maxFileBytes: maxFileBytes,
         autoAcceptFiles: autoDownloadFiles,
+        groupsEnabled: groupsEnabled,
       );
       live.session = session;
       live.sessionSub = session.events.listen(
