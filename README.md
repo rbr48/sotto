@@ -99,7 +99,7 @@ What doesn't hold yet (details in [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md)
 - **Your contacts, history and keys** are encrypted on the device, with their keys kept in the device's keystore. In a browser, they are kept only with *Remember me*, under a non-extractable key in the browser's storage. The app lock (a PIN) hides the screens and guards sensitive settings, but it does not encrypt anything. Malware on the device, or someone who can unlock it, can read them.
 - **Chat history stays on your devices until you delete it.** It is never deleted automatically, and it is included in backups.
 - **The apps check GitHub for updates once a day by default**, and each time they start. The check shows GitHub your IP address and the Sotto version. Turn this off in Settings → Updates. The Google Play build does not check, because Play delivers its updates.
-- **"Remember me on this browser" is only as safe as that browser profile.** In a browser, the app-lock PIN is checked with a fast keyed hash rather than Argon2id, in every session and not only with *Remember me*. *Remember me* is off by default; use it on your own computer only.
+- **"Remember me on this browser" is only as safe as that browser profile.** The app-lock PIN is stored with Argon2id in the browser too, as in the apps. But someone who can use the profile can still use the identity. *Remember me* is off by default; use it on your own computer only.
 - **Devices whose clocks are more than 2 minutes off** cannot exchange messages.
 
 ## Repository

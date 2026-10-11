@@ -327,7 +327,7 @@ Without accounts, a lost device means a lost identity, so the user gets a **back
 - Encryption: a key derived from the user's password with **Argon2id**, then XChaCha20-Poly1305.
 - The user saves it wherever they choose: a file, USB drive or their own cloud. The app never uploads it.
 - Restore: on first launch, *Restore from backup*, enter the password.
-- As built in Phase 6: Argon2id (3 passes, 64 MiB), passphrase of at least 12 characters (or a generated 25-character one), optional call history and notes; the app lock and device choices stay on each device. Native apps only: the browser build has no Argon2id and never handles real identities. Format: `docs/PROTOCOL.md` §8.
+- As built in Phase 6: Argon2id (3 passes, 64 MiB), passphrase of at least 12 characters (or a generated 25-character one), optional call history and notes; the app lock and device choices stay on each device. The browser build uses the same Argon2id, and holds a real identity only with *Remember me on this browser*. Format: `docs/PROTOCOL.md` §8.
 
 ### 5.10 What the server can and cannot see
 
