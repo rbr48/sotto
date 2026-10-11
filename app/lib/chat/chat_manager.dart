@@ -14,6 +14,12 @@ import 'chat_store.dart';
 /// `--dart-define=SOTTO_GROUPS=true`, and is off otherwise.
 const bool groupsBuildEnabled = bool.fromEnvironment('SOTTO_GROUPS');
 
+/// Whether a relay envelope of [type] is for the chat manager: every `chat.*`
+/// envelope, and every `group.*` one when [groups] is on. With groups off, a
+/// group envelope is not passed on at all.
+bool isChatEnvelope(String type, {bool groups = groupsBuildEnabled}) =>
+    type.startsWith('chat.') || (groups && type.startsWith('group.'));
+
 /// Something that happened in chats, for the screens to show.
 sealed class ChatManagerEvent {
   const ChatManagerEvent();

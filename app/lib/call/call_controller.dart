@@ -796,7 +796,7 @@ class CallController extends ChangeNotifier {
       return;
     }
     if (_profiles?.handleReply(opened) ?? false) return;
-    if (opened.type.startsWith('chat.')) {
+    if (isChatEnvelope(opened.type)) {
       _rememberChatSender(opened.sender);
       _chat?.handle(
         from: opened.sender.id,

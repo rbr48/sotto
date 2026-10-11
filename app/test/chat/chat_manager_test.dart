@@ -648,6 +648,24 @@ void main() {
     expect((await aliceStore.find('bob', first.id))!.state, ChatState.read);
   });
 
+  group('isChatEnvelope', () {
+    test('every chat envelope goes to the chat manager', () {
+      expect(isChatEnvelope('chat.text'), isTrue);
+      expect(isChatEnvelope('chat.open', groups: false), isTrue);
+    });
+
+    test('a group envelope goes there only with groups on', () {
+      expect(isChatEnvelope('group.invite', groups: true), isTrue);
+      expect(isChatEnvelope('group.text', groups: true), isTrue);
+      expect(isChatEnvelope('group.invite', groups: false), isFalse);
+    });
+
+    test('call and guest envelopes do not', () {
+      expect(isChatEnvelope('call.offer', groups: true), isFalse);
+      expect(isChatEnvelope('guest.knock', groups: true), isFalse);
+    });
+  });
+
   group('texts through the relay', () {
     test('a text reaches a device whose direct chat cannot connect', () async {
       final aliceStore = ChatStore(MemorySecretStore());
