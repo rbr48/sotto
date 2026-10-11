@@ -11,9 +11,14 @@ import '../crypto/identity_store.dart';
 abstract interface class PinHasher {
   String hash(String pin);
   bool verify(String hash, String pin);
+
+  /// Whether [hash] is in this hasher's current format. A PIN that checks out
+  /// against an older format is stored again in the current one.
+  bool isCurrent(String hash);
 }
 
-/// Argon2id (`crypto_pwhash_str`), used by the native apps.
+/// Argon2id (`crypto_pwhash_str`): the PIN verifier of the app, on every
+/// platform.
 class Argon2PinHasher implements PinHasher {
   Argon2PinHasher(this._sodium);
 
@@ -28,15 +33,19 @@ class Argon2PinHasher implements PinHasher {
 
   @override
   bool verify(String hash, String pin) {
-    if (!hash.startsWith(r'$argon2')) return false;
+    if (!isCurrent(hash)) return false;
     return _sodium.crypto.pwhash.strVerify(passwordHash: hash, password: pin);
   }
+
+  @override
+  bool isCurrent(String hash) => hash.startsWith(r'$argon2');
 }
 
-/// For the browser, where Argon2id isn't available: a keyed BLAKE2b hash.
-/// The key exists only for this page load, unless the browser remembers the
-/// identity: then it is kept with the identity's secrets, so the PIN still
-/// works after reloading.
+/// The browser's PIN verifier before Argon2id was available there: a keyed
+/// BLAKE2b hash, kept only so that a PIN set then still works. The key is
+/// kept with the identity's secrets, so the PIN works after reloading.
+/// [MigratingPinHasher] stores the PIN again in the current format on its
+/// next successful check.
 class SessionPinHasher implements PinHasher {
   SessionPinHasher(this._sodium, {Uint8List? key})
     : _key = key == null
@@ -52,6 +61,29 @@ class SessionPinHasher implements PinHasher {
 
   @override
   bool verify(String hash, String pin) => hash == this.hash(pin);
+
+  @override
+  bool isCurrent(String hash) => false;
+}
+
+/// Argon2id for new PINs, and the older browser format for PINs set before
+/// the browser had Argon2id. Checks either; never stores the old format.
+class MigratingPinHasher implements PinHasher {
+  MigratingPinHasher(this._current, this._legacy);
+
+  final Argon2PinHasher _current;
+  final SessionPinHasher _legacy;
+
+  @override
+  String hash(String pin) => _current.hash(pin);
+
+  @override
+  bool verify(String hash, String pin) => _current.isCurrent(hash)
+      ? _current.verify(hash, pin)
+      : _legacy.verify(hash, pin);
+
+  @override
+  bool isCurrent(String hash) => _current.isCurrent(hash);
 }
 
 enum UnlockResult {
@@ -191,7 +223,9 @@ class AppLock extends ChangeNotifier {
     if (hash == null) return UnlockResult.unlocked;
     if (retryIn > Duration.zero) return UnlockResult.tooManyAttempts;
     if (_hasher.verify(hash, pin)) {
-      if (_failures != 0 || _retryAt != null) {
+      final upgrade = !_hasher.isCurrent(hash);
+      if (upgrade) _hash = _hasher.hash(pin);
+      if (upgrade || _failures != 0 || _retryAt != null) {
         _failures = 0;
         _retryAt = null;
         await _save();
