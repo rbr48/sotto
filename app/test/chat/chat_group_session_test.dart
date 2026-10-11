@@ -513,4 +513,200 @@ void main() {
       },
     );
   });
+
+  group('answers and leaves of members', () {
+    /// A group in which bob is [bob] (invited at [_ts] by default).
+    ChatGroup withBob(MemberState bob) => _groupWith(bob: bob);
+
+    GroupStateFrame answer(GroupStateKind kind, int ts) =>
+        GroupStateFrame(kind: kind, group: _group, ts: ts);
+
+    test(
+      'an accept inside the window accepts the member on this device',
+      () async {
+        final device = await _open(_bob, group: withBob(MemberState.invited));
+
+        device.receive(answer(GroupStateKind.accept, _ts + 60 * 1000));
+        await _settle();
+
+        final group = (await device.store.group(_group))!;
+        expect(group.memberOf(_bob)!.state, MemberState.accepted);
+        expect(device.ofType<GroupStateChanged>().single.group, _group);
+      },
+    );
+
+    test('an accept after the window leaves the member expired', () async {
+      final device = await _open(_bob, group: withBob(MemberState.invited));
+
+      device.receive(
+        answer(
+          GroupStateKind.accept,
+          _ts + const Duration(minutes: 21).inMilliseconds,
+        ),
+      );
+      await _settle();
+
+      expect(
+        (await device.store.group(_group))!.memberOf(_bob)!.state,
+        MemberState.expired,
+      );
+    });
+
+    test(
+      'a decline is applied once, and a later accept does not undo it',
+      () async {
+        final device = await _open(_bob, group: withBob(MemberState.invited));
+
+        device.receive(answer(GroupStateKind.decline, _ts));
+        device.receive(answer(GroupStateKind.decline, _ts));
+        device.receive(answer(GroupStateKind.accept, _ts));
+        await _settle();
+
+        expect(
+          (await device.store.group(_group))!.memberOf(_bob)!.state,
+          MemberState.declined,
+        );
+        expect(device.ofType<GroupStateChanged>(), hasLength(1));
+      },
+    );
+
+    test(
+      'a decline dated before the invite it would answer is ignored',
+      () async {
+        final device = await _open(_bob, group: withBob(MemberState.invited));
+
+        device.receive(answer(GroupStateKind.decline, _ts - 1000));
+        await _settle();
+
+        expect(
+          (await device.store.group(_group))!.memberOf(_bob)!.state,
+          MemberState.invited,
+        );
+        expect(device.ofType<GroupStateChanged>(), isEmpty);
+      },
+    );
+
+    test('a leave from an accepted member is applied once', () async {
+      final device = await _open(_bob, group: _groupWith());
+
+      device.receive(answer(GroupStateKind.leave, _ts));
+      device.receive(answer(GroupStateKind.leave, _ts));
+      await _settle();
+
+      expect(
+        (await device.store.group(_group))!.memberOf(_bob)!.state,
+        MemberState.left,
+      );
+      expect(device.ofType<GroupStateChanged>(), hasLength(1));
+    });
+
+    test('an answer from someone who is not a member is ignored', () async {
+      final device = await _open(_dave, group: _groupWith());
+
+      device.receive(answer(GroupStateKind.leave, _ts));
+      await _settle();
+
+      expect(device.ofType<GroupStateChanged>(), isEmpty);
+      expect((await device.store.group(_group))!.memberOf(_dave), isNull);
+    });
+
+    test(
+      'a pending answer is sent once the member is ready, and then forgotten',
+      () async {
+        final device = _Device(_bob, groups: true);
+        await device.store.saveGroup(_groupWith());
+        await device.store.queueGroupState(
+          _group,
+          _bob,
+          answer(GroupStateKind.leave, _ts),
+          clock: () => _now,
+        );
+        device.start();
+        await _settle();
+
+        expect(device.written.whereType<GroupStateFrame>(), isEmpty);
+
+        device.receive(const HelloFrame(features: {'groups'}));
+        await _settle();
+
+        final sent = device.written.whereType<GroupStateFrame>().single;
+        expect(sent.kind, GroupStateKind.leave);
+        expect(sent.group, _group);
+        expect(
+          await device.store.pendingGroupStates(
+            _group,
+            memberId: _bob,
+            clock: () => _now,
+          ),
+          isEmpty,
+        );
+      },
+    );
+
+    test('with groups off, a pending answer is not sent', () async {
+      final device = _Device(_bob, groups: false);
+      await device.store.saveGroup(_groupWith());
+      await device.store.queueGroupState(
+        _group,
+        _bob,
+        answer(GroupStateKind.leave, _ts),
+        clock: () => _now,
+      );
+      device.start();
+      device.receive(const HelloFrame(features: {'groups'}));
+      await _settle();
+
+      expect(device.written.whereType<GroupStateFrame>(), isEmpty);
+      expect(
+        await device.store.pendingGroupStates(
+          _group,
+          memberId: _bob,
+          clock: () => _now,
+        ),
+        hasLength(1),
+      );
+    });
+
+    test(
+      'a reaction to a member waits until the member has stored the message',
+      () async {
+        final device = _Device(_bob, groups: true);
+        await device.store.saveGroup(_groupWith());
+        await device.store.add(
+          _held(
+            _id(1),
+            _self,
+          ).copyWith(memberStates: {_bob: ChatState.sending}),
+        );
+        await device.store.queueControl(
+          _group,
+          ReactFrame(id: _id(1), emoji: '👍', ts: _ts, group: _group),
+          memberId: _bob,
+          clock: () => _now,
+        );
+        device.start();
+        device.receive(
+          HelloFrame(
+            features: {...ChatFrames.features, ChatFrames.featureGroups},
+          ),
+        );
+        await _settle();
+
+        expect(device.written.whereType<ReactFrame>(), isEmpty);
+
+        await device.store.setState(
+          _group,
+          _id(1),
+          ChatState.delivered,
+          memberId: _bob,
+        );
+        await device.session.flushControls();
+        await _settle();
+
+        final sent = device.written.whereType<ReactFrame>().single;
+        expect(sent.emoji, '👍');
+        expect(sent.group, _group);
+      },
+    );
+  });
 }

@@ -161,6 +161,13 @@ final class ChatSettingsChanged extends ChatSessionEvent {
   const ChatSettingsChanged();
 }
 
+/// A member of the group [group] answered an invite, or left, as this device's
+/// table of the group now shows it. Only this device learns of it.
+final class GroupStateChanged extends ChatSessionEvent {
+  const GroupStateChanged(this.group);
+  final String group;
+}
+
 /// A file offer was received from the peer.
 final class FileOfferReceived extends ChatSessionEvent {
   const FileOfferReceived(this.message);
@@ -886,6 +893,68 @@ class ChatSession {
       if (!_write(control)) return;
       await store.removeControl(contactId, control);
     }
+    await _flushGroupPending(now);
+  }
+
+  /// Sends what waits for this session's member in each group they are both in:
+  /// the group answers and leaves first, then the controls. An answer goes
+  /// whenever the group is held, so a leave still reaches the others after this
+  /// device has left. A control waits in the same way as a one-to-one control
+  /// (see [_flushPending]), and goes only while this device is an active member.
+  Future<void> _flushGroupPending(int now) async {
+    if (!_canSendGroup) return;
+    for (final group in await store.groups()) {
+      final member = group.memberOf(contactId);
+      if (member == null) continue;
+      for (final answer in await store.pendingGroupStates(
+        group.id,
+        memberId: contactId,
+        clock: clock,
+      )) {
+        if (!isReady || !_write(answer)) return;
+        await store.removeControl(group.id, answer, memberId: contactId);
+      }
+      if (!ChatGroups.isActive(group) || member.state != MemberState.accepted) {
+        continue;
+      }
+      for (final control in await store.pendingControls(
+        group.id,
+        memberId: contactId,
+        clock: clock,
+      )) {
+        if (!isReady) return;
+        final target = await store.find(group.id, control.id);
+        final tooOld =
+            control is! ReactFrame &&
+            now - control.ts > controlLifetime.inMilliseconds;
+        final dropped = control is DeleteFrame
+            ? tooOld
+            : target == null || target.deletedForAll || tooOld;
+        if (dropped || _groupField(control) != group.id) {
+          await store.removeControl(group.id, control, memberId: contactId);
+          continue;
+        }
+        if (!_peerFeatures.contains(_featureOf(control))) continue;
+        final stored =
+            target == null || !target.outgoing || _storedBy(target, contactId);
+        if (control is! DeleteFrame && !stored) continue;
+        if (!_write(control)) return;
+        await store.removeControl(group.id, control, memberId: contactId);
+      }
+    }
+  }
+
+  /// The group a control names, or null for a one-to-one control.
+  static String? _groupField(ControlFrame control) => switch (control) {
+    ReactFrame(:final group) || EditFrame(:final group) => group,
+    DeleteFrame(:final group) => group,
+  };
+
+  /// Whether [member] has stored the outgoing group message [message]: its state
+  /// for that member is delivered or read.
+  static bool _storedBy(ChatMessage message, String member) {
+    final state = message.memberStates[member];
+    return state == ChatState.delivered || state == ChatState.read;
   }
 
   /// The feature a control needs the other side to list.
@@ -972,6 +1041,26 @@ class ChatSession {
     final sent = transport.send(ChatFrames.encode(frame));
     if (!sent) unawaited(_end('lost'));
     return sent;
+  }
+
+  /// Applies a group answer or leave from this session's member to this device's
+  /// table of the group. A decline dated before the invite it would answer
+  /// belongs to an earlier invite, so it does not count (see [ChatGroups.reinvite]).
+  /// An answer that changes nothing, such as a repeat, is not saved again, so each
+  /// one is applied once and reported once.
+  Future<void> _onGroupState(GroupStateFrame answer) async {
+    final group = await store.group(answer.group);
+    final member = group?.memberOf(contactId);
+    if (group == null || member == null) return;
+    final next = switch (answer.kind) {
+      GroupStateKind.accept => ChatGroups.accept(group, contactId, answer.ts),
+      GroupStateKind.decline when answer.ts < member.invitedAt => group,
+      GroupStateKind.decline => ChatGroups.decline(group, contactId),
+      GroupStateKind.leave => ChatGroups.leave(group, contactId),
+    };
+    if (identical(next, group)) return;
+    await store.saveGroup(next);
+    _events.add(GroupStateChanged(group.id));
   }
 
   /// Whether the message [m] was written by this session's member, so the
@@ -1066,8 +1155,11 @@ class ChatSession {
     // A group frame is ignored when groups are off, as an old app ignores it.
     if (!groupsEnabled && _isGroupFrame(frame)) return;
     switch (frame) {
-      case GroupStateFrame() || AckFrame(group: != null):
+      case AckFrame(group: != null):
         break;
+      case final GroupStateFrame answer:
+        if (!_peerHello) return;
+        await _onGroupState(answer);
       case final GroupMsgFrame groupFrame:
         if (!_peerHello) return;
         await _onGroupMessage(groupFrame);
