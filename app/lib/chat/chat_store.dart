@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import '../crypto/identity_store.dart';
 import '../diagnostics/event_log.dart';
 import 'chat_frames.dart';
+import 'chat_group.dart';
 import 'chat_groups.dart';
 import 'file_storage.dart';
 
@@ -628,8 +629,25 @@ class ChatStore {
 
   /// Storage key for a chat's settings: archived, muted and pinned (see
   /// [ChatMeta]). Absent means the defaults. The summary carries a copy, so
-  /// the chat list does not read this key.
+  /// the chat list does not read this key. A group's settings use the same key
+  /// with its id, as its id is never a contact's.
   static String metaKey(String contactId) => 'sotto.chats.meta.$contactId';
+
+  /// Key for the list of group ids on this device, in the order they were
+  /// saved. Each group has a record ([groupKey]).
+  static const groupsIndexKey = 'sotto.groups.v1';
+
+  /// Storage key for a group's record (see [ChatGroup]).
+  static String groupKey(String groupId) => 'sotto.groups.$groupId';
+
+  /// Storage key for a group's messages, oldest first.
+  static String groupMessagesKey(String groupId) =>
+      'sotto.groups.msgs.$groupId';
+
+  /// Storage key for a group's summary: its last message and unread count.
+  /// Absent while the group has no messages.
+  static String groupSummaryKey(String groupId) =>
+      'sotto.groups.summary.$groupId';
 
   /// Most chats that can be pinned at once.
   static const maxPinnedChats = 3;
@@ -647,7 +665,13 @@ class ChatStore {
   /// Cached contact index.
   Set<String>? _contactIndex;
 
-  /// In-memory cache of contact ID -> messages.
+  /// Cached group index (see [groupsIndexKey]).
+  Set<String>? _groupIndex;
+
+  /// In-memory cache of group ID -> record.
+  final _cachedGroups = <String, ChatGroup>{};
+
+  /// In-memory cache of contact ID, or group ID -> messages.
   final _cachedChats = <String, List<ChatMessage>>{};
 
   /// In-memory cache of contact ID -> settings (see [metaKey]).
@@ -727,12 +751,17 @@ class ChatStore {
     return _contactIndex = index;
   }
 
+  /// The messages of the chat with [contactId]: a contact's, or a group's when
+  /// [contactId] is a group id (see [_isGroup]).
   Future<List<ChatMessage>> _loadContact(String contactId) async {
     if (_cachedChats[contactId] case final cached?) {
       return cached;
     }
     await _checkMigration();
-    final raw = await _store.read(contactKey(contactId));
+    final group = await _isGroup(contactId);
+    final raw = await _store.read(
+      group ? groupMessagesKey(contactId) : contactKey(contactId),
+    );
     if (raw == null) {
       return _cachedChats[contactId] = [];
     }
@@ -750,15 +779,158 @@ class ChatStore {
       }
       messages.add(ChatMessage.fromJson(contactId, item));
     }
+    if (group && messages.any((m) => m.groupId != contactId)) {
+      throw const ChatStoreException('unreadable');
+    }
     return _cachedChats[contactId] = messages;
+  }
+
+  /// The group ids on this device, from the index.
+  Future<Set<String>> _loadGroupIndex() async {
+    if (_groupIndex case final index?) return index;
+    await _checkMigration();
+    final raw = await _store.read(groupsIndexKey);
+    if (raw == null) {
+      return _groupIndex = <String>{};
+    }
+    final Object? json;
+    try {
+      json = jsonDecode(raw);
+    } on FormatException {
+      throw const ChatStoreException('unreadable');
+    }
+    if (json is! List) throw const ChatStoreException('unreadable');
+    final index = <String>{};
+    for (final item in json) {
+      if (item is String) index.add(item);
+    }
+    return _groupIndex = index;
+  }
+
+  /// Whether [scope] is a group's id, not a contact's. A chat is looked up by
+  /// its scope: the contact's Sotto ID, or the group's id. A group must be
+  /// saved ([saveGroup]) before its messages are stored.
+  Future<bool> _isGroup(String scope) async =>
+      (await _loadGroupIndex()).contains(scope);
+
+  /// The record of the group [groupId], or null when there is none.
+  Future<ChatGroup?> _loadGroup(String groupId) async {
+    if (_cachedGroups[groupId] case final cached?) return cached;
+    final raw = await _store.read(groupKey(groupId));
+    if (raw == null) return null;
+    return _cachedGroups[groupId] = _groupFrom(groupId, raw);
+  }
+
+  /// [_loadGroup], or null when the record cannot be read. The problem is
+  /// reported once, and the group is left out of lists.
+  Future<ChatGroup?> _tryLoadGroup(String groupId) async {
+    try {
+      return await _loadGroup(groupId);
+    } on ChatStoreException {
+      _report(groupId, 'group cannot be read');
+      return null;
+    }
+  }
+
+  /// The record of a group, as stored. Its member states are kept as they
+  /// stand, so every device's own table is what is stored.
+  static String _groupJson(ChatGroup group) => jsonEncode({
+    'id': group.id,
+    'name': group.name,
+    'self': group.selfId,
+    'createdAt': group.createdAt,
+    'left': group.left,
+    'members': [
+      for (final member in group.members)
+        {
+          'id': member.id,
+          'state': member.state.name,
+          'invitedAt': member.invitedAt,
+        },
+    ],
+  });
+
+  /// The group stored as [raw] under [groupId]. Throws [ChatStoreException]
+  /// when it does not hold a group that this code can read.
+  static ChatGroup _groupFrom(String groupId, String raw) {
+    final Object? json;
+    try {
+      json = jsonDecode(raw);
+    } on FormatException {
+      throw const ChatStoreException('unreadable');
+    }
+    if (json is! Map<String, dynamic>) {
+      throw const ChatStoreException('unreadable');
+    }
+    final id = json['id'];
+    final name = json['name'];
+    final self = json['self'];
+    final createdAt = json['createdAt'];
+    final left = json['left'];
+    final members = json['members'];
+    if (id != groupId ||
+        !ChatFrames.isId(id) ||
+        name is! String ||
+        self is! String ||
+        !ChatGroups.isMemberId(self) ||
+        createdAt is! int ||
+        left is! bool ||
+        members is! List) {
+      throw const ChatStoreException('unreadable');
+    }
+    final cleaned = ChatGroups.cleanName(name);
+    if (cleaned != name ||
+        name.isEmpty ||
+        name.runes.length > maxGroupNameChars) {
+      throw const ChatStoreException('unreadable');
+    }
+    final entries = <GroupMember>[];
+    for (final item in members) {
+      if (item is! Map<String, dynamic>) {
+        throw const ChatStoreException('unreadable');
+      }
+      final member = item['id'];
+      final state = item['state'];
+      final invitedAt = item['invitedAt'];
+      if (member is! String ||
+          !ChatGroups.isMemberId(member) ||
+          state is! String ||
+          invitedAt is! int) {
+        throw const ChatStoreException('unreadable');
+      }
+      final match = MemberState.values.where((s) => s.name == state);
+      if (match.isEmpty) throw const ChatStoreException('unreadable');
+      entries.add(
+        GroupMember(id: member, state: match.first, invitedAt: invitedAt),
+      );
+    }
+    final group = ChatGroup(
+      id: groupId,
+      name: name,
+      selfId: self,
+      createdAt: createdAt,
+      members: entries,
+    );
+    final distinct = {for (final m in entries) m.id};
+    if (distinct.length != entries.length ||
+        group.memberOf(self) == null ||
+        group.left != left) {
+      throw const ChatStoreException('unreadable');
+    }
+    return group;
   }
 
   /// Saves [list] as the chat with [contactId], with its summary and the
   /// contact index, in one write, so they are stored together or not at all.
   /// The cache takes the new list only once it is stored, so a failed write
   /// leaves what is on screen equal to what is saved. Callers pass a copy of
-  /// the cached list.
+  /// the cached list. A group's messages are saved the same way, without the
+  /// index: a group is listed by its record, not by its messages.
   Future<void> _saveContact(String contactId, List<ChatMessage> list) async {
+    if (await _isGroup(contactId)) {
+      await _saveGroupMessages(contactId, list);
+      return;
+    }
     final index = await _loadIndex();
     final next = {...index};
     if (list.isNotEmpty) {
@@ -778,6 +950,34 @@ class ChatStore {
     );
     _cachedChats[contactId] = list;
     if (indexChanged) _contactIndex = next;
+    if (!_changes.isClosed) {
+      _changes.add(null);
+    }
+  }
+
+  /// Saves [list] as the messages of the group [groupId], with its summary, in
+  /// one write. Called inside [_inOrder] by way of [_saveContact].
+  Future<void> _saveGroupMessages(
+    String groupId,
+    List<ChatMessage> list,
+  ) async {
+    final meta = await _metaOf(groupId);
+    await _store.writeAll(
+      {
+        if (list.isNotEmpty)
+          groupMessagesKey(groupId): jsonEncode([
+            for (final m in list) m.toJson(),
+          ]),
+        if (list.isNotEmpty) groupSummaryKey(groupId): _summaryJson(list, meta),
+      },
+      deleted: [
+        if (list.isEmpty) ...[
+          groupMessagesKey(groupId),
+          groupSummaryKey(groupId),
+        ],
+      ],
+    );
+    _cachedChats[groupId] = list;
     if (!_changes.isClosed) {
       _changes.add(null);
     }
@@ -820,10 +1020,11 @@ class ChatStore {
   /// summary, in one write. Called inside [_inOrder].
   Future<void> _writeMeta(String contactId, ChatMeta next) async {
     final list = await _loadContact(contactId);
+    final summary = await _summaryKeyOf(contactId);
     await _store.writeAll(
       {
         if (!next.isDefault) metaKey(contactId): jsonEncode(next.toJson()),
-        if (list.isNotEmpty) summaryKey(contactId): _summaryJson(list, next),
+        if (list.isNotEmpty) summary: _summaryJson(list, next),
       },
       deleted: [if (next.isDefault) metaKey(contactId)],
     );
@@ -879,15 +1080,50 @@ class ChatStore {
     return ChatPinResult.pinned;
   });
 
-  /// How many chats other than [contactId] are pinned. Called inside
-  /// [_inOrder], so it reads the settings records, not the summaries (a
+  /// How many chats other than [contactId] are pinned, groups included. Called
+  /// inside [_inOrder], so it reads the settings records, not the summaries (a
   /// summary read can itself wait for [_inOrder]).
   Future<int> _pinnedCountExcept(String contactId) async {
     var count = 0;
-    for (final id in await _loadIndex()) {
+    for (final id in [...await _loadIndex(), ...await _loadGroupIndex()]) {
       if (id != contactId && (await _metaOf(id)).pinnedAt != null) count++;
     }
     return count;
+  }
+
+  /// The key of the summary record of the chat with [scope].
+  Future<String> _summaryKeyOf(String scope) async =>
+      (await _isGroup(scope)) ? groupSummaryKey(scope) : summaryKey(scope);
+
+  /// Stores [group]: its record, and its place in the group index. Saving a
+  /// group again replaces its record, which is how a change to its members is
+  /// kept.
+  Future<void> saveGroup(ChatGroup group) => _inOrder(() async {
+    final index = await _loadGroupIndex();
+    final next = {...index, group.id};
+    await _store.writeAll({
+      groupKey(group.id): _groupJson(group),
+      if (next.length != index.length)
+        groupsIndexKey: jsonEncode(next.toList()),
+    });
+    _cachedGroups[group.id] = group;
+    if (next.length != index.length) _groupIndex = next;
+    if (!_changes.isClosed) {
+      _changes.add(null);
+    }
+  });
+
+  /// The group with [groupId] on this device, or null when there is none.
+  Future<ChatGroup?> group(String groupId) => _loadGroup(groupId);
+
+  /// The groups on this device, in the order they were saved. A group that
+  /// cannot be read is left out, and reported.
+  Future<List<ChatGroup>> groups() async {
+    final list = <ChatGroup>[];
+    for (final id in await _loadGroupIndex()) {
+      if (await _tryLoadGroup(id) case final group?) list.add(group);
+    }
+    return list;
   }
 
   /// The number of incoming messages in [list] not yet read.
@@ -938,6 +1174,11 @@ class ChatStore {
   /// are one step, as in [changeMessage], so a reply written while its message
   /// is edited or deleted never keeps the text the message had before.
   Future<ChatMessage> add(ChatMessage message) => _inOrder(() async {
+    // A group message filed under a group that is not saved would be kept as a
+    // contact's chat, so it is refused.
+    if (message.groupId != null && !await _isGroup(message.contactId)) {
+      throw StateError('the group is not saved');
+    }
     final list = [...await _loadContact(message.contactId)];
     final index = list.indexWhere((m) => m.id == message.id);
     if (index >= 0) return list[index];
@@ -1169,6 +1410,7 @@ class ChatStore {
   Future<void> deleteChat(String contactId) async {
     final removed = await _inOrder(() async {
       await _checkMigration();
+      if (await _isGroup(contactId)) return _deleteGroup(contactId);
       final messages = [...await _loadContact(contactId)];
       final index = await _loadIndex();
       final next = {...index}..remove(contactId);
@@ -1192,6 +1434,36 @@ class ChatStore {
       return messages;
     });
     await _discardFiles(removed);
+  }
+
+  /// Deletes the group [groupId] with its record, messages, summary, settings
+  /// and retention, in one write. Called inside [_inOrder]. Returns its
+  /// messages, whose files the caller deletes.
+  Future<List<ChatMessage>> _deleteGroup(String groupId) async {
+    final messages = [...await _loadContact(groupId)];
+    final index = await _loadGroupIndex();
+    final next = {...index}..remove(groupId);
+    await _store.writeAll(
+      {
+        if (next.length != index.length)
+          groupsIndexKey: jsonEncode(next.toList()),
+      },
+      deleted: [
+        groupKey(groupId),
+        groupMessagesKey(groupId),
+        groupSummaryKey(groupId),
+        metaKey(groupId),
+        '$retentionPrefix$groupId',
+      ],
+    );
+    _cachedGroups.remove(groupId);
+    _cachedChats.remove(groupId);
+    _cachedMeta.remove(groupId);
+    if (next.length != index.length) _groupIndex = next;
+    if (!_changes.isClosed) {
+      _changes.add(null);
+    }
+    return messages;
   }
 
   /// Deletes the files that [messages] received. Done after the chat records
@@ -1343,6 +1615,11 @@ class ChatStore {
   /// chat is not counted toward the pin limit, so a pin kept here would let
   /// the chat come back pinned past it. Its archived and muted settings stay.
   Future<void> _forgetEmptyChat(String contactId) async {
+    // A group stays listed while it exists, so it keeps its pin.
+    if (await _isGroup(contactId)) {
+      await _saveGroupMessages(contactId, const []);
+      return;
+    }
     final index = await _loadIndex();
     final next = {...index}..remove(contactId);
     final indexChanged = next.length != index.length;
@@ -1453,7 +1730,7 @@ class ChatStore {
     final nowMs = (clock ?? DateTime.now)().millisecondsSinceEpoch;
     final targetIds = contactId != null
         ? [contactId]
-        : (await _loadIndex()).toList();
+        : [...await _loadIndex(), ...await _loadGroupIndex()];
     final removed = <ChatMessage>[];
     for (final id in targetIds) {
       final dur = await retention(id);
@@ -1501,9 +1778,11 @@ class ChatStore {
   /// A record that is not a summary throws [ChatStoreException], and is not
   /// overwritten here.
   Future<ChatThreadSummary?> threadSummary(String contactId) async {
-    final raw = await _store.read(summaryKey(contactId));
+    final group = await _isGroup(contactId);
+    final key = group ? groupSummaryKey(contactId) : summaryKey(contactId);
+    final raw = await _store.read(key);
     if (raw != null) {
-      final summary = _readSummary(contactId, raw);
+      final summary = _readSummary(contactId, raw, group: group);
       if (summary != null &&
           (summary.meta.isDefault || _cachedMeta[contactId] == summary.meta)) {
         return summary;
@@ -1511,9 +1790,9 @@ class ChatStore {
     }
     return _inOrder<ChatThreadSummary?>(() async {
       // A change that ran first may have written the record meanwhile.
-      final again = await _store.read(summaryKey(contactId));
+      final again = await _store.read(key);
       if (again != null) {
-        final summary = _readSummary(contactId, again);
+        final summary = _readSummary(contactId, again, group: group);
         if (summary != null && summary.meta == await _metaOf(contactId)) {
           return summary;
         }
@@ -1522,7 +1801,7 @@ class ChatStore {
       if (list.isEmpty) return null;
       final meta = await _metaOf(contactId);
       try {
-        await _store.write(summaryKey(contactId), _summaryJson(list, meta));
+        await _store.write(key, _summaryJson(list, meta));
       } catch (_) {
         // The chat is listed from its messages all the same, and the record
         // is written again the next time it is read.
@@ -1530,6 +1809,7 @@ class ChatStore {
       }
       return ChatThreadSummary(
         contactId: contactId,
+        groupId: group ? contactId : null,
         lastMessage: list.last,
         unreadCount: _unreadIn(list),
         meta: meta,
@@ -1537,13 +1817,18 @@ class ChatStore {
     });
   }
 
-  /// The summary held in [raw] for [contactId]. Null when only its settings
-  /// cannot be read: the caller rebuilds the record (see [threadSummary]).
-  /// Throws [ChatStoreException] when [raw] is not a summary, and reports it,
-  /// since nothing else shows it: the chat's messages still read fine.
-  ChatThreadSummary? _readSummary(String contactId, String raw) {
+  /// The summary held in [raw] for [contactId], a group's when [group]. Null
+  /// when only its settings cannot be read: the caller rebuilds the record
+  /// (see [threadSummary]). Throws [ChatStoreException] when [raw] is not a
+  /// summary, and reports it, since nothing else shows it: the chat's messages
+  /// still read fine.
+  ChatThreadSummary? _readSummary(
+    String contactId,
+    String raw, {
+    required bool group,
+  }) {
     try {
-      final summary = _summaryFrom(contactId, raw);
+      final summary = _summaryFrom(contactId, raw, group: group);
       if (summary == null) {
         _report(contactId, 'chat summary settings cannot be read');
       }
@@ -1556,7 +1841,11 @@ class ChatStore {
 
   /// The summary held in [raw] for [contactId]. Null when its settings cannot
   /// be read. Throws [ChatStoreException] when [raw] is not a summary.
-  static ChatThreadSummary? _summaryFrom(String contactId, String raw) {
+  static ChatThreadSummary? _summaryFrom(
+    String contactId,
+    String raw, {
+    required bool group,
+  }) {
     final Object? json;
     try {
       json = jsonDecode(raw);
@@ -1573,9 +1862,14 @@ class ChatStore {
     }
     final meta = _settingsIn(json);
     if (meta == null) return null;
+    final lastMessage = ChatMessage.fromJson(contactId, last);
+    if (group && lastMessage.groupId != contactId) {
+      throw const ChatStoreException('unreadable');
+    }
     return ChatThreadSummary(
       contactId: contactId,
-      lastMessage: ChatMessage.fromJson(contactId, last),
+      groupId: group ? contactId : null,
+      lastMessage: lastMessage,
       unreadCount: unread,
       meta: meta,
     );
@@ -1598,10 +1892,10 @@ class ChatStore {
     }
   }
 
-  /// The number of unread incoming messages across all chats. Reads the
-  /// summary records, not the messages.
+  /// The number of unread incoming messages across all chats, groups
+  /// included. Reads the summary records, not the messages.
   Future<int> totalUnreadCount() async {
-    final ids = await _loadIndex();
+    final ids = [...await _loadIndex(), ...await _loadGroupIndex()];
     var count = 0;
     for (final id in ids) {
       count += (await _tryLoadSummary(id))?.unreadCount ?? 0;
@@ -1636,8 +1930,9 @@ class ChatStore {
     ]);
   }
 
-  /// The summaries of the chats with messages that can be read. A chat that
-  /// cannot be read is left out, as [_tryLoadSummary] does.
+  /// The summaries of the chats that can be read: the contacts' with messages,
+  /// and every group. A chat that cannot be read is left out, as
+  /// [_tryLoadSummary] does.
   Future<List<ChatThreadSummary>> _summaries() async {
     final summaries = <ChatThreadSummary>[];
     for (final id in await _loadIndex()) {
@@ -1645,14 +1940,38 @@ class ChatStore {
         summaries.add(summary);
       }
     }
+    for (final id in await _loadGroupIndex()) {
+      if (await _groupSummary(id) case final summary?) {
+        summaries.add(summary);
+      }
+    }
     return summaries;
   }
 
-  /// [chats] newest first, by the time of their last message.
+  /// The summary of the group [groupId] for the list. A group with no messages
+  /// has no summary record, so it is listed from its record and settings, with
+  /// no last message. Null when the group or its messages cannot be read.
+  Future<ChatThreadSummary?> _groupSummary(String groupId) async {
+    if (await _tryLoadSummary(groupId) case final summary?) return summary;
+    // Null here also when the summary cannot be read: only an empty group is
+    // listed without one.
+    final list = await _tryLoad(groupId);
+    if (list == null || list.isNotEmpty) return null;
+    final group = await _tryLoadGroup(groupId);
+    if (group == null) return null;
+    return ChatThreadSummary(
+      contactId: groupId,
+      groupId: groupId,
+      groupCreatedMs: group.createdAt,
+      unreadCount: 0,
+      meta: await chatMeta(groupId),
+    );
+  }
+
+  /// [chats] newest first, by the time each last changed (see
+  /// [ChatThreadSummary.sortMs]).
   static List<ChatThreadSummary> _newestFirst(List<ChatThreadSummary> chats) =>
-      [
-        ...chats,
-      ]..sort((a, b) => b.lastMessage.clockMs.compareTo(a.lastMessage.clockMs));
+      [...chats]..sort((a, b) => b.sortMs.compareTo(a.sortMs));
 
   /// The order of the main list. Pinned chats come first, in the order they
   /// were pinned, at most [maxPinnedChats] of them. The rest keep their
@@ -1676,7 +1995,7 @@ class ChatStore {
   Future<List<ChatMessage>> searchAll(String query) async {
     final q = query.trim().toLowerCase();
     if (q.isEmpty) return const [];
-    final ids = await _loadIndex();
+    final ids = [...await _loadIndex(), ...await _loadGroupIndex()];
     final results = <ChatMessage>[];
     for (final id in ids) {
       final list = await _tryLoad(id);
@@ -1697,15 +2016,32 @@ class ChatStore {
 class ChatThreadSummary {
   const ChatThreadSummary({
     required this.contactId,
-    required this.lastMessage,
     required this.unreadCount,
+    this.lastMessage,
+    this.groupId,
+    this.groupCreatedMs,
     this.meta = ChatMeta.defaults,
-  });
+  }) : assert(groupId == null || groupId == contactId);
 
+  /// The chat's key: the contact's Sotto ID, or for a group the group's id
+  /// (see [groupId]).
   final String contactId;
-  final ChatMessage lastMessage;
+
+  /// The group's id for a group chat, or null for a one-to-one chat.
+  final String? groupId;
+
+  /// The last message as stored, or null for a group with no messages yet.
+  final ChatMessage? lastMessage;
+
+  /// When the group was made, for a group with no messages yet. Null otherwise.
+  final int? groupCreatedMs;
+
   final int unreadCount;
 
   /// The chat's archived, muted and pinned settings.
   final ChatMeta meta;
+
+  /// When the chat last changed on this device: the time of its last message,
+  /// or when an empty group was made. The main list orders by it.
+  int get sortMs => lastMessage?.clockMs ?? groupCreatedMs ?? 0;
 }
