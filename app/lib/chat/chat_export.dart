@@ -323,11 +323,15 @@ abstract final class ChatExport {
   /// The nonce of segment [index]: the first 16 bytes of the file's nonce, then
   /// the index as 8 big-endian bytes. The index is also in the additional data.
   static Uint8List _segmentNonce(Uint8List fileNonce, int index) {
-    final counter = ByteData(8)..setUint64(0, index);
-    return concatBytes([
-      fileNonce.sublist(0, 16),
-      counter.buffer.asUint8List(),
-    ]);
+    // Written by hand: dart2js has no 64-bit accessors. A segment index is a
+    // small count, so the shifts are exact on every platform.
+    final counter = Uint8List(8);
+    var rest = index;
+    for (var i = 7; i >= 0; i--) {
+      counter[i] = rest & 0xff;
+      rest >>= 8;
+    }
+    return concatBytes([fileNonce.sublist(0, 16), counter]);
   }
 
   /// The additional data of a segment: the format label, the header fields,

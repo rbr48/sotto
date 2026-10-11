@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../app/app_controller.dart';
+import '../../chat/web_download.dart';
 import '../backup.dart';
 
 String describeBackupProblem(BackupProblem problem) => switch (problem) {
@@ -183,6 +184,14 @@ class _ExportBackupDialogState extends State<_ExportBackupDialog> {
 
   Future<void> _save() async {
     final backup = _backup!;
+    if (kIsWeb) {
+      downloadWebFile(
+        Uint8List.fromList(utf8.encode(backup)),
+        _fileName,
+        'application/json',
+      );
+      return;
+    }
     final file = XFile.fromData(
       Uint8List.fromList(utf8.encode(backup)),
       mimeType: 'application/json',
@@ -314,8 +323,7 @@ class _ExportBackupDialogState extends State<_ExportBackupDialog> {
                 },
                 child: const Text('Copy'),
               ),
-              if (!kIsWeb)
-                TextButton(onPressed: _save, child: const Text('Save file')),
+              TextButton(onPressed: _save, child: const Text('Save file')),
               FilledButton(
                 onPressed: () => Navigator.of(context).pop(),
                 child: const Text('Done'),

@@ -2,7 +2,7 @@
 
 This document specifies how Sotto identities are formed, how messages are encrypted end to end, and how the app stores and backs up data on the device. It is implemented in `app/lib/crypto/` (Dart, native and web) and independently in `tools/crypto-vectors/gen.js` (Node.js), which produces the known-answer test vectors in `app/lib/crypto/test_vectors.dart`.
 
-All primitives come from **libsodium 1.0.22** (native build on Android/Windows/Linux; libsodium.js 0.8.4 on the web). No custom cryptographic primitives are used.
+All primitives come from **libsodium 1.0.22** (the same sumo build on Android, Windows, Linux and the web; libsodium.js 0.8.4 on the web). No custom cryptographic primitives are used.
 
 ## 1. Conventions
 
@@ -635,7 +635,7 @@ refused. Padding hides size only. It does not hide membership or timing.
 
 ## 7. Supply chain
 
-`app/web/sodium.js` is libsodium.js 0.8.4, downloaded by `dart run sodium:update_web`.
+`app/web/sodium.js` is the sumo build of libsodium.js 0.8.4, with Argon2id, downloaded and checked against the package's hash by `dart run sodium:update_web --sumo`.
 SHA-256: `35958171e76a794218cd3675feec663da5236d3322d525abd692bd3c6d6941cf`.
 
 ## 8. Backups (Phase 6, native apps)

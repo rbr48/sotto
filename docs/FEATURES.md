@@ -68,7 +68,7 @@ The features planned for the product. Phase numbers refer to [ROADMAP.md](ROADMA
 | Archive, pin and mute | Archive a chat to move it to an *Archived* row. Pin up to three chats to the top. Mute greys a chat's unread badge; it does not silence notifications. These settings stay on your device | Built in | Free |
 | Search | Search the chat list by name and last message, and search the messages loaded in an open chat | Built in | Free |
 | Disappearing messages | Erase a one-to-one chat's messages on your device after 24 hours, 7 days or 30 days. The other person's copy is not affected | Built in | Free |
-| Export a chat | Save one chat to a file you choose: encrypted with a passphrase by default, or plain text after a warning. Nothing is uploaded. Not in the browser, and not for groups | Built in | Free |
+| Export a chat | Save one chat to a file you choose: encrypted with a passphrase by default, or plain text after a warning. Nothing is uploaded. Not for groups | Built in | Free |
 | Group chats | Groups of three or four people, made from your contacts; every member must be a contact of every other member. An invite is answered with Accept or Decline within 15 minutes; a member who declined or did not answer can be invited again. Members can leave; there are no admins and no renaming. Text, replies to your own messages, reactions, edits and deletes work as in a one-to-one chat; files are not sent in groups. A message shows "Delivered to all" or "Sent to X of Y". The server sees who is in a group with whom (`THREAT_MODEL.md`, limitation 16). Groups are in the app; release builds turn them on from this release | Built in | Free |
 
 ## 4. In-call controls

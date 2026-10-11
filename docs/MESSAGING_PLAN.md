@@ -169,7 +169,7 @@ Approved with the recommended option for each:
 
 Status: **steps 1 to 4 are built and tested.** Step 5: the two-browser test of
 replies, reactions, forwarding, edits and deletes (`e2e/chat-actions.mjs`) is
-built, and checks that the browser build offers no export. The docs are
+built, and checks that the browser export is sealed with Argon2id and holds no plain text. The docs are
 updated. The three-browser group test (`e2e/group.mjs`) is built and runs in
 CI. Groups are on in every build from version 0.5.0; a build made with
 `--dart-define=SOTTO_GROUPS=false` leaves them out. The

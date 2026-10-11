@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart';
-import 'package:sodium/sodium.dart';
 import 'package:sodium/sodium_sumo.dart';
 
 export 'envelope.dart';
@@ -12,14 +10,14 @@ export 'safety_number.dart';
 abstract final class SottoCrypto {
   static Future<Sodium>? _instance;
 
-  /// The native apps use the full ("sumo") API of the bundled libsodium,
-  /// which adds Argon2id for backups and the app lock. The web build ships
-  /// the smaller sodium.js without it: browsers never handle backups.
-  static Future<Sodium> init() => _instance ??= Future.value(
-    kIsWeb ? SodiumInit.init() : SodiumSumoInit.init(),
-  );
+  /// Every platform uses the full ("sumo") API of libsodium, which adds
+  /// Argon2id for backups, chat exports and the app lock. The web build ships
+  /// the sumo sodium.js (`web/sodium.js`, checked against the package's hash
+  /// by `dart run sodium:update_web --sumo`).
+  static Future<Sodium> init() =>
+      _instance ??= Future.value(SodiumSumoInit.init());
 
-  /// Argon2id password hashing, or `null` where it isn't available (web).
+  /// Argon2id password hashing. Null only if the library lacks it.
   static SodiumSumo? passwordHashing(Sodium sodium) =>
       sodium is SodiumSumo ? sodium : null;
 }

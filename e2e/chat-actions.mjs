@@ -11,9 +11,12 @@
 //  5. Arun edits "Hello" to "Hello again", and Meera sees Edited and the new
 //     text.
 //  6. Arun deletes his message for everyone, and Meera sees "Message deleted".
+//  6b. Arun exports the chat in the browser: the download is encrypted with
+//     Argon2id and holds no plain text.
 //  7. The relay sees only encrypted envelopes; the pages contact no third-party
 //     hosts.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   addContact,
   assertNoThirdPartyRequests,
@@ -141,23 +144,27 @@ try {
   await bubble(arun, 'Message deleted').first().waitFor();
   console.log('✓ Arun deleted his message for everyone; Meera sees "Message deleted"');
 
-  // 6b. The browser build offers no Export chat: its encrypted export needs
-  // Argon2id, which the browser build does not have. The menu still opens and
-  // holds its other items, so the check is that the menu really was read.
+  // 6b. Export chat works in the browser too. Its encrypted export runs
+  // Argon2id here, and the file it downloads is sealed: none of the chat's
+  // plain text is in it.
   await enableSemantics(arun);
   await arun.getByRole('button', { name: 'Show menu', exact: true }).first().click({ timeout });
-  await arun
-    .getByRole('menuitem', { name: 'Starred messages', exact: true })
-    .or(arun.getByRole('button', { name: 'Starred messages', exact: true }))
-    .first()
-    .waitFor({ timeout, polling: 250 });
-  assert.equal(
-    await arun.getByRole('menuitem', { name: 'Export chat', exact: true }).count(),
-    0,
-    'the browser build offers no Export chat in the chat menu',
-  );
-  await arun.keyboard.press('Escape');
-  console.log('✓ the chat menu in the browser build has no Export chat');
+  await chooseMenuItem(arun, 'Export chat');
+  const passphrase = 'correct horse battery staple';
+  await typeInto(arun, /^Passphrase/, passphrase);
+  await typeInto(arun, 'Confirm passphrase', passphrase);
+  // Argon2id (64 MiB, 3 passes) runs in the browser's JavaScript, so the
+  // download can take a while: the wait is longer than the usual one.
+  const exportAt = Date.now();
+  const [download] = await Promise.all([
+    arun.waitForEvent('download', { timeout: 240_000 }),
+    clickButton(arun, 'Save export'),
+  ]);
+  console.log(`  the export took ${((Date.now() - exportAt) / 1000).toFixed(1)} s in the browser`);
+  const exported = readFileSync(await download.path(), 'utf8');
+  assert.ok(exported.includes('argon2id13'), 'the export is sealed with Argon2id');
+  assert.ok(!exported.includes('Got it'), 'the export holds no plain text');
+  console.log('✓ Export chat works in the browser: the download is sealed with Argon2id and holds no plain text');
 
   // 7. Nothing readable reached the relay; no third-party hosts.
   const sends = assertRelaySawOnlyCiphertext(assert, [
@@ -173,6 +180,14 @@ try {
   console.log(`✓ relay saw ${sends} encrypted messages; no text or names; no third-party hosts`);
   console.log('PASS');
 } catch (error) {
+  const nodes = await arun
+    .evaluate(() =>
+      [...document.querySelectorAll('flt-semantics')]
+        .map((n) => n.getAttribute('aria-label') || n.textContent)
+        .filter(Boolean),
+    )
+    .catch(() => []);
+  for (const node of nodes.slice(-25)) console.error(`arun node: ${node.slice(0, 200)}`);
   await dumpPages();
   throw error;
 } finally {
