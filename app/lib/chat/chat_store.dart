@@ -527,6 +527,67 @@ class ChatMeta {
 /// The result of pinning a chat (see [ChatStore.setPinned]).
 enum ChatPinResult { pinned, unpinned, limitReached }
 
+/// An invite to a group that its invitee has not answered. The inviter keeps
+/// it so the invite can be sent again until it expires. Local only.
+final class PendingInvite {
+  const PendingInvite({
+    required this.group,
+    required this.invitee,
+    required this.attempts,
+    required this.sentAt,
+    required this.expiry,
+  });
+
+  /// The group's id.
+  final String group;
+
+  /// The invitee's Sotto ID.
+  final String invitee;
+
+  /// How many times the invite has been sent.
+  final int attempts;
+
+  /// When the invite was last sent, in milliseconds since the epoch.
+  final int sentAt;
+
+  /// When the invite stops being sent, in milliseconds since the epoch.
+  final int expiry;
+
+  Map<String, Object?> toJson() => {
+    'group': group,
+    'invitee': invitee,
+    'attempts': attempts,
+    'sentAt': sentAt,
+    'expiry': expiry,
+  };
+
+  /// The invite stored as [raw] for [group]. Null when it is not a valid one.
+  static PendingInvite? fromJson(String group, Object? raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    final invite = raw['group'];
+    final invitee = raw['invitee'];
+    final attempts = raw['attempts'];
+    final sentAt = raw['sentAt'];
+    final expiry = raw['expiry'];
+    if (invite != group ||
+        invitee is! String ||
+        !ChatGroups.isMemberId(invitee) ||
+        attempts is! int ||
+        attempts < 0 ||
+        sentAt is! int ||
+        expiry is! int) {
+      return null;
+    }
+    return PendingInvite(
+      group: group,
+      invitee: invitee,
+      attempts: attempts,
+      sentAt: sentAt,
+      expiry: expiry,
+    );
+  }
+}
+
 /// The history of each chat, kept in the encrypted vault.
 /// Conversations are stored per contact under separate keys (`sotto.chats.contact.<id>`),
 /// with a directory index under `sotto.chats.contacts.v1`. Each chat also has a
@@ -648,6 +709,17 @@ class ChatStore {
   /// Absent while the group has no messages.
   static String groupSummaryKey(String groupId) =>
       'sotto.groups.summary.$groupId';
+
+  /// Storage key for a group's invites that are not answered yet (see
+  /// [PendingInvite]).
+  static String groupInvitesKey(String groupId) =>
+      'sotto.groups.invites.$groupId';
+
+  /// Storage key for the controls a group member is owed: reactions, edits and
+  /// deletes of this device's messages in the group, waiting for the member's
+  /// direct session (see [queueControl]).
+  static String groupPendingKey(String groupId, String memberId) =>
+      'sotto.groups.pending.$groupId.$memberId';
 
   /// Most chats that can be pinned at once.
   static const maxPinnedChats = 3;
@@ -1218,11 +1290,16 @@ class ChatStore {
     await _saveContact(message.contactId, list);
   });
 
+  /// Sets the state of message [id]. In a group, [memberId] names the member
+  /// the state is for, and only that member's state in [ChatMessage.memberStates]
+  /// changes; the message's own state is then left as it is. [reason] goes with
+  /// the message's own state only.
   Future<void> setState(
     String contactId,
     String id,
     ChatState state, {
     String? reason,
+    String? memberId,
   }) => _inOrder(() async {
     final list = [...await _loadContact(contactId)];
     final index = list.indexWhere((m) => m.id == id);
@@ -1230,7 +1307,10 @@ class ChatStore {
     // A message deleted for everyone is final: it is never sent, queued or
     // counted as not sent again, whatever state it had when it was deleted.
     if (list[index].deletedForAll && _isUnsent(state)) return;
-    list[index] = list[index].withState(state, reason: reason);
+    assert(memberId == null || list[index].groupId != null);
+    list[index] = memberId == null
+        ? list[index].withState(state, reason: reason)
+        : list[index].withMemberState(memberId, state);
     await _saveContact(contactId, list);
   });
 
@@ -1265,7 +1345,8 @@ class ChatStore {
   /// Sets the state of message [id] to [state] and records when it happened,
   /// in one write: [ChatState.delivered] sets [ChatMessage.deliveredAt] and
   /// [ChatState.read] sets [ChatMessage.readAt], each only the first time.
-  /// [at] is in milliseconds since the epoch.
+  /// [at] is in milliseconds since the epoch. For a one-to-one chat only: a
+  /// group's members are acknowledged one by one with [setState].
   Future<void> setStateAt(
     String contactId,
     String id,
@@ -1274,6 +1355,7 @@ class ChatStore {
   }) {
     assert(state == ChatState.delivered || state == ChatState.read);
     return _inOrder(() async {
+      assert(!await _isGroup(contactId), 'a group uses setState');
       final list = [...await _loadContact(contactId)];
       final index = list.indexWhere((m) => m.id == id);
       if (index < 0) return;
@@ -1328,9 +1410,40 @@ class ChatStore {
     }
   }
 
+  /// The key of the pending controls for [contactId], or for a group member
+  /// when [memberId] is given.
+  static String _pendingKeyOf(String contactId, String? memberId) =>
+      memberId == null
+      ? pendingKey(contactId)
+      : groupPendingKey(contactId, memberId);
+
   /// The pending reactions, edits and deletes for the contact, oldest first.
-  Future<List<ControlFrame>> pendingControls(String contactId) =>
-      _inOrder(() => _loadPending(contactId));
+  /// For a group, [memberId] names the member the controls wait for, and
+  /// controls older than [controlLifetime] by their own ts are left out.
+  Future<List<ControlFrame>> pendingControls(
+    String contactId, {
+    String? memberId,
+    DateTime Function()? clock,
+  }) => _inOrder(() async {
+    final list = await _loadPendingAt(_pendingKeyOf(contactId, memberId));
+    if (memberId == null) return list;
+    final nowMs = (clock ?? DateTime.now)().millisecondsSinceEpoch;
+    return [
+      for (final control in list)
+        if (_isLive(control, nowMs)) control,
+    ];
+  });
+
+  /// Whether [control] is still within its lifetime at [nowMs] (see
+  /// [controlLifetime]), measured from its own ts.
+  static bool _isLive(ControlFrame control, int nowMs) =>
+      nowMs - _controlTs(control) <= controlLifetime.inMilliseconds;
+
+  static int _controlTs(ControlFrame control) => switch (control) {
+    ReactFrame(:final ts) => ts,
+    EditFrame(:final ts) => ts,
+    DeleteFrame(:final ts) => ts,
+  };
 
   /// Keeps [control] until the chat with [contactId] can carry it (see
   /// `docs/PROTOCOL.md` §5.10). A control replaces the older one of its kind
@@ -1338,27 +1451,45 @@ class ChatStore {
   /// edit, and a delete replaces both. So a message can have one pending
   /// reaction and one pending edit at once, never two of the same kind. Past
   /// [maxPendingControls], the oldest is dropped.
-  Future<void> queueControl(String contactId, ControlFrame control) =>
-      _inOrder(() async {
-        final list = [...await _loadPending(contactId)];
-        list.removeWhere((older) => _supersedes(control, older));
-        list.add(control);
-        while (list.length > maxPendingControls) {
-          list.removeAt(0);
-        }
-        await _savePending(contactId, list);
-      });
+  ///
+  /// For a group, [memberId] names the member the control waits for, and the
+  /// controls of that member that are older than [controlLifetime] by their
+  /// own ts are dropped here too (the clock is [clock], or this device's).
+  Future<void> queueControl(
+    String contactId,
+    ControlFrame control, {
+    String? memberId,
+    DateTime Function()? clock,
+  }) => _inOrder(() async {
+    final key = _pendingKeyOf(contactId, memberId);
+    final list = [...await _loadPendingAt(key)];
+    list.removeWhere((older) => _supersedes(control, older));
+    if (memberId != null) {
+      final nowMs = (clock ?? DateTime.now)().millisecondsSinceEpoch;
+      if (!_isLive(control, nowMs)) return;
+      list.removeWhere((older) => !_isLive(older, nowMs));
+    }
+    list.add(control);
+    while (list.length > maxPendingControls) {
+      list.removeAt(0);
+    }
+    await _savePendingAt(key, list);
+  });
 
   /// Takes [control] off the pending list, once it has been sent. Only the
   /// same control is removed, so one queued meanwhile is kept.
-  Future<void> removeControl(String contactId, ControlFrame control) =>
-      _inOrder(() async {
-        final sent = ChatFrames.encode(control);
-        final list = [...await _loadPending(contactId)];
-        final before = list.length;
-        list.removeWhere((c) => ChatFrames.encode(c) == sent);
-        if (list.length != before) await _savePending(contactId, list);
-      });
+  Future<void> removeControl(
+    String contactId,
+    ControlFrame control, {
+    String? memberId,
+  }) => _inOrder(() async {
+    final key = _pendingKeyOf(contactId, memberId);
+    final sent = ChatFrames.encode(control);
+    final list = [...await _loadPendingAt(key)];
+    final before = list.length;
+    list.removeWhere((c) => ChatFrames.encode(c) == sent);
+    if (list.length != before) await _savePendingAt(key, list);
+  });
 
   /// Whether [newer] replaces [older] in the pending list.
   static bool _supersedes(ControlFrame newer, ControlFrame older) {
@@ -1370,9 +1501,9 @@ class ChatStore {
     };
   }
 
-  Future<List<ControlFrame>> _loadPending(String contactId) async {
+  Future<List<ControlFrame>> _loadPendingAt(String key) async {
     await _checkMigration();
-    final raw = await _store.read(pendingKey(contactId));
+    final raw = await _store.read(key);
     if (raw == null) return [];
     final Object? json;
     try {
@@ -1395,14 +1526,71 @@ class ChatStore {
     return controls;
   }
 
-  Future<void> _savePending(String contactId, List<ControlFrame> list) async {
+  Future<void> _savePendingAt(String key, List<ControlFrame> list) async {
     if (list.isEmpty) {
-      await _store.delete(pendingKey(contactId));
+      await _store.delete(key);
       return;
     }
     await _store.write(
-      pendingKey(contactId),
+      key,
       jsonEncode([for (final c in list) ChatFrames.encode(c)]),
+    );
+  }
+
+  /// The invites of the group [groupId] that are not answered yet, in the
+  /// order they were queued.
+  Future<List<PendingInvite>> pendingInvites(String groupId) =>
+      _inOrder(() => _loadInvites(groupId));
+
+  /// Keeps [invite] until its invitee answers or it expires. An invite to the
+  /// same invitee replaces the one kept.
+  Future<void> queueInvite(PendingInvite invite) => _inOrder(() async {
+    final list = [
+      for (final older in await _loadInvites(invite.group))
+        if (older.invitee != invite.invitee) older,
+      invite,
+    ];
+    await _saveInvites(invite.group, list);
+  });
+
+  /// Takes the invite to [invitee] off the pending list, once it is answered.
+  Future<void> removeInvite(String groupId, String invitee) =>
+      _inOrder(() async {
+        final list = await _loadInvites(groupId);
+        final kept = [
+          for (final invite in list)
+            if (invite.invitee != invitee) invite,
+        ];
+        if (kept.length != list.length) await _saveInvites(groupId, kept);
+      });
+
+  Future<List<PendingInvite>> _loadInvites(String groupId) async {
+    final raw = await _store.read(groupInvitesKey(groupId));
+    if (raw == null) return [];
+    final Object? json;
+    try {
+      json = jsonDecode(raw);
+    } on FormatException {
+      throw const ChatStoreException('unreadable');
+    }
+    if (json is! List) throw const ChatStoreException('unreadable');
+    final invites = <PendingInvite>[];
+    for (final item in json) {
+      final invite = PendingInvite.fromJson(groupId, item);
+      if (invite == null) throw const ChatStoreException('unreadable');
+      invites.add(invite);
+    }
+    return invites;
+  }
+
+  Future<void> _saveInvites(String groupId, List<PendingInvite> list) async {
+    if (list.isEmpty) {
+      await _store.delete(groupInvitesKey(groupId));
+      return;
+    }
+    await _store.write(
+      groupInvitesKey(groupId),
+      jsonEncode([for (final invite in list) invite.toJson()]),
     );
   }
 
@@ -1441,6 +1629,7 @@ class ChatStore {
   /// messages, whose files the caller deletes.
   Future<List<ChatMessage>> _deleteGroup(String groupId) async {
     final messages = [...await _loadContact(groupId)];
+    final record = await _loadGroup(groupId);
     final index = await _loadGroupIndex();
     final next = {...index}..remove(groupId);
     await _store.writeAll(
@@ -1452,8 +1641,11 @@ class ChatStore {
         groupKey(groupId),
         groupMessagesKey(groupId),
         groupSummaryKey(groupId),
+        groupInvitesKey(groupId),
         metaKey(groupId),
         '$retentionPrefix$groupId',
+        for (final member in record?.members ?? const <GroupMember>[])
+          groupPendingKey(groupId, member.id),
       ],
     );
     _cachedGroups.remove(groupId);

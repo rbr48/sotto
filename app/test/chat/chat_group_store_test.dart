@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sotto/chat/chat_group.dart';
+import 'package:sotto/chat/chat_frames.dart';
 import 'package:sotto/chat/chat_groups.dart';
 import 'package:sotto/chat/chat_store.dart';
 import 'package:sotto/crypto/encoding.dart';
@@ -648,6 +649,539 @@ void main() {
         [other],
       );
       expect(await ChatStore(base).messages(group), isEmpty);
+    });
+  });
+
+  group('invites waiting for an answer', () {
+    final group = _id(90);
+    final alice = _member(1);
+    final bob = _member(2);
+    final carol = _member(3);
+
+    PendingInvite invite(String invitee, {int attempts = 1}) => PendingInvite(
+      group: group,
+      invitee: invitee,
+      attempts: attempts,
+      sentAt: _ts,
+      expiry: _ts + 15 * 60 * 1000,
+    );
+
+    test('an invite is kept until it is replaced or removed, and loads again unchanged', () async {
+      final secrets = MemorySecretStore();
+      final store = ChatStore(secrets);
+      await store.queueInvite(invite(bob));
+      await store.queueInvite(invite(carol));
+
+      final kept = await ChatStore(secrets).pendingInvites(group);
+      expect([for (final i in kept) i.invitee], [bob, carol]);
+      expect(kept.first.attempts, 1);
+      expect(kept.first.sentAt, _ts);
+      expect(kept.first.expiry, _ts + 15 * 60 * 1000);
+
+      await store.queueInvite(invite(bob, attempts: 2));
+      expect(
+        [
+          for (final i in await store.pendingInvites(group))
+            (i.invitee, i.attempts),
+        ],
+        [(carol, 1), (bob, 2)],
+      );
+
+      await store.removeInvite(group, carol);
+      expect(
+        [for (final i in await store.pendingInvites(group)) i.invitee],
+        [bob],
+      );
+      await store.removeInvite(group, bob);
+      expect(await store.pendingInvites(group), isEmpty);
+      expect(await secrets.read(ChatStore.groupInvitesKey(group)), isNull);
+    });
+
+    test('an invite of another group, or to a value that is not a member id, is refused', () async {
+      final secrets = MemorySecretStore();
+      final store = ChatStore(secrets);
+      await store.queueInvite(invite(bob));
+      final raw = (await secrets.read(ChatStore.groupInvitesKey(group)))!;
+      final list = jsonDecode(raw) as List<dynamic>;
+
+      for (final bad in [
+        {...list.first as Map<String, dynamic>, 'group': _id(91)},
+        {...list.first as Map<String, dynamic>, 'invitee': 'bob'},
+        {...list.first as Map<String, dynamic>, 'attempts': -1},
+      ]) {
+        await secrets.write(
+          ChatStore.groupInvitesKey(group),
+          jsonEncode([bad]),
+        );
+        expect(
+          () => ChatStore(secrets).pendingInvites(group),
+          throwsA(isA<ChatStoreException>()),
+        );
+      }
+    });
+
+    test('deleting a group removes its invites and its members pending controls in one write', () async {
+      final base = MemorySecretStore();
+      final secrets = _CountingSecrets(base);
+      final store = ChatStore(secrets);
+      await store.saveGroup(
+        _groupOf(id: group, self: alice, others: [bob, carol]),
+      );
+      await store.queueInvite(invite(carol));
+      await store.queueControl(
+        group,
+        DeleteFrame(
+          id: _id(1),
+          ts: DateTime.now().millisecondsSinceEpoch,
+          group: group,
+        ),
+        memberId: bob,
+      );
+      expect(await store.pendingControls(group, memberId: bob), hasLength(1));
+      secrets.batches.clear();
+
+      await store.deleteChat(group);
+
+      expect(secrets.batches, hasLength(1), reason: 'one write');
+      expect(
+        secrets.batches.single.deleted,
+        containsAll([
+          ChatStore.groupInvitesKey(group),
+          ChatStore.groupPendingKey(group, bob),
+          ChatStore.groupPendingKey(group, carol),
+        ]),
+      );
+      expect(await base.read(ChatStore.groupInvitesKey(group)), isNull);
+      expect(await base.read(ChatStore.groupPendingKey(group, bob)), isNull);
+    });
+  });
+
+  group('controls waiting for a member', () {
+    final group = _id(90);
+    final alice = _member(1);
+    final bob = _member(2);
+    final carol = _member(3);
+    final now = DateTime.fromMillisecondsSinceEpoch(
+      _ts + 10 * 24 * 60 * 60 * 1000,
+    );
+
+    ReactFrame react(int n, String emoji, {int? ts}) => ReactFrame(
+      id: _id(n),
+      emoji: emoji,
+      ts: ts ?? now.millisecondsSinceEpoch,
+      group: group,
+    );
+
+    test(
+      'controls are kept per member, and each member gets only its own',
+      () async {
+        final store = ChatStore(MemorySecretStore());
+        await store.queueControl(
+          group,
+          react(1, '👍'),
+          memberId: bob,
+          clock: () => now,
+        );
+        await store.queueControl(
+          group,
+          DeleteFrame(id: _id(2), ts: now.millisecondsSinceEpoch, group: group),
+          memberId: carol,
+          clock: () => now,
+        );
+
+        expect(
+          (await store.pendingControls(
+            group,
+            memberId: bob,
+            clock: () => now,
+          )).single,
+          isA<ReactFrame>(),
+        );
+        final forCarol = await store.pendingControls(
+          group,
+          memberId: carol,
+          clock: () => now,
+        );
+        expect(forCarol.single, isA<DeleteFrame>());
+        expect(
+          await store.pendingControls(group, memberId: alice, clock: () => now),
+          isEmpty,
+        );
+        expect(await store.pendingControls(group), isEmpty);
+      },
+    );
+
+    test('a newer control replaces the older one of its kind, for that member only', () async {
+      final store = ChatStore(MemorySecretStore());
+      await store.queueControl(
+        group,
+        react(1, '👍'),
+        memberId: bob,
+        clock: () => now,
+      );
+      await store.queueControl(
+        group,
+        react(1, '🎉'),
+        memberId: bob,
+        clock: () => now,
+      );
+      await store.queueControl(
+        group,
+        react(1, '🎉'),
+        memberId: carol,
+        clock: () => now,
+      );
+
+      final forBob = await store.pendingControls(
+        group,
+        memberId: bob,
+        clock: () => now,
+      );
+      expect([for (final c in forBob) (c as ReactFrame).emoji], ['🎉']);
+      final forCarol = await store.pendingControls(
+        group,
+        memberId: carol,
+        clock: () => now,
+      );
+      expect([for (final c in forCarol) (c as ReactFrame).emoji], ['🎉']);
+    });
+
+    test('a control is kept for seven days by its own ts, and is not queued once that has passed', () async {
+      final store = ChatStore(MemorySecretStore());
+      final sevenDaysAgo = now.millisecondsSinceEpoch - 7 * 24 * 60 * 60 * 1000;
+      final sixDaysAgo = now.millisecondsSinceEpoch - 6 * 24 * 60 * 60 * 1000;
+
+      await store.queueControl(
+        group,
+        react(1, '👍', ts: sevenDaysAgo - 1),
+        memberId: bob,
+        clock: () => now,
+      );
+      expect(
+        await store.pendingControls(group, memberId: bob, clock: () => now),
+        isEmpty,
+      );
+
+      await store.queueControl(
+        group,
+        react(2, '🎉', ts: sixDaysAgo),
+        memberId: bob,
+        clock: () => now,
+      );
+      expect(
+        (await store.pendingControls(
+          group,
+          memberId: bob,
+          clock: () => now,
+        )).single,
+        isA<ReactFrame>(),
+      );
+
+      // Two days on, the control has outlived its seven days, and is left out.
+      final later = now.add(const Duration(days: 2));
+      expect(
+        await store.pendingControls(group, memberId: bob, clock: () => later),
+        isEmpty,
+      );
+      await store.queueControl(
+        group,
+        react(3, '🙂', ts: now.millisecondsSinceEpoch),
+        memberId: bob,
+        clock: () => later,
+      );
+      expect(
+        [
+          for (final c in await store.pendingControls(
+            group,
+            memberId: bob,
+            clock: () => later,
+          ))
+            (c as ReactFrame).emoji,
+        ],
+        ['🙂'],
+      );
+    });
+
+    test('past 100, the oldest control of that member is dropped, and another member keeps its own', () async {
+      final store = ChatStore(MemorySecretStore());
+      await store.queueControl(
+        group,
+        DeleteFrame(id: _id(200), ts: now.millisecondsSinceEpoch, group: group),
+        memberId: carol,
+        clock: () => now,
+      );
+      for (var n = 1; n <= ChatStore.maxPendingControls + 1; n++) {
+        await store.queueControl(
+          group,
+          react(n, '👍'),
+          memberId: bob,
+          clock: () => now,
+        );
+      }
+
+      final forBob = await store.pendingControls(
+        group,
+        memberId: bob,
+        clock: () => now,
+      );
+      expect(forBob, hasLength(ChatStore.maxPendingControls));
+      expect((forBob.first as ReactFrame).id, _id(2));
+      expect(
+        await store.pendingControls(group, memberId: carol, clock: () => now),
+        hasLength(1),
+      );
+    });
+
+    test(
+      'removing a sent control takes only that control off the member list',
+      () async {
+        final store = ChatStore(MemorySecretStore());
+        final first = react(1, '👍');
+        final second = DeleteFrame(
+          id: _id(2),
+          ts: now.millisecondsSinceEpoch,
+          group: group,
+        );
+        await store.queueControl(group, first, memberId: bob, clock: () => now);
+        await store.queueControl(
+          group,
+          second,
+          memberId: bob,
+          clock: () => now,
+        );
+        await store.queueControl(
+          group,
+          first,
+          memberId: carol,
+          clock: () => now,
+        );
+
+        await store.removeControl(group, first, memberId: bob);
+        expect(
+          (await store.pendingControls(
+            group,
+            memberId: bob,
+            clock: () => now,
+          )).single,
+          isA<DeleteFrame>(),
+        );
+        expect(
+          await store.pendingControls(group, memberId: carol, clock: () => now),
+          hasLength(1),
+        );
+      },
+    );
+  });
+
+  group('member states on a group message', () {
+    final group = _id(90);
+    final alice = _member(1);
+    final bob = _member(2);
+    final carol = _member(3);
+
+    test('setState for a member sets only that member, and the message keeps its own state', () async {
+      final secrets = MemorySecretStore();
+      final store = ChatStore(secrets);
+      await store.saveGroup(
+        _groupOf(id: group, self: alice, others: [bob, carol]),
+      );
+      await store.add(
+        _groupMessage(group: group, author: alice, outgoing: true),
+      );
+
+      await store.setState(group, _id(1), ChatState.delivered, memberId: bob);
+      await store.setState(group, _id(1), ChatState.read, memberId: carol);
+
+      final message = (await ChatStore(secrets).messages(group)).single;
+      expect(message.state, ChatState.sending);
+      expect(message.memberStates, {
+        bob: ChatState.delivered,
+        carol: ChatState.read,
+      });
+    });
+
+    test(
+      'a message deleted for everyone is never set back to unsent for a member',
+      () async {
+        final secrets = MemorySecretStore();
+        final store = ChatStore(secrets);
+        await store.saveGroup(
+          _groupOf(id: group, self: alice, others: [bob, carol]),
+        );
+        await store.add(
+          _groupMessage(group: group, author: alice, outgoing: true),
+        );
+        await store.changeMessage(
+          group,
+          _id(1),
+          (m) => m.copyWith(text: '', deletedForAll: true),
+        );
+
+        await store.setState(group, _id(1), ChatState.queued, memberId: bob);
+        await store.setState(
+          group,
+          _id(1),
+          ChatState.delivered,
+          memberId: carol,
+        );
+
+        final message = (await ChatStore(secrets).messages(group)).single;
+        expect(message.memberStates, {carol: ChatState.delivered});
+      },
+    );
+  });
+
+  group('the sweep, search, delete and edit with groups', () {
+    final group = _id(90);
+    final alice = _member(1);
+    final bob = _member(2);
+    final carol = _member(3);
+
+    test('the sweep removes expired group messages and keeps the summary in step; an emptied group stays listed and pinned', () async {
+      final secrets = MemorySecretStore();
+      final store = ChatStore(secrets);
+      await store.saveGroup(
+        _groupOf(id: group, self: alice, others: [bob, carol]),
+      );
+      await store.add(_groupMessage(group: group, author: bob));
+      await store.add(_groupMessage(group: group, author: carol, n: 2));
+      await store.setPinned(group, true, at: _ts);
+
+      final later = DateTime.fromMillisecondsSinceEpoch(
+        _ts + 10 * 24 * 60 * 60 * 1000,
+      );
+      await store.setRetention(
+        group,
+        const Duration(days: 1),
+        clock: () => later,
+      );
+
+      expect(await store.messages(group), isEmpty);
+      expect(await secrets.read(ChatStore.groupSummaryKey(group)), isNull);
+      final chats = await ChatStore(secrets).recentChats();
+      expect(chats.single.groupId, group);
+      expect(chats.single.lastMessage, isNull);
+      expect(chats.single.meta.pinnedAt, _ts);
+    });
+
+    test(
+      'a sweep of a group keeps the messages that have not expired',
+      () async {
+        final secrets = MemorySecretStore();
+        final store = ChatStore(secrets);
+        await store.saveGroup(
+          _groupOf(id: group, self: alice, others: [bob, carol]),
+        );
+        await store.add(_groupMessage(group: group, author: bob));
+        await store.add(
+          _groupMessage(group: group, author: alice, n: 2, outgoing: true),
+        );
+
+        final removed = await store.sweepExpired(
+          contactId: group,
+          clock: () => DateTime.fromMillisecondsSinceEpoch(_ts + 3600 * 1000),
+        );
+        expect(removed, 0);
+        expect(await store.messageCount(group), 2);
+        await _expectGroupSummaryInStep(secrets, group);
+      },
+    );
+
+    test('searchAll finds group messages with their group, next to the contacts\' messages', () async {
+      final secrets = MemorySecretStore();
+      final store = ChatStore(secrets);
+      await store.saveGroup(
+        _groupOf(id: group, self: alice, others: [bob, carol]),
+      );
+      await store.add(
+        ChatMessage(
+          id: _id(1),
+          contactId: group,
+          groupId: group,
+          authorId: bob,
+          outgoing: false,
+          ts: _ts + 1,
+          text: 'Pick up the Keys',
+          state: ChatState.received,
+        ),
+      );
+      await store.add(
+        ChatMessage(
+          id: _id(2),
+          contactId: bob,
+          outgoing: true,
+          ts: _ts + 2,
+          text: 'keys tomorrow',
+          state: ChatState.delivered,
+        ),
+      );
+
+      final found = await ChatStore(secrets).searchAll('keys');
+      expect(found, hasLength(2));
+      expect(found.first.contactId, bob);
+      expect(found.last.groupId, group);
+      expect(found.last.authorId, bob);
+    });
+
+    test(
+      'deleting the last group message keeps the group listed, with no summary',
+      () async {
+        final secrets = MemorySecretStore();
+        final store = ChatStore(secrets);
+        await store.saveGroup(
+          _groupOf(id: group, self: alice, others: [bob, carol]),
+        );
+        await store.add(_groupMessage(group: group, author: bob));
+        await store.add(_groupMessage(group: group, author: carol, n: 2));
+
+        await store.deleteMessage(group, _id(1));
+        await _expectGroupSummaryInStep(secrets, group);
+        await store.deleteMessage(group, _id(2));
+
+        expect(await store.messages(group), isEmpty);
+        expect(await secrets.read(ChatStore.groupSummaryKey(group)), isNull);
+        final chats = await ChatStore(secrets).recentChats();
+        expect(chats.single.groupId, group);
+        expect(chats.single.lastMessage, isNull);
+      },
+    );
+
+    test('an edit to a group message gives its quotes the new text, and a reaction is keyed by its member', () async {
+      final secrets = MemorySecretStore();
+      final store = ChatStore(secrets);
+      await store.saveGroup(
+        _groupOf(id: group, self: alice, others: [bob, carol]),
+      );
+      await store.add(_groupMessage(group: group, author: bob));
+      await store.add(
+        ChatMessage(
+          id: _id(2),
+          contactId: group,
+          groupId: group,
+          authorId: bob,
+          outgoing: false,
+          ts: _ts + 2,
+          text: 'my reply',
+          state: ChatState.received,
+          replyTo: (id: _id(1), text: 'hello 1'),
+        ),
+      );
+
+      await store.changeMessage(
+        group,
+        _id(1),
+        (m) => m.copyWith(text: 'edited'),
+      );
+      await store.changeMessage(
+        group,
+        _id(1),
+        (m) => m.withReaction(carol, '🎉'),
+      );
+
+      final messages = await ChatStore(secrets).messages(group);
+      expect(messages.first.text, 'edited');
+      expect(messages.first.reactions, {carol: '🎉'});
+      expect(messages.last.replyTo, (id: _id(1), text: 'edited'));
     });
   });
 }
