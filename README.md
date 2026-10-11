@@ -26,7 +26,7 @@ Sotto is a privacy-first calling and messaging app for professionals and their c
 
 The name comes from *sotto voce*: speaking quietly so that only the listener hears.
 
-**Status: v0.2.0**, the [latest release](https://github.com/rbr48/sotto/releases/latest). Built so far: guest links, one-command self-hosting, the Windows, Linux and Android apps, and text messages between contacts. What is still open is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+**Status: v0.5.0**, the [latest release](https://github.com/rbr48/sotto/releases/latest). Built so far: guest links, one-command self-hosting, the Windows, Linux and Android apps, and text messages between contacts. What is still open is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 **Package name / application ID:** `com.izhaanintellect.sotto` on Android (publisher: Izhaan Intellect)
 
