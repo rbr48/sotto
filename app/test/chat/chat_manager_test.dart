@@ -114,6 +114,22 @@ void main() {
     return manager;
   }
 
+  /// Alice's text to Bob, not yet delivered: Bob has no device, so the chat
+  /// fails and the message is not sent.
+  Future<ChatMessage> notSentText(
+    ChatManager alice,
+    ChatStore store,
+    String text,
+  ) async {
+    final message = await alice.sendText('bob', text);
+    await _settle();
+    now = now.add(const Duration(seconds: 21));
+    await alice.tick();
+    await _settle();
+    expect((await store.find('bob', message.id))!.state, ChatState.notSent);
+    return message;
+  }
+
   test('messages go both ways and are marked delivered', () async {
     final aliceStore = ChatStore(MemorySecretStore());
     final bobStore = ChatStore(MemorySecretStore());
@@ -1541,22 +1557,6 @@ void main() {
   });
 
   group('a message deleted for everyone before it went out is final', () {
-    /// Alice's text to Bob, not yet delivered: Bob has no device, so the chat
-    /// fails and the message is not sent.
-    Future<ChatMessage> notSentText(
-      ChatManager alice,
-      ChatStore store,
-      String text,
-    ) async {
-      final message = await alice.sendText('bob', text);
-      await _settle();
-      now = now.add(const Duration(seconds: 21));
-      await alice.tick();
-      await _settle();
-      expect((await store.find('bob', message.id))!.state, ChatState.notSent);
-      return message;
-    }
-
     test('cancelling its queue leaves its state as it was', () async {
       final store = ChatStore(MemorySecretStore());
       final alice = device('alice', contacts: {'bob'}, store: store);
@@ -1709,6 +1709,100 @@ void main() {
         );
       },
     );
+  });
+
+  group('an edit to a message not yet delivered', () {
+    test('an edit made before the contact says hello goes out with the new text', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      // Bob's device writes slowly, so its hello comes late: Alice's text waits
+      // in her outbox until then, and an edit can land in the meantime. Only
+      // the direct chat carries the text: a relay copy sent before the edit
+      // could not be taken back.
+      net.relayText = false;
+      final bobStore = ChatStore(
+        _SlowSecrets(const Duration(milliseconds: 200)),
+      );
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      await bobStore.add(
+        ChatMessage(
+          id: _id(50),
+          contactId: 'alice',
+          outgoing: true,
+          ts: now.millisecondsSinceEpoch,
+          text: 'from bob',
+          state: ChatState.queued,
+        ),
+      );
+      device('bob', contacts: {'alice'}, store: bobStore);
+
+      final message = await alice.sendText('bob', 'first try');
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(await alice.edit('bob', message.id, 'second try'), isTrue);
+      await Future<void>.delayed(const Duration(seconds: 1));
+      await _settle();
+
+      final sent = net.rtcs['alice']!
+          .expand((rtc) => rtc.sentFrames)
+          .map(ChatFrames.decode)
+          .whereType<MessageFrame>()
+          .where((f) => f.id == message.id)
+          .map((f) => f.text)
+          .toList();
+      expect(sent, ['second try']);
+      expect((await bobStore.find('alice', message.id))!.text, 'second try');
+    });
+
+    test('a retry racing the edit sends the new text', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final bobStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      final message = await notSentText(alice, aliceStore, 'first try');
+      // Only the direct chat carries the text, so what goes out is what the
+      // chat sends.
+      net.relayText = false;
+      device('bob', contacts: {'alice'}, store: bobStore);
+
+      // The retry reads the message before the edit is written.
+      final retrying = alice.retry('bob', message.id);
+      final editing = alice.edit('bob', message.id, 'second try');
+      await retrying;
+      expect(await editing, isTrue);
+      await _settle();
+
+      final sent = net.rtcs['alice']!
+          .expand((rtc) => rtc.sentFrames)
+          .map(ChatFrames.decode)
+          .whereType<MessageFrame>()
+          .where((f) => f.id == message.id)
+          .map((f) => f.text)
+          .toList();
+      expect(sent, isNotEmpty);
+      expect(sent.toSet(), {'second try'});
+      expect((await bobStore.find('alice', message.id))!.text, 'second try');
+    });
+
+    test('is what the contact gets when it comes online after seven days, with no edited mark', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final bobStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      final message = await notSentText(alice, aliceStore, 'first try');
+      expect(await alice.edit('bob', message.id, 'second try'), isTrue);
+
+      // The edit control is more than seven days old when the chat opens, so
+      // it is dropped. The message itself carries the new text, with no mark.
+      now = now.add(const Duration(days: 8));
+      device('bob', contacts: {'alice'}, store: bobStore);
+      await alice.retry('bob', message.id);
+      await _settle();
+
+      final received = (await bobStore.find('alice', message.id))!;
+      expect(received.text, 'second try');
+      expect(received.editedAt, isNull);
+      expect(
+        (await aliceStore.find('bob', message.id))!.state,
+        ChatState.delivered,
+      );
+    });
   });
 
   group('archive, mute, pin and star', () {

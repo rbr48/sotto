@@ -2352,6 +2352,40 @@ void main() {
       },
     );
   });
+
+  group('an edit to a message not yet delivered', () {
+    test('a text goes out as the store holds it when the session starts, not as an older copy', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      // The store holds the edited text; the copy resent was made before it.
+      final stored = ChatMessage(
+        id: _id(1),
+        contactId: 'bob',
+        outgoing: true,
+        ts: now.millisecondsSinceEpoch,
+        text: 'second try',
+        state: ChatState.notSent,
+        reason: 'no-answer',
+      );
+      await aliceStore.add(stored);
+      final (a, b) = _pair();
+      _Side(
+        'alice',
+        'bob',
+        a,
+        clock: clock,
+        sharedStore: aliceStore,
+      ).start(resend: [stored.copyWith(text: 'first try')]);
+      final bob = _Side('bob', 'alice', b, clock: clock)..start();
+      await _settle();
+
+      final sent = a.sentFrames
+          .map(ChatFrames.decode)
+          .whereType<MessageFrame>()
+          .map((f) => f.text);
+      expect(sent, ['second try']);
+      expect((await bob.store.messages('alice')).single.text, 'second try');
+    });
+  });
 }
 
 /// A JPEG segment: its marker, its length, then its payload.

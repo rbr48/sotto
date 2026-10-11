@@ -349,6 +349,7 @@ class ChatManager {
     );
     if (!changed) return false;
     _setQuotes(contact, id, ChatFrames.quoteText(cleaned));
+    _setUnsentText(contact, id, cleaned);
     await store.queueControl(
       contact,
       EditFrame(id: id, ts: now, text: cleaned),
@@ -413,6 +414,28 @@ class ChatManager {
         live.resend[i] = withQuote(live.resend[i]);
       }
       live.session?.setQuotesOf(id, quote);
+    }
+  }
+
+  /// Gives the copies of message [id] still waiting to go in the chat with
+  /// [contact] the new [text] of an edit, so whatever goes out carries the
+  /// newest text. The contact keeps no edit history, so the message itself
+  /// carries no edited mark; the edit control is still sent (see [edit]).
+  void _setUnsentText(String contact, String id, String text) {
+    ChatMessage withText(ChatMessage m) =>
+        m.id == id ? m.copyWith(text: text) : m;
+    final waiting = _waiting[contact];
+    if (waiting != null) {
+      for (var i = 0; i < waiting.length; i++) {
+        waiting[i] = withText(waiting[i]);
+      }
+    }
+    final live = _activeFor(contact);
+    if (live != null) {
+      for (var i = 0; i < live.resend.length; i++) {
+        live.resend[i] = withText(live.resend[i]);
+      }
+      live.session?.setTextOf(id, text);
     }
   }
 

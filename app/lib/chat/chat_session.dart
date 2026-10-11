@@ -771,6 +771,13 @@ class ChatSession {
     }
   }
 
+  /// Gives the outbox copy of message [id] the text [text], when it is edited
+  /// before it goes out. The store is changed by the caller.
+  void setTextOf(String id, String text) {
+    final message = _outbox[id];
+    if (message != null) _outbox[id] = message.copyWith(text: text);
+  }
+
   /// Sends the pending controls (reactions, edits and deletes) for this
   /// contact that can go now. Called when the chat is ready, when a message is
   /// acknowledged, and when a control is made. Calls run one after another.
