@@ -16,6 +16,7 @@
 //     hosts.
 import assert from 'node:assert/strict';
 import {
+  accessibilityNodes,
   addContact,
   assertNoThirdPartyRequests,
   assertRelaySawOnlyCiphertext,
@@ -27,8 +28,12 @@ import {
   newContext,
   openApp,
   openChat,
+  secondsSince,
   shareContactLink,
+  sleep,
   typeInto,
+  waitUntil,
+  watchRelay,
 } from './lib.mjs';
 
 /** Failure-path waits: a missed open is reported 20 to 50 s after the send. */
@@ -36,57 +41,13 @@ const slow = 90_000;
 
 const browser = await launch();
 
-const isRelayUrl = (url) => /\/relay$/.test(url);
-
 /**
- * Meera's relay connection, watched from her browser context.
- *
- * In Chromium, setOffline(true) does not close a WebSocket. The socket stays
- * open, and the browser holds its frames both ways until the network returns.
- * So the cut is confirmed rather than assumed: her app's ping goes unanswered,
- * so it drops the socket and tries to connect again, and each try fails while
- * she is offline. No frame may reach her meanwhile.
+ * Meera's and Arun's relay connections (see watchRelay). Her counts confirm
+ * the cut; his sends show the message going out again, since a message can
+ * only go out again through a new session, and a session starts with a send.
  */
-const meeraRelay = {
-  offline: false, // set 1 s after the cut, cleared before she comes back
-  logins: 0, // login messages she sent, online or not
-  loginsWhileOffline: 0,
-  framesReceived: 0, // every frame her relay connections received
-  framesWhileOffline: 0,
-  attemptsWhileOffline: 0, // relay connections her app opened while offline
-};
-
-/**
- * Relay sends from Arun's browser. A message can only go out again through a
- * new session, and a session starts with a send.
- */
-const arunRelay = { sends: 0 };
-
-/** Polls until `check()` holds, or fails after `limit` ms. */
-async function waitUntil(check, what, limit = slow) {
-  for (const end = Date.now() + limit; !check(); ) {
-    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-}
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const secondsSince = (from) => `${((Date.now() - from) / 1000).toFixed(1)} s`;
-
-/** The accessibility nodes on a page that carry a label or text, for failure output. */
-const accessibilityNodes = (page) =>
-  page
-    .evaluate(() =>
-      [...document.querySelectorAll('flt-semantics')]
-        .map((node) => {
-          const label = node.getAttribute('aria-label');
-          const text = node.textContent;
-          if (!label && !text) return null;
-          return `${node.tagName.toLowerCase()} role=${node.getAttribute('role') ?? '-'} label=${JSON.stringify(label)} text=${JSON.stringify(text)}`;
-        })
-        .filter(Boolean),
-    )
-    .catch(() => []);
+let meeraRelay = null;
+let arunRelay = null;
 
 let meera = null;
 let arun = null;
@@ -95,28 +56,8 @@ try {
   const meeraContext = await newContext(browser);
   const arunContext = await newContext(browser);
   // Watch both relay connections from the start, before the pages open them.
-  meeraContext.on('page', (page) => {
-    page.on('websocket', (ws) => {
-      // A try made while she is offline is a relay connection that never opens.
-      if (meeraRelay.offline && isRelayUrl(ws.url())) meeraRelay.attemptsWhileOffline += 1;
-      ws.on('framereceived', () => {
-        meeraRelay.framesReceived += 1;
-        if (meeraRelay.offline) meeraRelay.framesWhileOffline += 1;
-      });
-      ws.on('framesent', ({ payload }) => {
-        if (!String(payload).includes('"type":"auth"')) return;
-        meeraRelay.logins += 1;
-        if (meeraRelay.offline) meeraRelay.loginsWhileOffline += 1;
-      });
-    });
-  });
-  arunContext.on('page', (page) => {
-    page.on('websocket', (ws) => {
-      ws.on('framesent', ({ payload }) => {
-        if (String(payload).includes('"type":"send"')) arunRelay.sends += 1;
-      });
-    });
-  });
+  meeraRelay = watchRelay(meeraContext);
+  arunRelay = watchRelay(arunContext);
   meera = await openApp(meeraContext, 'meera', 'Meera Rao');
   arun = await openApp(arunContext, 'arun', 'Arun Mehta');
 
@@ -128,7 +69,7 @@ try {
   await openChat(arun, 'Meera Rao');
   // Positive controls: while she is online, her login and her frames are
   // counted, so the zero counts checked later can tell a cut from a broken counter.
-  await waitUntil(() => meeraRelay.logins >= 1, "Meera's login to the relay");
+  await waitUntil(() => meeraRelay.logins >= 1, "Meera's login to the relay", slow);
   assert.ok(meeraRelay.framesReceived > 0, 'frames reached Meera while she was online');
   console.log('✓ contacts: Meera and Arun have added each other; Arun has the chat with Meera open');
 
@@ -142,6 +83,7 @@ try {
   await waitUntil(
     () => meeraRelay.attemptsWhileOffline > 0,
     "Meera's app to notice the cut and try to reconnect (setOffline did not stop her relay connection)",
+    slow,
   );
   console.log(
     `✓ Meera is offline: her app noticed after ${secondsSince(offlineAt)} and tried to reconnect ` +
@@ -154,7 +96,11 @@ try {
   const sentAt = Date.now();
   await typeInto(arun, 'Write a message', 'Are you there?');
   await clickButton(arun, 'Send');
-  await waitUntil(() => arunRelay.sends > sendsBeforeMessage, "Arun's app to send the open to the relay");
+  await waitUntil(
+    () => arunRelay.sends > sendsBeforeMessage,
+    "Arun's app to send the open to the relay",
+    slow,
+  );
   await bubble(arun, 'Are you there?', 'Not sent: Meera Rao did not answer.')
     .first()
     .waitFor({ timeout: slow });
@@ -183,7 +129,7 @@ try {
   await meeraContext.setOffline(false);
   const backAt = Date.now();
   // Her app's next try connects and logs in again: a new login from her own connection.
-  await waitUntil(() => meeraRelay.logins > loginsBefore, "Meera's relay login after she came back online");
+  await waitUntil(() => meeraRelay.logins > loginsBefore, "Meera's relay login after she came back online", slow);
   console.log(
     `✓ Meera is back: she logged in to the relay ${secondsSince(backAt)} after the network returned`,
   );

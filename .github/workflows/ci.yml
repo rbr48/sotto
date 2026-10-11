@@ -107,9 +107,9 @@ jobs:
           dart format --output=none --set-exit-if-changed lib test
           flutter analyze
           flutter test
-      - name: Build web (pointed at the local relay)
+      - name: Build web (pointed at the local relay, with groups on for group.mjs)
         working-directory: app
-        run: flutter build web --no-web-resources-cdn --dart-define=SOTTO_RELAY_URL=ws://localhost:8080/relay --dart-define=SOTTO_TEST_HOOKS=true
+        run: flutter build web --no-web-resources-cdn --dart-define=SOTTO_RELAY_URL=ws://localhost:8080/relay --dart-define=SOTTO_TEST_HOOKS=true --dart-define=SOTTO_GROUPS=true
       - name: The web server's emoji font files match this Flutter version
         run: |
           data="$(dirname "$(dirname "$(command -v flutter)")")/bin/cache/flutter_web_sdk/lib/ui/src/engine/font_fallback_data.dart"

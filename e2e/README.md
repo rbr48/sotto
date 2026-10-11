@@ -12,7 +12,8 @@ microphone) through the real relay and a real TURN server. They check:
 - Phase 6: contact links, calling from contacts, call timer and quality, history with talk time and a note, the app lock (a call rings on top of it), the device picker
 - Phase 7: ringtone and ringback tone, a dialog left open closes for an incoming call, the knock chime, no server setting in the browser
 - peer-to-peer messages (`chat.mjs`): two contacts (added from each other's contact links) write to each other in an open chat; the message arrives live, the sender sees it *delivered*, the reply arrives in the open chat, and the relay sees only encrypted envelopes
-- messages to an offline contact (`chat-offline.mjs`): a message to a contact who is offline shows *Not sent: <name> is offline*, with *Retry* and a problem banner; the contact coming back online does not deliver it by itself; *Retry* while they are online delivers it, and their chat shows it once
+- messages to an offline contact (`chat-offline.mjs`): a message to a contact who is offline shows *Not sent: <name> did not answer.*, with *Retry* and a problem banner; when the contact comes back online, the sender's app sends it again by itself, their chat shows it once, and nothing is left to retry
+- group chat (`group.mjs`, three people): a group of three made from contacts who all know each other; one accepts, one declines and is invited again, then accepts; messages go every way, each named by its sender; a member who is offline gets the message from the sender's outbox when they come back, once, and until then it shows *Sent to 1 of 2*; the relay never sees the group's name, the members' names or the text. It needs a web build with `--dart-define=SOTTO_GROUPS=true`
 - actions on a message (`chat-actions.mjs`): a reply arrives with its quote on both sides; a reaction, an edit and a delete for everyone reach the other side's open chat; a forward arrives marked *Forwarded*; the relay sees no reaction text or names
 - every frame sent to the relay is a login, an ICE request or an opaque encrypted envelope, with no names, notes or PINs; pages contact no third-party hosts
 - Remember me on this browser (`remember.mjs`): the warning and the "links work only while this tab is open" card without it; with it, the same links after reloading; what IndexedDB holds is encrypted and its key isn't extractable; *Forget this browser* deletes it; an empty database left behind doesn't break it
@@ -35,7 +36,7 @@ HOST=127.0.0.1 SOTTO_STUN_URLS='stun:127.0.0.1:3478' \
 
 # 2. Web build pointed at the local relay, served on port 8099
 cd app && flutter build web --no-web-resources-cdn --dart-define=SOTTO_RELAY_URL=ws://localhost:8080/relay \
-  --dart-define=SOTTO_TEST_HOOKS=true
+  --dart-define=SOTTO_TEST_HOOKS=true --dart-define=SOTTO_GROUPS=true
 python3 -m http.server 8099 --directory build/web &
 
 # 3. Run the test
