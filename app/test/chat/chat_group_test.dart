@@ -867,6 +867,105 @@ void main() {
     });
   });
 
+  group('a new invite as the other members learn it', () {
+    ChatGroup threeWay() => ChatGroups.create(
+      selfId: _member(1),
+      name: 'Trip',
+      invitees: [_member(2), _member(3)],
+      contacts: {_member(2), _member(3)},
+      ts: _now,
+      random: Random(1),
+    );
+
+    test('a new invite restarts the window of a member who declined, let the '
+        'invite expire, or has not answered yet', () {
+      final group = threeWay();
+      final declined = ChatGroups.decline(group, _member(2));
+      final again = ChatGroups.renew(declined, _member(2), _now + _minute);
+      expect(again.memberOf(_member(2))!.state, MemberState.invited);
+      expect(again.memberOf(_member(2))!.invitedAt, _now + _minute);
+
+      final expired = ChatGroups.expire(group, _member(3));
+      final renewed = ChatGroups.renew(expired, _member(3), _now + _minute);
+      expect(renewed.memberOf(_member(3))!.state, MemberState.invited);
+
+      final waiting = ChatGroups.renew(group, _member(2), _now + _minute);
+      expect(waiting.memberOf(_member(2))!.invitedAt, _now + _minute);
+    });
+
+    test('a new invite does not change an accepted or a left member, or one '
+        'that is not later than the invite it replaces', () {
+      final group = threeWay();
+      final accepted = ChatGroups.accept(group, _member(2), _now);
+      expect(
+        identical(
+          ChatGroups.renew(accepted, _member(2), _now + _minute),
+          accepted,
+        ),
+        isTrue,
+      );
+      final left = ChatGroups.leave(accepted, _member(2));
+      expect(
+        identical(ChatGroups.renew(left, _member(2), _now + _minute), left),
+        isTrue,
+      );
+      expect(
+        identical(ChatGroups.renew(group, _member(2), _now), group),
+        isTrue,
+      );
+    });
+
+    test(
+      'a new invite to a member who is not in the group changes nothing',
+      () {
+        final group = threeWay();
+        expect(
+          identical(ChatGroups.renew(group, _member(9), _now + _minute), group),
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'the text of a new invite round-trips, and another kind is refused',
+      () {
+        final text = ChatGroups.encodeRenewal(
+          group: _group(40),
+          member: _member(2),
+          ts: _now,
+        );
+        final read = ChatGroups.decodeRenewal(text);
+        expect(read.group, _group(40));
+        expect(read.member, _member(2));
+        expect(read.ts, _now);
+        expect(
+          _refusedBy(
+            () => ChatGroups.decodeRenewal(
+              ChatGroups.encodeAnswer(
+                GroupStateKind.leave,
+                group: _group(40),
+                ts: _now,
+              ),
+            ),
+          ),
+          'malformed',
+        );
+        expect(
+          _refusedBy(
+            () => ChatGroups.decodeRenewal(
+              ChatGroups.encodeRenewal(
+                group: _group(40),
+                member: 'short',
+                ts: _now,
+              ),
+            ),
+          ),
+          'malformed',
+        );
+      },
+    );
+  });
+
   group('applying an answer', () {
     ChatGroup threeWay() => ChatGroups.create(
       selfId: _member(1),

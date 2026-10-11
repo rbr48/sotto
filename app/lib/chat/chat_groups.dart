@@ -448,6 +448,52 @@ abstract final class ChatGroups {
     };
   }
 
+  /// A new invite to [memberId] as the other members learn of it, dated [ts]:
+  /// a member who has not answered yet, or has declined or let an invite
+  /// expire, starts a new window from [ts] (see [reinvite]). An accepted or a
+  /// left member does not change, and nor does a ts that is not later than the
+  /// invite it would replace.
+  static ChatGroup renew(ChatGroup group, String memberId, int ts) {
+    final member = group.memberOf(memberId);
+    if (member == null || ts <= member.invitedAt) return group;
+    if (member.state != MemberState.invited) {
+      return reinvite(group, memberId, ts);
+    }
+    return _set(
+      group,
+      memberId,
+      {MemberState.invited},
+      MemberState.invited,
+      invitedAt: ts,
+    );
+  }
+
+  /// The text of a new invite to [member] of [group], dated [ts], that the
+  /// inviter sends to the other members (`group.reinvite`).
+  static String encodeRenewal({
+    required String group,
+    required String member,
+    required int ts,
+  }) => ChatFrames.encodeGroupBody({
+    't': 'group.reinvite',
+    'group': group,
+    'member': member,
+    'ts': ts,
+  });
+
+  /// Reads the text of a new invite to a member, as [encodeRenewal] writes it.
+  static ({String group, String member, int ts}) decodeRenewal(String text) {
+    final json = _envelopeJson(text, 'group.reinvite');
+    final group = json['group'];
+    final member = json['member'];
+    final ts = json['ts'];
+    if (!ChatFrames.isId(group) || !isMemberId(member) || ts is! int) {
+      throw const ChatFrameException('malformed');
+    }
+    if (ts <= 0) throw const ChatFrameException('malformed');
+    return (group: group as String, member: member as String, ts: ts);
+  }
+
   /// A member who has accepted leaves. Any other state does not change.
   static ChatGroup leave(ChatGroup group, String memberId) =>
       _set(group, memberId, {MemberState.accepted}, MemberState.left);
