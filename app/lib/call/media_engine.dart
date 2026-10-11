@@ -142,6 +142,16 @@ abstract interface class MediaEngine {
   /// call (`null` = system default).
   Future<void> useDevice(DeviceKind kind, String? deviceId);
 
+  /// Whether this device is sending its screen instead of its camera.
+  bool get sharingScreen;
+
+  /// Sends the screen in place of the camera, in a video call. Throws when
+  /// the call has no camera to replace, or the person refuses the capture.
+  Future<void> startScreenShare();
+
+  /// Sends the camera again. Does nothing when no screen is shared.
+  Future<void> stopScreenShare();
+
   /// Stops all media and closes the connection. Safe to call more than once.
   Future<void> close();
 }

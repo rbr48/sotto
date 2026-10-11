@@ -34,6 +34,15 @@ class WebRtcMediaEngine implements MediaEngine {
   /// starts).
   final DeviceSelection Function() devices;
 
+  /// The screen being shared, and the camera track it replaced (kept, so the
+  /// camera comes back when sharing stops). Null when not sharing.
+  MediaStream? _screenStream;
+  MediaStreamTrack? _cameraTrack;
+
+  /// Whether the camera is on (set by [setCameraEnabled]), so a screen share
+  /// starts with the same state.
+  bool _videoOn = true;
+
   final _candidates = StreamController<Map<String, Object?>>.broadcast();
   final _states = StreamController<MediaConnectionState>.broadcast();
   final _pendingCandidates = <RTCIceCandidate>[];
@@ -194,10 +203,66 @@ class WebRtcMediaEngine implements MediaEngine {
 
   @override
   void setCameraEnabled(bool enabled) {
+    _videoOn = enabled;
     for (final track
         in _localStream?.getVideoTracks() ?? <MediaStreamTrack>[]) {
       track.enabled = enabled;
     }
+    // A shared screen is video too: turning the camera off stops it.
+    for (final track
+        in _screenStream?.getVideoTracks() ?? <MediaStreamTrack>[]) {
+      track.enabled = enabled;
+    }
+  }
+
+  @override
+  bool get sharingScreen => _screenStream != null;
+
+  @override
+  Future<void> startScreenShare() async {
+    final pc = _pc;
+    if (pc == null || _localStream == null || _closed) {
+      throw StateError('no call to share a screen in');
+    }
+    if (_screenStream != null) return;
+    final sender = await _videoSender(pc);
+    if (sender == null) throw StateError('this call has no camera to replace');
+    final screen = await navigator.mediaDevices.getDisplayMedia({
+      'video': true,
+      'audio': false,
+    });
+    if (_closed) {
+      await _stop(screen);
+      return;
+    }
+    final track = screen.getVideoTracks().first;
+    track.enabled = _videoOn;
+    _cameraTrack = sender.track;
+    await sender.replaceTrack(track);
+    _screenStream = screen;
+  }
+
+  @override
+  Future<void> stopScreenShare() async {
+    final screen = _screenStream;
+    if (screen == null) return;
+    _screenStream = null;
+    final camera = _cameraTrack;
+    _cameraTrack = null;
+    final pc = _pc;
+    if (pc != null && camera != null && !_closed) {
+      await (await _videoSender(pc))?.replaceTrack(camera);
+    }
+    await _stop(screen);
+  }
+
+  /// The sender of the video this device sends: its camera, or the screen
+  /// while it is shared.
+  static Future<RTCRtpSender?> _videoSender(RTCPeerConnection pc) async {
+    for (final sender in await pc.getSenders()) {
+      if (sender.track?.kind == 'video') return sender;
+    }
+    return null;
   }
 
   @override
@@ -282,8 +347,13 @@ class WebRtcMediaEngine implements MediaEngine {
       return;
     }
     track.enabled = old.first.enabled;
-    for (final sender in await pc.getSenders()) {
-      if (sender.track?.kind == track.kind) await sender.replaceTrack(track);
+    if (video && _screenStream != null) {
+      // The screen is being sent: the new camera is sent when sharing stops.
+      _cameraTrack = track;
+    } else {
+      for (final sender in await pc.getSenders()) {
+        if (sender.track?.kind == track.kind) await sender.replaceTrack(track);
+      }
     }
     for (final previous in old) {
       await stream.removeTrack(previous);
@@ -387,6 +457,10 @@ class WebRtcMediaEngine implements MediaEngine {
     final stream = _localStream;
     _localStream = null;
     if (stream != null) await _stop(stream);
+    final screen = _screenStream;
+    _screenStream = null;
+    _cameraTrack = null;
+    if (screen != null) await _stop(screen);
     await _candidates.close();
     await _states.close();
   }

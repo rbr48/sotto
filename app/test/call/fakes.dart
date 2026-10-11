@@ -90,4 +90,23 @@ class FakeMediaEngine implements MediaEngine {
     videoLevels.add(level);
     return true;
   }
+
+  bool screenShareRefused = false;
+  bool _sharing = false;
+
+  @override
+  bool get sharingScreen => _sharing;
+
+  @override
+  Future<void> startScreenShare() async {
+    log.add('startScreenShare');
+    if (screenShareRefused) throw StateError('capture refused');
+    _sharing = true;
+  }
+
+  @override
+  Future<void> stopScreenShare() async {
+    log.add('stopScreenShare');
+    _sharing = false;
+  }
 }
