@@ -278,9 +278,16 @@ Envelope types. `callId` is the session id: 16 random bytes.
   is kept by the Android service and desktop tray mode). The relay holds it in
   memory for at most 60 seconds and cannot read it. Every device of the
   contact that is connected stores it; a device stores a message id once and
-  answers each copy with `chat.text.ack`, which marks it delivered. A message
-  that still waits is sent again on the next check (every 30 seconds) while the
-  sender's app runs, up to 20 per check. Files and voice notes need the direct
+  answers each copy with `chat.text.ack`, which marks it delivered. A text that
+  is still being sent, or was marked not sent for any reason but a cancel, is
+  sent again on each check (every 30 seconds) for 15 minutes from its `ts`,
+  while the sender's app runs, up to 20 per check across all chats; a contact
+  with a ready direct chat is skipped. A text the person queued is sent on
+  every check, with no time limit, up to 20 per chat per check. Each copy is a
+  new envelope, sealed again with a fresh nonce `n` and `ts` (§3.1), so the
+  receiver's replay check (§3.3) does not drop it. The relay cannot read the
+  copies, but it can see that the same sender sends again to the same
+  recipient (`THREAT_MODEL.md`, limitation 19). Files and voice notes need the direct
   chat, and so do replies and forwarded texts: their fields are negotiated in
   `hello` (see "Features" below), which the relay never sees. Reactions, edits
   and deletes never go this way. Texts from anyone who is not a contact are
@@ -302,7 +309,10 @@ and the ends are trimmed.
 | `{"t":"bye"}` | The session is ending. |
 
 Messages are sent only after the other side's `hello`. A message received
-again (same `id`) is acknowledged but stored once. A session that ends before
+again (same `id`) is acknowledged but stored once. "Delivered" means that one
+device of the contact has stored the message and acknowledged it (`ack` on the
+data channel, or `chat.text.ack` through the relay). It says nothing about the
+contact's other devices, and nothing about reading. A session that ends before
 an acknowledgement marks the message not sent; it is sent again in the next
 session. A session with no activity for five minutes closes, unless the chat
 is open on screen or messages are waiting.
@@ -567,7 +577,15 @@ refused. Padding hides size only. It does not hide membership or timing.
 - Until the member acknowledges it, the copy is sent again every 30 seconds
   while the sender's app is open, for 15 minutes from the message's `ts`. At
   most 20 copies go per check, across all groups. A member still waiting when
-  the 15 minutes end is marked not sent.
+  the 15 minutes end is marked not sent. Each copy, and each repeat of an
+  invite or an answer, is a new envelope sealed with a fresh nonce and `ts`,
+  as for `chat.text`.
+- A member's copy is delivered when one of that member's devices acknowledges
+  it: `{"t":"ack","id","group"}` on the direct session, or `chat.text.ack` with
+  `group` through the relay. There is no separate `group.text.ack` type. The
+  sender shows "Delivered to all" when every member that is accepted, not this
+  device and still a contact has a delivered or read copy, and otherwise "Sent
+  to X of Y".
 - An invite is sent again through the relay every 30 seconds until it is
   answered or its window ends. An accept, a decline and a `group.reinvite` are
   sent again every 30 seconds for 15 minutes plus the allowed clock skew, as
@@ -746,8 +764,22 @@ plaintext = JSON {"v":1, "values": {"<key>": "<string>", …}}
 | `sotto.profile.v1` | Name and practice |
 | `sotto.contacts.v1` | Contacts (keys, name, organisation, verified, auto-answer choices) and the auto-answer switch and delay |
 | `sotto.history.v1` | Call history with notes, and the retention period |
-| `sotto.chats.v1` | Chat history (§5.10), kept until the person deletes a chat. Included in backups |
+| `sotto.chats.v1` | Chat history in the format of earlier versions, one record for all chats. Moved into the per-contact keys below on first use, then deleted |
+| `sotto.chats.contacts.v1` | The ids of the contacts that have a chat on this device |
+| `sotto.chats.contact.<id>` | One chat's messages (§5.10), oldest first, kept until the person deletes the chat or they disappear (`sotto.chats.retention.<id>`). Each message holds its text or file record, state, times (`deliveredAt`, `readAt`, `editedAt`), quote, reactions, and the `forwarded`, `deletedForAll` and `starred` marks. Included in backups |
 | `sotto.chats.summary.<id>` | Each chat's last message and unread count, which the chat list reads in place of the messages. Derived from the chat's messages but trusted as stored, so a build that changes a chat without writing this record leaves the list stale. One vault is not shared with such a build. Included in backups |
+| `sotto.chats.pending.<id>` | Reactions, edits and deletes waiting for the contact's direct chat (§5.10), at most 100. Included in backups |
+| `sotto.chats.meta.<id>` | A chat's settings on this device: `archived`, `muted`, `pinnedAt`. Absent means the defaults. A group's settings use the same key with the group id. Never sent to anyone. Included in backups |
+| `sotto.chats.retention.<id>` | Disappearing messages for a chat: the time in seconds after which its messages are erased on this device. Absent means off. Included in backups |
+| `sotto.groups.v1` | The ids of the groups on this device (§5.10, "Groups") |
+| `sotto.groups.<group id>` | A group's record: id, name, this device's member id, creation time, whether this device left, and each member's id, state and invite time |
+| `sotto.groups.msgs.<group id>` | A group's messages, oldest first, as `sotto.chats.contact.<id>`, plus each message's author and each member's state of this device's messages |
+| `sotto.groups.summary.<group id>` | A group's last message and unread count, as `sotto.chats.summary.<id>`. Absent while the group has no messages |
+| `sotto.groups.invites.<group id>` | Invites this device sent that are not answered yet: invitee, attempts, sent time and expiry |
+| `sotto.groups.pending.<group id>.<member id>` | Answers (`group.state`) and group reactions, edits and deletes waiting for that member's direct session, at most 100 |
+| `sotto.settings.send_read_receipts` | Send read receipts: `0` when off. On unless switched off |
+| `sotto.settings.send_typing` | Send typing notices: `0` when off. On unless switched off |
+| `sotto.settings.auto_download_files` | Download files automatically: `1` when on. Off unless switched on |
 | `sotto.guest_links.v1` | Guest links (§5.7) |
 | `sotto.lock.v1` | App lock: PIN verifier (Argon2id `crypto_pwhash_str` in the apps; keyed BLAKE2b in the browser, §9.1), failed attempts, auto-lock time. Device-only |
 | `sotto.devices.v1` | Chosen camera, microphone and speaker. Device-only |
@@ -755,6 +787,8 @@ plaintext = JSON {"v":1, "values": {"<key>": "<string>", …}}
 | `sotto.settings.sounds` | Ringtone and chimes on/off |
 | `sotto.server.v1` | A server chosen instead of the built-in one (web and relay URLs). Included in backups, so restored links keep working |
 | `sotto.settings.desktop` | Tray and notification choices. Device-only |
+
+Every chat and group key above is included in encrypted backups (§8), as all vault data except the device-only entries is.
 
 Earlier versions kept settings directly in the keystore; on first start they are moved into the vault and deleted from the keystore.
 
