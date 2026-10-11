@@ -23,7 +23,7 @@ export function createRelayServer(
   config: Config,
   limits: RelayLimits = DEFAULT_LIMITS,
 ): RelayServer {
-  const relay = new Relay(limits, () => iceServersFor(config.ice));
+  const relay = new Relay(limits, () => iceServersFor(config.ice), config.publicHost);
   const http = createServer(handleHttp);
   const wss = new WebSocketServer({ noServer: true, maxPayload: config.maxMessageBytes });
 
@@ -40,7 +40,7 @@ export function createRelayServer(
       ws.on('pong', () => {
         ws.isAlive = true;
       });
-      relay.attach(ws, host, clientAddress(req, config.trustProxy));
+      relay.attach(ws, clientAddress(req, config.trustProxy));
     });
   });
 

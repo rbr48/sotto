@@ -133,7 +133,7 @@ jobs:
             --min-port=50000 --max-port=50200 --userdb=/tmp/turndb --pidfile=/tmp/turn.pid \
             --log-file=/tmp/turn.log &
           (cd server && npm ci && npm run build)
-          HOST=127.0.0.1 PORT=8080 \
+          HOST=127.0.0.1 PORT=8080 SOTTO_DOMAIN=localhost:8080 \
             SOTTO_STUN_URLS='stun:127.0.0.1:3478' \
             SOTTO_TURN_URLS='turn:127.0.0.1:3478?transport=udp' \
             SOTTO_TURN_SECRET=e2e-secret \

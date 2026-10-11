@@ -52,7 +52,7 @@ The name comes from *sotto voce*: speaking quietly so that only the listener hea
 
 ```bash
 # Relay on this computer, reachable from this computer only
-cd server && npm ci && npm run build && HOST=127.0.0.1 npm start
+cd server && npm ci && npm run build && SOTTO_DOMAIN=localhost:8080 HOST=127.0.0.1 npm start
 
 # App (another terminal): desktop, or Chrome for the web version
 cd app && flutter run -d linux --dart-define=SOTTO_RELAY_URL=ws://localhost:8080/relay
@@ -61,7 +61,7 @@ cd app && flutter run -d chrome --dart-define=SOTTO_RELAY_URL=ws://localhost:808
 
 Two windows on this computer work with the commands above: the Linux app plus Chrome, or two Chrome windows. Do not start the Linux app twice: Sotto runs one desktop window per user, and a second start exits at once. Open the app in both, go through onboarding, then add each other: one person presses **Contacts → Share my contact**, and the other pastes that link under **Contacts → Add contact**. Compare the safety numbers, then press **Video call**. You can also paste a link under **Home → Call a link**.
 
-For two computers on the same network, start the relay with `npm start` (it listens on all interfaces, port 8080) and build each app with `--dart-define=SOTTO_RELAY_URL=ws://<relay-LAN-IP>:8080/relay`. Local calls connect directly. To test *Hide my IP address* locally, also run a TURN server on the relay's computer, as in step 0 of [`e2e/README.md`](e2e/README.md), and start the relay with `SOTTO_STUN_URLS`, `SOTTO_TURN_URLS` and `SOTTO_TURN_SECRET` set to the values in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (lines 131–133). Those values point at `127.0.0.1`, so they work only on the relay's own computer. On Linux the app needs a Secret Service (GNOME Keyring or KWallet) to keep its keys; without one it offers a session that saves nothing.
+For two computers on the same network, start the relay with `SOTTO_DOMAIN=<relay-LAN-IP>:8080 npm start` (it listens on all interfaces, port 8080; `SOTTO_DOMAIN` is the name the apps dial, and the relay requires it) and build each app with `--dart-define=SOTTO_RELAY_URL=ws://<relay-LAN-IP>:8080/relay`. Local calls connect directly. To test *Hide my IP address* locally, also run a TURN server on the relay's computer, as in step 0 of [`e2e/README.md`](e2e/README.md), and start the relay with `SOTTO_STUN_URLS`, `SOTTO_TURN_URLS` and `SOTTO_TURN_SECRET` set to the values in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (lines 131–133). Those values point at `127.0.0.1`, so they work only on the relay's own computer. On Linux the app needs a Secret Service (GNOME Keyring or KWallet) to keep its keys; without one it offers a session that saves nothing.
 
 ## Self-host
 

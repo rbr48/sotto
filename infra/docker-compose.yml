@@ -10,6 +10,9 @@ services:
     build: ../server
     restart: unless-stopped
     environment:
+      # This relay's name: signed into every login, so a login for this relay
+      # can't be forwarded to another one.
+      SOTTO_DOMAIN: ${SOTTO_DOMAIN:?set SOTTO_DOMAIN in .env}
       # Caddy forwards the client address; used only for in-memory connection limits.
       SOTTO_TRUST_PROXY: '1'
       # STUN/TURN handed to logged-in clients, with time-limited credentials.

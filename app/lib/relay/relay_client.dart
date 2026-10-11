@@ -110,11 +110,17 @@ class RelayClient implements RelayConnection {
     return Duration(milliseconds: base ~/ 2 + Random().nextInt(base ~/ 2 + 1));
   }
 
-  /// The string signed at login: the host the client connected to, exactly
-  /// as it appears in the HTTP Host header.
+  /// The string signed at login: the host the client connected to, as an
+  /// HTTP Host header names it (`name`, or `name:port` for a port that isn't
+  /// the scheme's default).
   @visibleForTesting
-  static String hostOf(Uri url) =>
-      url.hasPort ? '${url.host}:${url.port}' : url.host;
+  static String hostOf(Uri url) {
+    final secure = url.scheme == 'wss' || url.scheme == 'https';
+    final defaultPort = secure ? 443 : 80;
+    return url.hasPort && url.port != defaultPort
+        ? '${url.host}:${url.port}'
+        : url.host;
+  }
 
   static List<int> authMessage(List<int> nonce, String host) => concatBytes([
     domainLabel('sotto-relay-auth-v1'),
@@ -304,8 +310,22 @@ class RelayClient implements RelayConnection {
     switch (message['type']) {
       case 'challenge':
         final nonce = b64Decode(message['nonce'] as String);
+        final dialed = hostOf(url);
+        // The relay names itself in its challenge. A name other than the one
+        // we dialed means this challenge came from another relay (forwarded
+        // to us by one that opened its own connection to this one): sign
+        // nothing, and drop the connection.
+        final named = message['server'];
+        if (named is String && named.toLowerCase() != dialed.toLowerCase()) {
+          lastError = 'wrong-server';
+          debugPrint('relay: the challenge names another server, not signing');
+          unawaited(channel.sink.close().catchError((Object _) {}));
+          return false;
+        }
+        // A relay too old to name itself: sign the host we dialed, as before.
+        final host = named is String ? named : dialed;
         final signature = _sodium.crypto.sign.detached(
-          message: Uint8List.fromList(authMessage(nonce, hostOf(url))),
+          message: Uint8List.fromList(authMessage(nonce, host)),
           secretKey: _identity.signSecretKey,
         );
         channel.sink.add(
