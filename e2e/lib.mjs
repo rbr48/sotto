@@ -367,3 +367,106 @@ export async function dumpPages() {
     for (const line of log.slice(-15)) console.error(`    ${line}`);
   }
 }
+
+/** Polls until `check()` holds, or fails after `limit` ms. */
+export async function waitUntil(check, what, limit = timeout) {
+  for (const end = Date.now() + limit; !check(); ) {
+    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
+export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export const secondsSince = (from) => `${((Date.now() - from) / 1000).toFixed(1)} s`;
+
+/** The accessibility nodes on a page that carry a label or text, for failure output. */
+export const accessibilityNodes = (page) =>
+  page
+    .evaluate(() =>
+      [...document.querySelectorAll('flt-semantics')]
+        .map((node) => {
+          const label = node.getAttribute('aria-label');
+          const text = node.textContent;
+          if (!label && !text) return null;
+          return `${node.tagName.toLowerCase()} role=${node.getAttribute('role') ?? '-'} label=${JSON.stringify(label)} text=${JSON.stringify(text)}`;
+        })
+        .filter(Boolean),
+    )
+    .catch(() => []);
+
+const isRelayUrl = (url) => /\/relay$/.test(url);
+
+/**
+ * Watches the relay connections of one browser context, from before its pages
+ * open them. Returns the counts it keeps:
+ *
+ * - `logins`, `framesReceived` and `sends`: login messages sent, frames
+ *   received and envelopes sent, online or not;
+ * - `loginsWhileOffline`, `framesWhileOffline` and `attemptsWhileOffline`:
+ *   the same while `offline` is set, plus the relay connections opened then.
+ *
+ * In Chromium, setOffline(true) does not close a WebSocket. The socket stays
+ * open, and the browser holds its frames both ways until the network returns.
+ * So a test confirms a cut rather than assuming it: it sets `offline` a moment
+ * after the cut and waits for `attemptsWhileOffline`, which grows once the
+ * app's ping goes unanswered and it tries to connect again.
+ */
+export function watchRelay(context) {
+  const state = {
+    offline: false,
+    logins: 0,
+    loginsWhileOffline: 0,
+    framesReceived: 0,
+    framesWhileOffline: 0,
+    attemptsWhileOffline: 0,
+    sends: 0,
+  };
+  context.on('page', (page) => {
+    page.on('websocket', (ws) => {
+      if (!isRelayUrl(ws.url())) return;
+      if (state.offline) state.attemptsWhileOffline += 1;
+      ws.on('framereceived', () => {
+        state.framesReceived += 1;
+        if (state.offline) state.framesWhileOffline += 1;
+      });
+      ws.on('framesent', ({ payload }) => {
+        const text = String(payload);
+        if (text.includes('"type":"send"')) state.sends += 1;
+        if (!text.includes('"type":"auth"')) return;
+        state.logins += 1;
+        if (state.offline) state.loginsWhileOffline += 1;
+      });
+    });
+  });
+  return state;
+}
+
+/**
+ * Makes everyone a contact of everyone else: each shares a contact link, then
+ * each adds every other one (six adds for three people, twelve for four).
+ * `people` is a list of `{ page, name }`.
+ */
+export async function connectAll(people) {
+  const links = [];
+  for (const { page } of people) links.push(await shareContactLink(page));
+  for (const [i, { page }] of people.entries()) {
+    for (const [j, other] of people.entries()) {
+      if (i !== j) await addContact(page, links[j], other.name);
+    }
+  }
+}
+
+/**
+ * Opens a group from the Chats tab by its name. A chat or group that is
+ * already open is left first, since the tab bar is hidden under it.
+ */
+export async function openGroup(page, name) {
+  const back = page.getByRole('button', { name: 'Back', exact: true });
+  if ((await back.count()) > 0) {
+    await clickButton(page, 'Back');
+    await back.first().waitFor({ state: 'detached', timeout });
+  }
+  await openTab(page, 'Chats');
+  await clickButton(page, new RegExp(`^${escapeRegExp(name)}`));
+}
