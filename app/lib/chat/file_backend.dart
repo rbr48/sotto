@@ -11,3 +11,26 @@ abstract interface class FileBackend {
   Future<void> delete(String name);
   Future<void> deleteAll();
 }
+
+/// An in-memory implementation of [FileBackend], suitable for unit tests and fallbacks.
+class MemoryFileBackend implements FileBackend {
+  final Map<String, Uint8List> _files = {};
+
+  @override
+  Future<void> write(String name, Uint8List bytes) async {
+    _files[name] = bytes;
+  }
+
+  @override
+  Future<Uint8List?> read(String name) async => _files[name];
+
+  @override
+  Future<void> delete(String name) async {
+    _files.remove(name);
+  }
+
+  @override
+  Future<void> deleteAll() async {
+    _files.clear();
+  }
+}

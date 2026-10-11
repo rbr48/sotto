@@ -3396,7 +3396,7 @@ class _FileCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (isImg && isDone && store.hasFile(message)) ...[
+        if (isImg && isDone) ...[
           _ImageThumbnail(
             message: message,
             store: store,
@@ -3417,7 +3417,7 @@ class _FileCard extends StatelessWidget {
         ],
         ExcludeSemantics(
           child: InkWell(
-            onTap: (isDone && store.hasFile(message)) ? onOpen : null,
+            onTap: isDone ? onOpen : null,
             borderRadius: BorderRadius.circular(10),
             child: Row(
               children: [
@@ -3541,17 +3541,6 @@ class _FileCard extends StatelessWidget {
           ),
         );
       case 'completed':
-        if (!store.hasFile(message)) {
-          return ExcludeSemantics(
-            child: Text(
-              l10n.chatFileUnavailable,
-              style: label?.copyWith(
-                color: secondary,
-                fontStyle: FontStyle.italic,
-              ),
-            ),
-          );
-        }
         return Wrap(
           spacing: 8,
           runSpacing: 4,
