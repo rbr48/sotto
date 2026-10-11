@@ -145,18 +145,19 @@ Future<_Device> _open(
   return device;
 }
 
-/// A message held in [_group] from [author], for a test to start from.
-ChatMessage _held(String id, String author, {String text = 'held'}) =>
+/// A message held in [_group] from [author], for a test to start from. It is
+/// this device's own when [author] is [_self].
+ChatMessage _held(String id, String author, {String text = 'held', int? ts}) =>
     ChatMessage(
       id: id,
       contactId: _group,
       groupId: _group,
       authorId: author,
       outgoing: author == _self,
-      ts: _ts,
+      ts: ts ?? _ts,
       text: text,
-      state: ChatState.received,
-      read: false,
+      state: author == _self ? ChatState.delivered : ChatState.received,
+      read: author == _self,
     );
 
 void main() {
@@ -341,5 +342,175 @@ void main() {
         isNot(contains(ChatFrames.featureGroups)),
       );
     });
+  });
+
+  group('reactions, edits, deletes and receipts in a group', () {
+    test('a reaction from a member is kept under the member id', () async {
+      final device = await _open(_bob, group: _groupWith());
+      await device.store.add(_held(_id(1), _self));
+
+      device.receive(
+        ReactFrame(id: _id(1), emoji: '👍', ts: _ts, group: _group),
+      );
+      await _settle();
+
+      final message = (await device.store.find(_group, _id(1)))!;
+      expect(message.reactions, {_bob: '👍'});
+      expect(device.ofType<MessageChanged>().single.group, _group);
+    });
+
+    test('a reaction from someone who is not a member is ignored', () async {
+      final device = await _open(_dave, group: _groupWith());
+      await device.store.add(_held(_id(1), _self));
+
+      device.receive(
+        ReactFrame(id: _id(1), emoji: '👍', ts: _ts, group: _group),
+      );
+      await _settle();
+
+      expect((await device.store.find(_group, _id(1)))!.reactions, isEmpty);
+    });
+
+    test('an edit from the author applies to its own message', () async {
+      final device = await _open(_carol, group: _groupWith());
+      await device.store.add(_held(_id(1), _carol, text: 'first'));
+
+      device.receive(
+        EditFrame(id: _id(1), ts: _ts, text: 'second', group: _group),
+      );
+      await _settle();
+
+      final message = (await device.store.find(_group, _id(1)))!;
+      expect(message.text, 'second');
+      expect(message.editedAt, _ts);
+    });
+
+    test(
+      'an edit or delete of a message another member wrote is ignored',
+      () async {
+        final device = await _open(_bob, group: _groupWith());
+        await device.store.add(_held(_id(1), _carol, text: 'carol'));
+
+        device.receive(
+          EditFrame(id: _id(1), ts: _ts, text: 'bob', group: _group),
+        );
+        device.receive(DeleteFrame(id: _id(1), ts: _ts, group: _group));
+        await _settle();
+
+        final message = (await device.store.find(_group, _id(1)))!;
+        expect(message.text, 'carol');
+        expect(message.deletedForAll, isFalse);
+        expect(device.ofType<MessageChanged>(), isEmpty);
+      },
+    );
+
+    test('an edit of this device\'s own message is ignored', () async {
+      final device = await _open(_carol, group: _groupWith());
+      await device.store.add(_held(_id(1), _self, text: 'mine'));
+
+      device.receive(
+        EditFrame(id: _id(1), ts: _ts, text: 'changed', group: _group),
+      );
+      await _settle();
+
+      expect((await device.store.find(_group, _id(1)))!.text, 'mine');
+    });
+
+    test(
+      'an edit more than fifteen minutes after its message is ignored',
+      () async {
+        final device = await _open(_carol, group: _groupWith());
+        final sent = _ts - const Duration(minutes: 20).inMilliseconds;
+        await device.store.add(_held(_id(1), _carol, text: 'old', ts: sent));
+
+        device.receive(
+          EditFrame(id: _id(1), ts: _ts, text: 'late', group: _group),
+        );
+        await _settle();
+
+        expect((await device.store.find(_group, _id(1)))!.text, 'old');
+      },
+    );
+
+    test(
+      'a delete from the author clears the text and keeps the record',
+      () async {
+        final device = await _open(_carol, group: _groupWith());
+        await device.store.add(_held(_id(1), _carol, text: 'gone'));
+
+        device.receive(DeleteFrame(id: _id(1), ts: _ts, group: _group));
+        await _settle();
+
+        final message = (await device.store.find(_group, _id(1)))!;
+        expect(message.deletedForAll, isTrue);
+        expect(message.text, isEmpty);
+      },
+    );
+
+    test('a member read receipt marks this device\'s message read under the member', () async {
+      final device = await _open(_bob, group: _groupWith());
+      await device.store.add(_held(_id(1), _self));
+
+      device.receive(ReadFrame(ids: [_id(1)], group: _group));
+      await _settle();
+
+      final message = (await device.store.find(_group, _id(1)))!;
+      expect(message.memberStates, {_bob: ChatState.read});
+      expect(message.state, ChatState.delivered);
+      expect(device.ofType<MessagesRead>().single.group, _group);
+    });
+
+    test(
+      'a read receipt for a message this device did not write is ignored',
+      () async {
+        final device = await _open(_bob, group: _groupWith());
+        await device.store.add(_held(_id(1), _carol));
+
+        device.receive(ReadFrame(ids: [_id(1)], group: _group));
+        await _settle();
+
+        expect(
+          (await device.store.find(_group, _id(1)))!.memberStates,
+          isEmpty,
+        );
+        expect(device.ofType<MessagesRead>(), isEmpty);
+      },
+    );
+
+    test('a read receipt goes only to the author of the message', () async {
+      final toCarol = await _open(_carol, group: _groupWith());
+      final toBob = await _open(_bob, group: _groupWith());
+      await toCarol.store.add(_held(_id(1), _carol));
+
+      await toCarol.session.sendGroupReadReceipts(_group, [_id(1)]);
+      await toBob.session.sendGroupReadReceipts(_group, [_id(1)]);
+      await _settle();
+
+      final sent = toCarol.written.whereType<ReadFrame>().single;
+      expect(sent.ids, [_id(1)]);
+      expect(sent.group, _group);
+      expect(toBob.written.whereType<ReadFrame>(), isEmpty);
+    });
+
+    test(
+      'a read receipt asked for before the author is ready is sent when it is',
+      () async {
+        final device = _Device(_carol, groups: true);
+        await device.store.saveGroup(_groupWith());
+        await device.store.add(_held(_id(1), _carol));
+        device.start();
+        await _settle();
+
+        await device.session.sendGroupReadReceipts(_group, [_id(1)]);
+        expect(device.written.whereType<ReadFrame>(), isEmpty);
+
+        device.receive(const HelloFrame(features: {'groups'}));
+        await _settle();
+
+        final sent = device.written.whereType<ReadFrame>().single;
+        expect(sent.ids, [_id(1)]);
+        expect(sent.group, _group);
+      },
+    );
   });
 }

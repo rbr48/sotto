@@ -138,15 +138,21 @@ final class PeerTyping extends ChatSessionEvent {
 
 /// The other person has read the messages with these [ids].
 final class MessagesRead extends ChatSessionEvent {
-  const MessagesRead(this.ids);
+  const MessagesRead(this.ids, {this.group});
   final List<String> ids;
+
+  /// The group of the messages, or null for one-to-one messages.
+  final String? group;
 }
 
 /// The other person reacted to, edited or deleted the message [id], or this
 /// device starred it. An open chat shows the change by reloading.
 final class MessageChanged extends ChatSessionEvent {
-  const MessageChanged(this.id);
+  const MessageChanged(this.id, {this.group});
   final String id;
+
+  /// The group of the message, or null for a one-to-one message.
+  final String? group;
 }
 
 /// The chat's archived, muted or pinned setting changed on this device. Only
@@ -351,8 +357,16 @@ class ChatSession {
   /// Read receipts asked for before the other device was ready.
   final _pendingReads = <String>{};
 
+  /// Read receipts for group messages asked for before the member was ready,
+  /// by group id.
+  final _pendingGroupReads = <String, Set<String>>{};
+
   /// Whether messages can be sent now.
   bool get isReady => _peerHello && !_ended;
+
+  /// Whether group frames can go to this session's member now.
+  bool get _canSendGroup =>
+      groupsEnabled && _peerFeatures.contains(ChatFrames.featureGroups);
 
   bool get isEnded => _ended;
 
@@ -751,14 +765,37 @@ class ChatSession {
   /// stays within the frame size limit.
   static const maxReceiptsPerFrame = 200;
 
-  void _writeReads(Iterable<String> ids) {
+  void _writeReads(Iterable<String> ids, {String? group}) {
     final all = ids.toList();
     for (var i = 0; i < all.length; i += maxReceiptsPerFrame) {
       final end = i + maxReceiptsPerFrame < all.length
           ? i + maxReceiptsPerFrame
           : all.length;
-      _write(ReadFrame(ids: all.sublist(i, end)));
+      _write(ReadFrame(ids: all.sublist(i, end), group: group));
     }
+  }
+
+  /// Sends read receipts to this session's member for the messages [ids] of the
+  /// group [groupId] that the member wrote. The author alone gets them: a
+  /// message by anyone else is left out, so no member learns of a read it is not
+  /// owed. Receipts asked for before the member is ready go when it is.
+  Future<void> sendGroupReadReceipts(String groupId, List<String> ids) async {
+    if (_ended || ids.isEmpty || !groupsEnabled) return;
+    final owed = <String>[];
+    for (final id in ids) {
+      final message = await store.find(groupId, id);
+      if (message != null &&
+          !message.outgoing &&
+          message.authorId == contactId) {
+        owed.add(id);
+      }
+    }
+    if (owed.isEmpty || _ended) return;
+    if (!isReady) {
+      _pendingGroupReads.putIfAbsent(groupId, () => <String>{}).addAll(owed);
+      return;
+    }
+    if (_canSendGroup) _writeReads(owed, group: groupId);
   }
 
   /// Takes a message off the outbox, so it is not sent after it was deleted.
@@ -937,6 +974,11 @@ class ChatSession {
     return sent;
   }
 
+  /// Whether the message [m] was written by this session's member, so the
+  /// member may edit or delete it. In a group, that is the message's author.
+  bool _peerWrote(ChatMessage m) =>
+      !m.outgoing && (m.groupId == null || m.authorId == contactId);
+
   /// Whether [frame] is a group frame, which only a session with groups on
   /// handles.
   static bool _isGroupFrame(ChatFrame frame) => switch (frame) {
@@ -1024,12 +1066,7 @@ class ChatSession {
     // A group frame is ignored when groups are off, as an old app ignores it.
     if (!groupsEnabled && _isGroupFrame(frame)) return;
     switch (frame) {
-      case GroupStateFrame() ||
-          ReactFrame(group: != null) ||
-          EditFrame(group: != null) ||
-          DeleteFrame(group: != null) ||
-          AckFrame(group: != null) ||
-          ReadFrame(group: != null):
+      case GroupStateFrame() || AckFrame(group: != null):
         break;
       case final GroupMsgFrame groupFrame:
         if (!_peerHello) return;
@@ -1050,6 +1087,10 @@ class ChatSession {
           _writeReads(_pendingReads);
           _pendingReads.clear();
         }
+        for (final entry in _pendingGroupReads.entries) {
+          if (_canSendGroup) _writeReads(entry.value, group: entry.key);
+        }
+        _pendingGroupReads.clear();
       case MessageFrame(
         :final id,
         :final ts,
@@ -1101,13 +1142,32 @@ class ChatSession {
       case TypingFrame(:final typing):
         if (!_peerHello) return;
         _events.add(PeerTyping(typing));
-      case ReadFrame(:final ids):
+      case ReadFrame(:final ids, :final group):
         if (!_peerHello) return;
-        final at = clock().millisecondsSinceEpoch;
-        for (final id in ids) {
-          await store.setStateAt(contactId, id, ChatState.read, at: at);
+        if (group == null) {
+          final at = clock().millisecondsSinceEpoch;
+          for (final id in ids) {
+            await store.setStateAt(contactId, id, ChatState.read, at: at);
+          }
+          _events.add(MessagesRead(ids));
+        } else {
+          if (await _groupWithSender(group) == null) return;
+          // A member reads only what this device wrote, so a receipt for any
+          // other message is ignored.
+          final read = <String>[];
+          for (final id in ids) {
+            final message = await store.find(group, id);
+            if (message == null || !message.outgoing) continue;
+            await store.setState(
+              group,
+              id,
+              ChatState.read,
+              memberId: contactId,
+            );
+            read.add(id);
+          }
+          if (read.isNotEmpty) _events.add(MessagesRead(read, group: group));
         }
-        _events.add(MessagesRead(ids));
       case FileOfferFrame(
         :final id,
         :final name,
@@ -1257,46 +1317,59 @@ class ChatSession {
           await store.updateMessage(existing.copyWith(fileStatus: 'cancelled'));
           _events.add(FileTransferFailed(id, reason ?? 'cancelled'));
         }
-      case ReactFrame(:final id, :final emoji):
+      case ReactFrame(:final id, :final emoji, :final group):
         if (!_peerHello) return;
         // An unknown message, or one deleted for everyone, is ignored. The
-        // reaction can be on either person's message in this chat.
-        final reacted = await store.changeMessage(
-          contactId,
-          id,
-          (m) => m.deletedForAll ? null : m.withReaction('peer', emoji),
-        );
-        if (reacted) _events.add(MessageChanged(id));
-      case EditFrame(:final id, :final ts, :final text):
+        // reaction can be on either person's message in this chat. In a group it
+        // is kept under the member's id, and only an accepted member can react.
+        if (group == null) {
+          final reacted = await store.changeMessage(
+            contactId,
+            id,
+            (m) => m.deletedForAll ? null : m.withReaction('peer', emoji),
+          );
+          if (reacted) _events.add(MessageChanged(id));
+        } else {
+          if (await _groupWithSender(group) == null) return;
+          final reacted = await store.changeMessage(
+            group,
+            id,
+            (m) => m.deletedForAll ? null : m.withReaction(contactId, emoji),
+          );
+          if (reacted) _events.add(MessageChanged(id, group: group));
+        }
+      case EditFrame(:final id, :final ts, :final text, :final group):
         if (!_peerHello) return;
         // A control dated too far from this device's clock is refused (see
         // ChatFrames.isCurrent), so an old one cannot rewrite a message.
         if (!ChatFrames.isCurrent(ts, clock().millisecondsSinceEpoch)) return;
+        if (group != null && await _groupWithSender(group) == null) return;
         // Only the contact's own text messages can be edited, and only within
         // the window measured from when they were sent.
-        final edited = await store.changeMessage(contactId, id, (m) {
-          if (m.outgoing || m.deletedForAll || m.isAttachment) return null;
+        final edited = await store.changeMessage(group ?? contactId, id, (m) {
+          if (!_peerWrote(m) || m.deletedForAll || m.isAttachment) return null;
           if (!ChatFrames.withinWindow(m.ts, ts, editWindow)) return null;
           return m.copyWith(text: text, editedAt: ts);
         });
         if (edited) {
           // The replies to it still in the outbox quote the new text.
           setQuotesOf(id, ChatFrames.quoteText(text));
-          _events.add(MessageChanged(id));
+          _events.add(MessageChanged(id, group: group));
         }
-      case DeleteFrame(:final id, :final ts):
+      case DeleteFrame(:final id, :final ts, :final group):
         if (!_peerHello) return;
         if (!ChatFrames.isCurrent(ts, clock().millisecondsSinceEpoch)) return;
+        if (group != null && await _groupWithSender(group) == null) return;
         // The same rules as an edit. A message stays on record, with no text,
         // and no reply to it keeps its text.
-        final deleted = await store.changeMessage(contactId, id, (m) {
-          if (m.outgoing || m.deletedForAll || m.isAttachment) return null;
+        final deleted = await store.changeMessage(group ?? contactId, id, (m) {
+          if (!_peerWrote(m) || m.deletedForAll || m.isAttachment) return null;
           if (!ChatFrames.withinWindow(m.ts, ts, deleteWindow)) return null;
           return m.copyWith(text: '', deletedForAll: true, reactions: const {});
         });
         if (deleted) {
           setQuotesOf(id, '');
-          _events.add(MessageChanged(id));
+          _events.add(MessageChanged(id, group: group));
         }
       case ByeFrame():
         await _end('bye');
