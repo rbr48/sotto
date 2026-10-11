@@ -422,11 +422,14 @@ copy at once. It is sent to the contact over the chat, never through the relay:
   when its message is gone, when a reaction or edit is on a message deleted
   for everyone, or when an edit or delete is more than seven days old by its
   own `ts` on the sender's clock, since the contact would refuse it (see
-  "Current" above). The windows are not checked again when the control is
-  sent: an edit or delete made within its window is sent when a chat opens,
-  even after the window has closed, because the contact checks the control's
-  `ts`, not the time it arrives. A contact offline for longer than seven days
-  does not get an edit or delete made in that time; its copy stays as it was.
+  "Current" above). A delete is the exception to "its message is gone": it is
+  sent even when this device no longer holds the message (for example, after
+  it was deleted for me), because the contact may still hold it. The windows
+  are not checked again when the control is sent: an edit or delete made
+  within its window is sent when a chat opens, even after the window has
+  closed, because the contact checks the control's `ts`, not the time it
+  arrives. A contact offline for longer than seven days does not get an edit
+  or delete made in that time; its copy stays as it was.
   A message it has not stored yet is the exception: it goes with its newest
   text (see above).
 

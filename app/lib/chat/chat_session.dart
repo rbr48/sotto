@@ -792,8 +792,9 @@ class ChatSession {
   /// Sends the pending controls that can go now, and drops those that can
   /// never go:
   ///
-  /// - a control whose message is gone is dropped, and so is a reaction or an
-  ///   edit on a message deleted for everyone;
+  /// - a reaction or an edit whose message is gone is dropped, and so is one on
+  ///   a message deleted for everyone. A delete is sent even when its message
+  ///   is gone here: the other side may still hold the message;
   /// - an edit or a delete more than [controlLifetime] old by its own `ts` is
   ///   dropped, since the other side would refuse it. Its window (15 minutes or
   ///   an hour after the message) was checked when it was made, and it is not
@@ -813,14 +814,19 @@ class ChatSession {
       final tooOld =
           control is! ReactFrame &&
           now - control.ts > controlLifetime.inMilliseconds;
-      if (target == null ||
-          (control is! DeleteFrame && target.deletedForAll) ||
-          tooOld) {
+      // A delete goes even when its message is no longer held here (it may have
+      // been deleted for me since): the other side may still hold the message,
+      // and it ignores a delete for a message it lacks.
+      final dropped = control is DeleteFrame
+          ? tooOld
+          : target == null || target.deletedForAll || tooOld;
+      if (dropped) {
         await store.removeControl(contactId, control);
         continue;
       }
       if (!_peerFeatures.contains(_featureOf(control))) continue;
       final stored =
+          target == null ||
           !target.outgoing ||
           target.state == ChatState.delivered ||
           target.state == ChatState.read;

@@ -1692,6 +1692,37 @@ void main() {
       expect(await bobStore.find('alice', secret.id), isNull);
     });
 
+    test('a delete still reaches a contact that holds the message when it is deleted for me too', () async {
+      final aliceStore = ChatStore(MemorySecretStore());
+      final bobStore = ChatStore(MemorySecretStore());
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      final secret = await notSentText(alice, aliceStore, 'top secret');
+      // Bob holds the text already: Alice has not had its acknowledgement.
+      await bobStore.add(
+        ChatMessage(
+          id: secret.id,
+          contactId: 'alice',
+          outgoing: false,
+          ts: secret.ts,
+          text: 'top secret',
+          state: ChatState.received,
+          read: false,
+          arrivedAt: now.millisecondsSinceEpoch,
+        ),
+      );
+      expect(await alice.deleteForEveryone('bob', secret.id), isTrue);
+      await alice.deleteMessage('bob', secret.id);
+
+      device('bob', contacts: {'alice'}, store: bobStore);
+      await alice.sendText('bob', 'hello');
+      await _settle();
+
+      final kept = (await bobStore.find('alice', secret.id))!;
+      expect(kept.deletedForAll, isTrue);
+      expect(kept.text, isEmpty);
+      expect(await aliceStore.pendingControls('bob'), isEmpty);
+    });
+
     test(
       'the relay retry does not count messages deleted for everyone',
       () async {
@@ -1870,6 +1901,50 @@ void main() {
         (await aliceStore.find('bob', message.id))!.state,
         ChatState.delivered,
       );
+    });
+
+    test('after seven days an edit made before the contact says hello still goes out as the new text', () async {
+      // The text waits in the session's outbox, a copy the store does not
+      // refresh, so the edit has to reach that copy as well.
+      final aliceStore = ChatStore(MemorySecretStore());
+      final bobStore = ChatStore(
+        _SlowSecrets(const Duration(milliseconds: 200)),
+      );
+      final alice = device('alice', contacts: {'bob'}, store: aliceStore);
+      net.relayText = false;
+      await bobStore.add(
+        ChatMessage(
+          id: _id(50),
+          contactId: 'alice',
+          outgoing: true,
+          ts: now.millisecondsSinceEpoch,
+          text: 'from bob',
+          state: ChatState.queued,
+        ),
+      );
+      device('bob', contacts: {'alice'}, store: bobStore);
+
+      final message = await alice.sendText('bob', 'first try');
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(await alice.edit('bob', message.id, 'second try'), isTrue);
+
+      // The edit control is more than seven days old when Bob says hello,
+      // so it is dropped. What goes out is the new text, with no mark.
+      now = now.add(const Duration(days: 8));
+      await Future<void>.delayed(const Duration(seconds: 1));
+      await _settle();
+
+      final sent = net.rtcs['alice']!
+          .expand((rtc) => rtc.sentFrames)
+          .map(ChatFrames.decode)
+          .whereType<MessageFrame>()
+          .where((f) => f.id == message.id)
+          .map((f) => f.text)
+          .toList();
+      expect(sent, ['second try']);
+      final received = (await bobStore.find('alice', message.id))!;
+      expect(received.text, 'second try');
+      expect(received.editedAt, isNull);
     });
   });
 
