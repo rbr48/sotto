@@ -7,10 +7,13 @@ import 'package:sotto/chat/chat_frames.dart';
 import 'package:sotto/chat/chat_manager.dart';
 import 'package:sotto/chat/chat_store.dart';
 import 'package:sotto/chat/ui/chat_page.dart';
+import 'package:sotto/contacts/contact_book.dart';
 import 'package:sotto/core/l10n/app_localizations.dart';
 import 'package:sotto/core/l10n/language.dart';
 import 'package:sotto/core/theme.dart';
 import 'package:sotto/crypto/identity_store.dart';
+
+import 'support/group_fixtures.dart';
 
 int _ms(int year, int month, int day, [int hour = 0, int minute = 0]) =>
     DateTime(year, month, day, hour, minute).millisecondsSinceEpoch;
@@ -79,6 +82,8 @@ Future<void> _pump(
   double textScale = 1,
   TextDirection? direction,
   bool dark = false,
+  String? groupId,
+  ContactBook? contacts,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -98,9 +103,12 @@ Future<void> _pump(
       },
       home: ChatPage(
         chat: chat,
-        contactId: 'bob',
+        contactId: groupId ?? 'bob',
         name: name,
         verified: verified,
+        groupId: groupId,
+        groupsEnabled: groupId != null,
+        contacts: contacts,
       ),
     ),
   );
@@ -984,8 +992,18 @@ void main() {
   });
 
   group('the golden matrix', () {
+    // The group of the group states: you, Anna and Ben, all in.
+    final anna = memberId(2);
+    final ben = memberId(3);
+    final goldenGroup = groupOf(
+      id: 'Z3JvdXAtZ29sZGVuLWlkAA',
+      name: 'Weekend trip',
+      others: [anna, ben],
+    );
+
     // One picture per light or dark, direction, language and text scale. Each
-    // picture holds every state in section 11 of the spec.
+    // picture holds every state in section 11 of the spec. The group states
+    // are in the group's own picture, since a page shows one chat.
     List<ChatMessage> allStates() => [
       _message(
         'Salaam, how are you?',
@@ -1065,7 +1083,59 @@ void main() {
         state: ChatState.delivered,
         ts: _ms(2026, 10, 9, 9, 10),
       ).copyWith(deletedForAll: true),
+      // Group states: the sender line on incoming bubbles (once per run), and
+      // the delivery of your message to all, to some, and read by all.
+      groupMessage(
+        goldenGroup,
+        author: anna,
+        text: 'Who is bringing the tent?',
+        ts: _ms(2026, 10, 9, 9, 20),
+      ),
+      groupMessage(
+        goldenGroup,
+        author: anna,
+        text: 'And the stove',
+        ts: _ms(2026, 10, 9, 9, 21),
+      ),
+      groupMessage(
+        goldenGroup,
+        author: ben,
+        text: 'I have both',
+        ts: _ms(2026, 10, 9, 9, 22),
+      ),
+      groupMessage(
+        goldenGroup,
+        author: selfId,
+        text: 'Delivered to everyone',
+        ts: _ms(2026, 10, 9, 9, 23),
+        memberStates: {anna: ChatState.delivered, ben: ChatState.delivered},
+      ),
+      groupMessage(
+        goldenGroup,
+        author: selfId,
+        text: 'Only one has this',
+        ts: _ms(2026, 10, 9, 9, 24),
+        memberStates: {anna: ChatState.delivered, ben: ChatState.sending},
+      ),
+      groupMessage(
+        goldenGroup,
+        author: selfId,
+        text: 'Both have read this',
+        ts: _ms(2026, 10, 9, 9, 25),
+        memberStates: {anna: ChatState.read, ben: ChatState.read},
+      ),
     ];
+
+    /// Saves the golden group and every state into [chat]'s store.
+    Future<void> storeAll(ChatManager chat) async {
+      await chat.store.saveGroup(goldenGroup);
+      for (final message in allStates()) {
+        await chat.store.add(message);
+        if (message.voiceNote) {
+          chat.store.rememberVoice(message.id, Uint8List(44));
+        }
+      }
+    }
 
     for (final dark in [false, true]) {
       for (final rtl in [false, true]) {
@@ -1081,14 +1151,7 @@ void main() {
             testWidgets('the chat, $name', (tester) async {
               _setScreen(tester, 360, 1300);
               final goldenChat = _chatWith();
-              await tester.runAsync(() async {
-                for (final message in allStates()) {
-                  await goldenChat.store.add(message);
-                  if (message.voiceNote) {
-                    goldenChat.store.rememberVoice(message.id, Uint8List(44));
-                  }
-                }
-              });
+              await tester.runAsync(() => storeAll(goldenChat));
               await _pump(
                 tester,
                 goldenChat,
@@ -1102,6 +1165,46 @@ void main() {
               await expectLater(
                 find.byType(ChatPage),
                 matchesGoldenFile('goldens/chat_$name.png'),
+              );
+              await _unmount(tester, goldenChat);
+            });
+            testWidgets('the group chat, $name', (tester) async {
+              _setScreen(tester, 360, 900);
+              final store = ChatStore(MemorySecretStore());
+              final goldenChat = groupChat(
+                store: store,
+                clock: () => DateTime(2026, 10, 9, 12),
+              );
+              final book = ContactBook(MemorySecretStore());
+              await tester.runAsync(() async {
+                await storeAll(goldenChat);
+                await book.add(
+                  contactOf('Anna', 2).identity,
+                  name: code == 'bn'
+                      ? 'মোহাম্মদ আব্দুর রহমান আল-হাশিমি'
+                      : 'Anna',
+                );
+                await book.add(contactOf('Ben', 3).identity, name: 'Ben');
+              });
+              await _pump(
+                tester,
+                goldenChat,
+                name: goldenGroup.name,
+                locale: locale,
+                textScale: scale,
+                direction: rtl ? TextDirection.rtl : null,
+                dark: dark,
+                groupId: goldenGroup.id,
+                contacts: book,
+              );
+              await tester.runAsync(
+                () => Future<void>.delayed(const Duration(milliseconds: 20)),
+              );
+              await tester.pump();
+              expect(tester.takeException(), isNull);
+              await expectLater(
+                find.byType(ChatPage),
+                matchesGoldenFile('goldens/group_$name.png'),
               );
               await _unmount(tester, goldenChat);
             });
@@ -1122,6 +1225,9 @@ void main() {
     'lib/chat/ui/message_info_sheet.dart',
     'lib/chat/ui/starred_page.dart',
     'lib/chat/ui/export_dialog.dart',
+    'lib/chat/ui/group_create_page.dart',
+    'lib/chat/ui/group_info_sheet.dart',
+    'lib/chat/ui/group_ui.dart',
   ]) {
     test('$file carries no green, cyan or amber, and no unbacked claim', () {
       final source = File(file).readAsStringSync();
