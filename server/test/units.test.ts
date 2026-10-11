@@ -63,7 +63,9 @@ describe('relay name', () => {
   });
 
   it('is required: the relay refuses to start without one', () => {
-    expect(() => createRelayServer({ ...loadConfig({}), port: 0 })).toThrow('SOTTO_DOMAIN must be set');
+    expect(() => createRelayServer({ ...loadConfig({}), port: 0 })).toThrow(
+      'SOTTO_DOMAIN must be set',
+    );
   });
 });
 

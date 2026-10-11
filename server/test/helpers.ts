@@ -57,13 +57,15 @@ export class TestClient {
   }
 
   /** Connects and completes the challenge-response login. */
-  static async login(url: string, identity: TestIdentity, server = TEST_SERVER_NAME): Promise<TestClient> {
+  static async login(
+    url: string,
+    identity: TestIdentity,
+    server = TEST_SERVER_NAME,
+  ): Promise<TestClient> {
     const client = await TestClient.connect(url);
     const challenge = await client.next();
     const nonce = Buffer.from(challenge.nonce as string, 'base64url');
-    const sig = sign(null, authMessage(nonce, server), identity.privateKey).toString(
-      'base64url',
-    );
+    const sig = sign(null, authMessage(nonce, server), identity.privateKey).toString('base64url');
     client.send({ type: 'auth', id: identity.id, sig });
     return client;
   }
