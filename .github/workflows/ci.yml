@@ -45,7 +45,7 @@ jobs:
         working-directory: server
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 26
           cache: npm
@@ -116,7 +116,7 @@ jobs:
           grep -o "notocoloremoji/[^']*" "$data" | sort >/tmp/engine-emoji
           awk '{print $2}' infra/fonts/fallback.sha256 | sort >/tmp/served-emoji
           diff /tmp/engine-emoji /tmp/served-emoji || { echo "update infra/fonts/fallback.sha256"; exit 1; }
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 26
       - name: Start TURN, relay and web server
