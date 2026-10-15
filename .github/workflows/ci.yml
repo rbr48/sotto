@@ -180,7 +180,7 @@ jobs:
           dpkg-deb --info dist/sotto-linux-amd64.deb
           sudo apt-get install -y ./dist/sotto-linux-amd64.deb
           test -x /opt/sotto/sotto && test -f /usr/share/applications/com.izhaanintellect.sotto.desktop
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: sotto-linux
           path: |
@@ -203,7 +203,7 @@ jobs:
           cache: true
       - working-directory: app
         run: flutter build apk --debug
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: sotto-android-debug
           path: app/build/app/outputs/flutter-apk/app-debug.apk
@@ -225,7 +225,7 @@ jobs:
         run: |
           $version = (Select-String -Path app/pubspec.yaml -Pattern '^version: ([0-9.]+)').Matches[0].Groups[1].Value
           ./packaging/windows/build-installer.ps1 -Version $version
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: sotto-windows
           path: dist/sotto-windows-x64-setup.exe
