@@ -38,7 +38,7 @@ dependencies:
   cupertino_icons: ^2.0.0
   flutter_webrtc: ^1.6.2+hotfix.4
   web_socket_channel: ^3.0.3
-  sodium: ^4.1.1+2
+  sodium: ^4.1.2
   flutter_secure_storage: ^11.2.0
   web: ^1.1.1
   path_provider: ^2.1.6
