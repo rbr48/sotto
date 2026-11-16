@@ -3,13 +3,17 @@ import { WebSocket } from 'ws';
 import { loadConfig, type Config } from '../src/config.js';
 import { authMessage } from '../src/relay/auth.js';
 import { DEFAULT_LIMITS, type RelayLimits } from '../src/relay/relay.js';
+import type { QueueLimits } from '../src/relay/queue.js';
 import { createRelayServer, type RelayServer } from '../src/server.js';
 
 /** The name the test relay answers to, signed into every login. */
 export const TEST_SERVER_NAME = 'relay.test';
 
+/** Limits for a test relay: any of them, and any queue setting on its own. */
+export type TestLimits = Partial<Omit<RelayLimits, 'queue'>> & { queue?: Partial<QueueLimits> };
+
 export async function startServer(
-  options: { config?: Partial<Config>; limits?: Partial<RelayLimits> } = {},
+  options: { config?: Partial<Config>; limits?: TestLimits } = {},
 ): Promise<{ server: RelayServer; port: number; url: string }> {
   const config = {
     ...loadConfig({ SOTTO_DOMAIN: TEST_SERVER_NAME }),
@@ -17,7 +21,12 @@ export async function startServer(
     port: 0,
     ...options.config,
   };
-  const server = createRelayServer(config, { ...DEFAULT_LIMITS, ...options.limits });
+  const limits: RelayLimits = {
+    ...DEFAULT_LIMITS,
+    ...options.limits,
+    queue: { ...DEFAULT_LIMITS.queue, ...options.limits?.queue },
+  };
+  const server = createRelayServer(config, limits);
   const port = await server.listen();
   return { server, port, url: `ws://127.0.0.1:${port}/relay` };
 }
@@ -48,9 +57,10 @@ export class TestClient {
     this.closed = new Promise((resolve) => ws.once('close', resolve));
   }
 
-  static connect(url: string): Promise<TestClient> {
+  /** Connects; `localAddress` picks the client's own address (on Linux, any 127.x.y.z works). */
+  static connect(url: string, localAddress?: string): Promise<TestClient> {
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(url);
+      const ws = new WebSocket(url, localAddress === undefined ? undefined : { localAddress });
       ws.once('open', () => resolve(new TestClient(ws)));
       ws.once('error', reject);
     });
@@ -61,8 +71,9 @@ export class TestClient {
     url: string,
     identity: TestIdentity,
     server = TEST_SERVER_NAME,
+    localAddress?: string,
   ): Promise<TestClient> {
-    const client = await TestClient.connect(url);
+    const client = await TestClient.connect(url, localAddress);
     const challenge = await client.next();
     const nonce = Buffer.from(challenge.nonce as string, 'base64url');
     const sig = sign(null, authMessage(nonce, server), identity.privateKey).toString('base64url');

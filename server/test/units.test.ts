@@ -23,18 +23,72 @@ describe('isValidId', () => {
 });
 
 describe('MessageQueue', () => {
+  const limits = { ttlMs: 10, maxPerRecipient: 5, maxTotalBytes: 6, maxBytesPerSource: 100 };
+
   it('expires messages and keeps byte accounting consistent', () => {
     let now = 0;
-    const queue = new MessageQueue({ ttlMs: 10, maxPerRecipient: 5, maxTotalBytes: 6 }, () => now);
-    expect(queue.push('bob', 'alice', 'abc')).toBe(true);
-    expect(queue.push('bob', 'alice', 'def')).toBe(true);
-    expect(queue.push('carol', 'alice', 'g')).toBe(false); // over total bytes
+    const queue = new MessageQueue(limits, () => now);
+    expect(queue.push('bob', 'alice', 'abc', 's')).toBe(true);
+    expect(queue.push('bob', 'alice', 'def', 's')).toBe(true);
+    expect(queue.push('carol', 'alice', 'g', 's')).toBe(false); // over total bytes
     now = 11;
     queue.prune();
     expect(queue.size).toBe(0);
-    expect(queue.push('carol', 'alice', 'abcdef')).toBe(true); // bytes were released
-    expect(queue.take('carol').map((m) => m.body)).toEqual(['abcdef']);
-    expect(queue.take('carol')).toEqual([]);
+    expect(queue.push('carol', 'alice', 'abcdef', 's')).toBe(true); // bytes were released
+    expect(queue.undelivered('carol', 1).map((m) => m.body)).toEqual(['abcdef']);
+    expect(queue.undelivered('carol', 1)).toEqual([]);
+  });
+
+  it('gives each connection each envelope once', () => {
+    const queue = new MessageQueue(limits, () => 0);
+    queue.push('bob', 'alice', 'one', 's');
+    expect(queue.undelivered('bob', 1).map((m) => m.body)).toEqual(['one']);
+    expect(queue.undelivered('bob', 2).map((m) => m.body)).toEqual(['one']);
+    queue.push('bob', 'alice', 'two', 's');
+    expect(queue.undelivered('bob', 1).map((m) => m.body)).toEqual(['two']);
+    expect(queue.size).toBe(2); // held until they expire, not on delivery
+  });
+
+  it('caps what one source may hold, and releases its share on expiry', () => {
+    let now = 0;
+    const queue = new MessageQueue(
+      { ttlMs: 10, maxPerRecipient: 50, maxTotalBytes: 1000, maxBytesPerSource: 5 },
+      () => now,
+    );
+    expect(queue.push('bob', 'alice', 'abc', 'addr')).toBe(true);
+    expect(queue.push('bob', 'alice', 'defg', 'addr')).toBe(false); // 3 + 4 > 5
+    expect(queue.push('bob', 'alice', 'de', 'other')).toBe(true); // another source is fine
+    now = 11;
+    expect(queue.push('bob', 'alice', 'fghij', 'addr')).toBe(true); // share released
+  });
+
+  it('expires in order, and never lets a clock that steps back extend a message', () => {
+    let now = 0;
+    const queue = new MessageQueue({ ...limits, maxTotalBytes: 100 }, () => now);
+    expect(queue.push('bob', 'alice', 'early', 's')).toBe(true);
+    now = 5;
+    expect(queue.push('bob', 'alice', 'late', 's')).toBe(true);
+    now = -100; // the device clock was set back
+    expect(queue.undelivered('bob', 1).map((m) => m.body)).toEqual(['early', 'late']);
+    now = 10; // 'early' was queued at 0 and expires at 10, whatever the clock said since
+    expect(queue.undelivered('bob', 2).map((m) => m.body)).toEqual(['late']);
+    now = 15;
+    expect(queue.undelivered('bob', 3)).toEqual([]);
+    expect(queue.size).toBe(0);
+  });
+
+  it('keeps working through many expirations (no full scan per push)', () => {
+    let now = 0;
+    const queue = new MessageQueue(
+      { ttlMs: 5, maxPerRecipient: 50, maxTotalBytes: 1e9, maxBytesPerSource: 1e9 },
+      () => now,
+    );
+    for (let tick = 0; tick < 20_000; tick++) {
+      now = tick;
+      expect(queue.push(`r${tick % 100}`, 'alice', 'x', 's')).toBe(true);
+    }
+    // Only the last five ticks' envelopes are still alive.
+    expect(queue.size).toBe(5);
   });
 });
 
