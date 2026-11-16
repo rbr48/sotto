@@ -50,7 +50,7 @@ dependencies:
   local_notifier: ^0.1.6
   clock: ^1.1.2
   url_launcher: ^6.3.3
-  wakelock_plus: ^1.8.1
+  wakelock_plus: ^1.8.2
   flutter_localizations:
     sdk: flutter
   intl: ^0.20.3
