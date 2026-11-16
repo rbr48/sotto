@@ -259,7 +259,7 @@ class AppController extends ChangeNotifier {
   /// Starts downloading the update package in the background.
   Future<void> startUpdateDownload() async {
     final update = availableUpdate;
-    if (update == null || update.assetUrl == null) return;
+    if (update == null || !update.canInstallInApp) return;
     _isDownloadingUpdate = true;
     _updateProgress = 0.0;
     _updateError = null;
@@ -642,12 +642,21 @@ class AppController extends ChangeNotifier {
     final kept = {
       for (final key in Backup.deviceOnlyKeys) key: ?await vault.read(key),
     };
-    await _keystore.write(
-      IdentityStore.masterSecretKey,
-      b64Encode(contents.masterSecret),
-    );
-    contents.masterSecret.fillRange(0, contents.masterSecret.length, 0);
-    await vault.replaceAll({...contents.values, ...kept});
+    final before = vault.snapshot();
+    try {
+      // The vault first, then the identity: if the second write fails, the
+      // vault goes back, so the identity and its data still belong together.
+      await vault.replaceAll({...Backup.restorable(contents.values), ...kept});
+      await _keystore.write(
+        IdentityStore.masterSecretKey,
+        b64Encode(contents.masterSecret),
+      );
+    } catch (_) {
+      await vault.replaceAll(before);
+      rethrow;
+    } finally {
+      contents.masterSecret.fillRange(0, contents.masterSecret.length, 0);
+    }
     await start();
   }
 

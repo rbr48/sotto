@@ -25,6 +25,18 @@ void main() {
         memLimit: mem,
       );
 
+  test('a backup cannot set this device\'s own settings', () {
+    expect(
+      Backup.restorable({
+        'sotto.lock.v1': '{"hash":"attacker"}',
+        'sotto.devices.v1': '{}',
+        'sotto.settings.desktop': '1',
+        'sotto.profile.v1': 'profile',
+      }),
+      {'sotto.profile.v1': 'profile'},
+    );
+  });
+
   test('round trip with the default Argon2id cost', () {
     final text = Backup.create(
       sodium,

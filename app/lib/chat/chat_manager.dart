@@ -731,9 +731,13 @@ class ChatManager {
         read: false,
         arrivedAt: arrived,
       );
-      await store.add(message);
-      _emit(ChatUpdate(from, MessageReceived(message)));
-      _log('chat: text received through the relay');
+      // A copy that arrived again while this one was being stored is not new:
+      // the store keeps one, and only the first is announced.
+      final stored = await store.addNew(message);
+      if (stored != null) {
+        _emit(ChatUpdate(from, MessageReceived(stored)));
+        _log('chat: text received through the relay');
+      }
     }
     send(from, relayTextAck, {'id': messageId}, null);
   }
