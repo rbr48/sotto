@@ -1178,6 +1178,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   Future<void> _openFile(ChatMessage message) async {
     final l10n = AppLocalizations.of(context);
     final failed = l10n.chatFileOpenFailed;
+    // A program or a script is never handed to another app, on any platform,
+    // and no decrypted copy of it is made.
+    if (ChatFrames.isBlockedFileType(message.fileName ?? '')) {
+      _showSnack(l10n.chatFileTypeCannotOpen);
+      return;
+    }
     try {
       if (kIsWeb) {
         final bytes = await widget.chat.store.readFile(message);
