@@ -281,7 +281,20 @@ check '... and without its own IP denied when none is set' bash -c "! grep -q 19
 env PATH="$WORK/bin:$PATH" WORK="$WORK" SOTTO_DOMAIN=calls.example.org SOTTO_TURN_SECRET=x \
   SOTTO_CERT_DIR="$WORK/none" SOTTO_TURN_EXTERNAL_IP=198.51.100.20 sh "$START" >/dev/null
 check 'coturn refuses relaying to its external IP' grep -qx -- '--denied-peer-ip=198.51.100.20' "$WORK/turnserver-args"
+check 'coturn refuses the documentation and 6to4 ranges' bash -c "grep -qx -- '--denied-peer-ip=192.0.2.0-192.0.2.255' '$WORK/turnserver-args' && grep -qx -- '--denied-peer-ip=203.0.113.0-203.0.113.255' '$WORK/turnserver-args' && grep -qx -- '--denied-peer-ip=192.88.99.0-192.88.99.255' '$WORK/turnserver-args'"
 rm -rf "$WORK"
+
+# TURN ports set in .env: the firewall opens that range, and a reinstall keeps it.
+setup
+printf 'SOTTO_DOMAIN=calls.example.org\nSOTTO_TURN_SECRET=%064d\nSOTTO_TURN_MIN_PORT=50000\nSOTTO_TURN_MAX_PORT=50200\n' 0 >"$WORK/infra/.env"
+installer install --domain calls.example.org --yes >/dev/null 2>&1 || true
+check 'opens the TURN ports set in .env' has "$WORK/log" 'ufw allow 50000:50200/udp'
+check 'keeps the TURN ports set in .env' grep -qx 'SOTTO_TURN_MIN_PORT=50000' "$WORK/infra/.env"
+rm -rf "$WORK"
+
+# Docker is installed from the internet only when asked for, never by --yes.
+check 'Docker is installed by a script only with --install-docker or at a terminal' grep -q 'ASSUME_YES == 0 && -t 0' "$INSTALL"
+check 'the --install-docker option exists' grep -q -- '--install-docker)' "$INSTALL"
 
 if [[ $FAILED == 1 ]]; then
   echo 'install.sh tests FAILED'

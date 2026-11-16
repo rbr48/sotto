@@ -48,8 +48,13 @@ set -- \
   --denied-peer-ip=172.16.0.0-172.31.255.255 \
   --denied-peer-ip=192.0.0.0-192.0.0.255 \
   --denied-peer-ip=192.168.0.0-192.168.255.255 \
+  --denied-peer-ip=192.0.2.0-192.0.2.255 \
+  --denied-peer-ip=192.88.99.0-192.88.99.255 \
   --denied-peer-ip=198.18.0.0-198.19.255.255 \
+  --denied-peer-ip=198.51.100.0-198.51.100.255 \
+  --denied-peer-ip=203.0.113.0-203.0.113.255 \
   --denied-peer-ip=240.0.0.0-255.255.255.255 \
+  --denied-peer-ip=:: \
   --denied-peer-ip=::1 \
   --denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff \
   --denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff \

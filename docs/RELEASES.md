@@ -45,6 +45,22 @@ Android installs an update only if it is signed with **the same key** as the ins
    and add it under **Settings → Secrets and variables → Actions → Variables** as `ANDROID_CERT_SHA256` (with or without colons). From then on a release signed with any other key fails.
 6. Delete `sotto-release.jks.b64` from your computer once the secret is saved.
 
+## One-time setup: the update signing key (desktop)
+
+The Windows and Linux apps install an update by themselves, and they run it only when the release is signed with **the release key**: `SHA256SUMS.txt` is signed (Ed25519, `SHA256SUMS.txt.sig`), the app holds the public half, and it checks the installer against the signed list before it runs anything. A release that isn't signed still works, but the apps of that build won't install it themselves; they point to the release page.
+
+1. Create the key on your own computer (needs Node.js 22 or newer):
+   ```bash
+   node tools/release/sign-sums.mjs --generate
+   ```
+   It prints two lines: the secret seed and the public key.
+2. **Keep the seed secret and back it up** in two safe places. If it is lost, the apps of this key can no longer be updated in the app; if it leaks, someone else can sign an update.
+3. In GitHub: **Settings → Secrets and variables → Actions**, add the seed as the secret `UPDATE_SIGNING_KEY`, and the public key as the **variable** `UPDATE_PUBLIC_KEY`.
+4. Protect the `release` environment (**Settings → Environments → release**): add required reviewers, so that only an approved release job can read the seed.
+5. Builds made from then on carry the public key (`--dart-define=SOTTO_UPDATE_PUBLIC_KEY`). The release job refuses to publish a key-carrying build without the seed, so the two can't drift apart.
+
+An installed app trusts only the key it was built with, so changing the key takes two releases: first one signed with the old key whose builds carry the new public key, then releases signed with the new key. Users who haven't updated yet download the new version by hand in the meantime.
+
 ## Making a release
 
 1. Raise the version in `app/pubspec.yaml`, both parts: `version: 0.1.2+3`. The part after `+` is Android's version code and must go up with every release, or Android refuses the update. Commit it to `main`, with the "What's new" text for the stores in `fastlane/metadata/android/en-US/changelogs/<version code>.txt` (500 bytes at most; the release stops without it).

@@ -121,7 +121,7 @@ client → {"type":"auth","id":"<Sotto ID>","sig":"<signature>"}
 server → {"type":"ready","id":"<Sotto ID>"}            or  {"type":"error","code":"auth-failed"} + close 4001
 ```
 
-`sig = crypto_sign_detached("sotto-relay-auth-v1\0" || nonce || lowercase(server), sign_sk)`, where `server` is the name the relay sends in its challenge: its own name, `SOTTO_DOMAIN` (`name` or `name:port` for non-default ports). The relay signs in and verifies with its own name, never with the `Host` header of the connection, which a malicious relay can set to anything. A client checks that the challenge's `server` is the server it dialed, and signs nothing if it isn't: that stops a relay forwarding another server's challenge to a victim. A relay too old to send `server` gets the host the client dialed, as before; relays that name themselves refuse a signature over any other name. Clients that don't log in within 10 s are disconnected (close 4002).
+`sig = crypto_sign_detached("sotto-relay-auth-v1\0" || nonce || lowercase(server), sign_sk)`, where `server` is the name the relay sends in its challenge: its own name, `SOTTO_DOMAIN` (`name` or `name:port` for non-default ports). The relay signs in and verifies with its own name, never with the `Host` header of the connection, which a malicious relay can set to anything. A client checks that the challenge's `server` is the server it dialed, and signs nothing if it isn't: that stops a relay forwarding another server's challenge to a victim. A relay that doesn't send `server` gets no signature: its challenge could be forwarded to another relay that doesn't name itself, and the signature would work there. Relays older than this rule must be updated to name themselves. Clients that don't log in within 10 s are disconnected (close 4002).
 
 ### 5.2 Messages
 
@@ -137,7 +137,7 @@ Clients send `ping` every 25 s, and right away when a call loses its connection 
 
 - The relay never reads `body`. It attaches `from` itself; anything the client puts there is ignored.
 - Recipients receive `from` and must open the envelope with `expectedSender = from` (§3.3 check 6).
-- If the recipient has no connected device, the envelope is held **in memory** for up to 60 s (at most 50 per recipient, 64 MiB in total) and delivered when they log in; otherwise it is dropped.
+- If the recipient has no connected device, the envelope is held **in memory** for up to 60 s (at most 50 per recipient, 4 MiB per source address, 64 MiB in total). Each device that logs in while it waits receives it once; otherwise it is dropped. A device that isn't reading its socket gets nothing more (the relay holds at most 1 MiB for it), and the sender's ack says `dropped`.
 
 ### 5.3 STUN/TURN servers
 
@@ -156,6 +156,8 @@ With **Hide my IP address**, the app sets `iceTransportPolicy: "relay"`, so it o
 | Messages per connection | 20/s, bursts of 60 |
 | Connections per network address | 20 (addresses kept only as an HMAC under a random per-process key) |
 | Devices per Sotto ID | 5 |
+| Held for a device that isn't reading its socket | 1 MiB |
+| Held for offline recipients, per source address | 4 MiB |
 
 ### 5.5 Call messages (inside envelopes)
 
@@ -635,8 +637,9 @@ refused. Padding hides size only. It does not hide membership or timing.
 
 ## 7. Supply chain
 
-`app/web/sodium.js` is the sumo build of libsodium.js 0.8.4, with Argon2id, downloaded and checked against the package's hash by `dart run sodium:update_web --sumo`.
-SHA-256: `35958171e76a794218cd3675feec663da5236d3322d525abd692bd3c6d6941cf`.
+`app/web/sodium.js` is the sumo build of libsodium.js 0.8.4 with Argon2id: the file `dist/browsers-sumo/sodium.js` at upstream commit `a79e5ddbbcfd130e27dcbbda1b5ba072c7a9787d`. `dart run sodium:update_web --sumo` downloads it and checks its SHA-512, which the sodium package pins; CI checks the same value:
+SHA-512: `d95956f041be5bcf8a9644027e3f4866138903a38f8fe84fdb0410a0076b0121e201379b8966281b2105c67b7c85e79df6e8a68eab0eea9a8dea48bfdaf0cd2a`
+(SHA-256 of the same file: `dedbeb3a33be1cf9d1b923832c5f188f990a6ed543f94eae366c5e73aed3c34e`.)
 
 ## 8. Backups (Phase 6, native apps)
 
