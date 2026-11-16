@@ -11,6 +11,8 @@ import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
+import java.security.MessageDigest
+import java.security.SecureRandom
 
 /**
  * The ringing screen and the "guest is waiting" notice while the app is in
@@ -22,6 +24,17 @@ object CallNotifications {
     const val EXTRA_ACTION = "sotto.action"
     const val EXTRA_CALL = "sotto.call"
 
+    /**
+     * The ring's token. MainActivity is exported, so any app can start it with
+     * the two extras above. Only a notification of ours carries the token: it
+     * is random, and kept in this app's private preferences. The extras are
+     * honoured only with the latest token (see [trusts]).
+     */
+    const val EXTRA_TOKEN = "sotto.token"
+
+    private const val TOKEN_PREFS = "call_notifications"
+    private const val TOKEN_KEY = "ring_token"
+
     private const val CALLS = "calls"
     private const val GUESTS = "guests"
     private const val MESSAGES = "messages"
@@ -32,6 +45,7 @@ object CallNotifications {
     fun showIncoming(context: Context, title: String, body: String, video: Boolean) {
         val manager = channels(context)
         val caller = Person.Builder().setName(body).setImportant(true).build()
+        val token = newToken(context)
         val notification = NotificationCompat.Builder(context, CALLS)
             .setSmallIcon(R.drawable.ic_stat_sotto)
             .setContentTitle(title)
@@ -40,8 +54,8 @@ object CallNotifications {
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(true)
-            .setContentIntent(activity(context, 10, null, call = true))
-            .setFullScreenIntent(activity(context, 11, null, call = true), true)
+            .setContentIntent(activity(context, 10, null, call = true, token = token))
+            .setFullScreenIntent(activity(context, 11, null, call = true, token = token), true)
             .setStyle(
                 NotificationCompat.CallStyle.forIncomingCall(
                     caller,
@@ -50,7 +64,7 @@ object CallNotifications {
                         Intent(context, ActionReceiver::class.java).putExtra(EXTRA_ACTION, "decline"),
                         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                     ),
-                    activity(context, 13, "answer", call = true),
+                    activity(context, 13, "answer", call = true, token = token),
                 ).setIsVideo(video),
             )
             .build()
@@ -103,15 +117,46 @@ object CallNotifications {
     /** Opens the app. */
     fun openApp(context: Context): PendingIntent = activity(context, 14, null, call = false)
 
-    private fun activity(context: Context, code: Int, action: String?, call: Boolean): PendingIntent =
+    private fun activity(
+        context: Context,
+        code: Int,
+        action: String?,
+        call: Boolean,
+        token: String? = null,
+    ): PendingIntent =
         PendingIntent.getActivity(
             context, code,
             Intent(context, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 .putExtra(EXTRA_CALL, call)
-                .apply { if (action != null) putExtra(EXTRA_ACTION, action) },
+                .apply {
+                    if (token != null) putExtra(EXTRA_TOKEN, token)
+                    if (action != null) putExtra(EXTRA_ACTION, action)
+                },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+
+    /**
+     * A new token for the ring being shown. It replaces the last one, so taps
+     * on an older notification stop working. Saved before the notification
+     * uses it, so a process that was restarted can still honour the tap.
+     */
+    private fun newToken(context: Context): String {
+        val token = ByteArray(16).also { SecureRandom().nextBytes(it) }
+            .joinToString("") { "%02x".format(it) }
+        tokens(context).edit().putString(TOKEN_KEY, token).commit()
+        return token
+    }
+
+    /** Whether [token] is the one the latest ring carries. */
+    fun trusts(context: Context, token: String?): Boolean {
+        if (token == null) return false
+        val expected = tokens(context).getString(TOKEN_KEY, null) ?: return false
+        return MessageDigest.isEqual(expected.toByteArray(), token.toByteArray())
+    }
+
+    private fun tokens(context: Context) =
+        context.getSharedPreferences(TOKEN_PREFS, Context.MODE_PRIVATE)
 
     private fun manager(context: Context) =
         context.getSystemService(NotificationManager::class.java)
