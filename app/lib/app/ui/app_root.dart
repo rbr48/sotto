@@ -160,7 +160,7 @@ class _AppRootState extends State<AppRoot> with WidgetsBindingObserver {
         if (_app.lock.locked) {
           return _Titled(
             label: 'Locked',
-            child: LockScreen(lock: _app.lock),
+            child: LockScreen(lock: _app.lock, onErase: _app.eraseEverything),
           );
         }
         return _Titled(

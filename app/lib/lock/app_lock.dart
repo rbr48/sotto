@@ -86,6 +86,23 @@ class MigratingPinHasher implements PinHasher {
   bool isCurrent(String hash) => _current.isCurrent(hash);
 }
 
+/// The stored lock record, read in full or not at all.
+class _LockRecord {
+  const _LockRecord({
+    required this.hash,
+    required this.failures,
+    required this.retryAt,
+    required this.autoLock,
+    required this.seen,
+  });
+
+  final String? hash;
+  final int failures;
+  final DateTime? retryAt;
+  final int autoLock;
+  final DateTime? seen;
+}
+
 enum UnlockResult {
   unlocked,
   wrongPin,
@@ -124,6 +141,7 @@ class AppLock extends ChangeNotifier {
 
   String? _hash;
   bool _locked = false;
+  bool _damaged = false;
   int _failures = 0;
   DateTime? _retryAt;
   int _autoLockSeconds = defaultAutoLockSeconds;
@@ -138,6 +156,10 @@ class AppLock extends ChangeNotifier {
 
   /// Whether the app's screens are hidden behind the lock.
   bool get locked => _locked;
+
+  /// The stored lock record can't be read, so the PIN can't be checked. The
+  /// app stays locked until the device's data is erased (see [load]).
+  bool get damaged => _damaged;
 
   int get autoLockSeconds => _autoLockSeconds;
 
@@ -163,30 +185,53 @@ class AppLock extends ChangeNotifier {
       RegExp(r'^[0-9]+$').hasMatch(pin);
 
   /// Loads the lock; the app starts locked if a PIN is set.
+  ///
+  /// A record that can't be read is never overwritten. The PIN can't be
+  /// checked, so the app stays locked ([damaged]) until the device's data is
+  /// erased. Starting unlocked would drop the PIN, and the next save would
+  /// delete it for good.
   Future<void> load() async {
     final stored = await _store.read(storageKey);
     if (stored != null) {
-      try {
-        final json = jsonDecode(stored) as Map<String, dynamic>;
-        _hash = json['hash'] as String?;
-        _failures = json['failures'] as int? ?? 0;
-        final retryAt = json['retryAt'] as int?;
-        _retryAt = retryAt == null
-            ? null
-            : DateTime.fromMillisecondsSinceEpoch(retryAt);
-        _autoLockSeconds = json['autoLock'] as int? ?? defaultAutoLockSeconds;
-        final seen = json['seen'] as int?;
-        _seen = seen == null ? null : DateTime.fromMillisecondsSinceEpoch(seen);
-      } catch (_) {
-        // Unreadable: keep whatever we have; never silently drop a PIN.
+      final record = _parse(stored);
+      if (record == null) {
+        _damaged = true;
+      } else {
+        _hash = record.hash;
+        _failures = record.failures;
+        _retryAt = record.retryAt;
+        _autoLockSeconds = record.autoLock;
+        _seen = record.seen;
       }
     }
-    _locked = hasPin;
+    _locked = hasPin || _damaged;
     notifyListeners();
+  }
+
+  /// The record, or null when it can't be read in full.
+  static _LockRecord? _parse(String stored) {
+    try {
+      final json = jsonDecode(stored) as Map<String, dynamic>;
+      final retryAt = json['retryAt'] as int?;
+      final seen = json['seen'] as int?;
+      return _LockRecord(
+        hash: json['hash'] as String?,
+        failures: json['failures'] as int? ?? 0,
+        retryAt: retryAt == null
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(retryAt),
+        autoLock: json['autoLock'] as int? ?? defaultAutoLockSeconds,
+        seen: seen == null ? null : DateTime.fromMillisecondsSinceEpoch(seen),
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _save() async {
     notifyListeners();
+    // A damaged record stays as it is, for the user to erase.
+    if (_damaged) return;
     await _store.write(
       storageKey,
       jsonEncode({
@@ -201,6 +246,7 @@ class AppLock extends ChangeNotifier {
 
   /// Sets or replaces the PIN. Callers must have checked the old PIN.
   Future<void> setPin(String pin) async {
+    if (_damaged) throw StateError('the app lock record is damaged');
     if (!isValidPin(pin)) throw ArgumentError('PIN must be 6–16 digits');
     _hash = _hasher.hash(pin);
     _failures = 0;
@@ -211,6 +257,7 @@ class AppLock extends ChangeNotifier {
 
   /// Removes the PIN. Callers must have checked it.
   Future<void> removePin() async {
+    if (_damaged) throw StateError('the app lock record is damaged');
     _hash = null;
     _failures = 0;
     _retryAt = null;
@@ -235,6 +282,7 @@ class AppLock extends ChangeNotifier {
 
   /// Checks [pin] (e.g. to confirm a sensitive change), counting failures.
   Future<UnlockResult> check(String pin) async {
+    if (_damaged) return UnlockResult.wrongPin;
     final hash = _hash;
     if (hash == null) return UnlockResult.unlocked;
     if (retryIn > Duration.zero) return UnlockResult.tooManyAttempts;

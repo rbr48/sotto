@@ -20,7 +20,7 @@ on:
         default: false
 
 permissions:
-  contents: write
+  contents: read
 
 # One release run per tag at a time; a second push waits instead of racing.
 concurrency:
@@ -236,7 +236,11 @@ jobs:
           cache: true
       - name: Build Linux Release
         working-directory: app
-        run: flutter build linux --release
+        env:
+          # The release key lets this build install signed updates in the app
+          # (docs/RELEASES.md). Empty: the build only points to the release page.
+          UPDATE_PUBLIC_KEY: ${{ vars.UPDATE_PUBLIC_KEY }}
+        run: flutter build linux --release --dart-define=SOTTO_UPDATE_PUBLIC_KEY=$UPDATE_PUBLIC_KEY
       - name: Package Linux tar.gz
         run: |
           mkdir -p dist
@@ -272,7 +276,9 @@ jobs:
           cache: true
       - name: Build Windows Release
         working-directory: app
-        run: flutter build windows --release
+        env:
+          UPDATE_PUBLIC_KEY: ${{ vars.UPDATE_PUBLIC_KEY }}
+        run: flutter build windows --release --dart-define=SOTTO_UPDATE_PUBLIC_KEY=$UPDATE_PUBLIC_KEY
       # Code signing through SignPath (free for open-source projects; see
       # docs/CODE_SIGNING.md). It runs once the SIGNPATH_ORGANIZATION_ID
       # variable and the SIGNPATH_API_TOKEN secret are set; until then the
@@ -385,7 +391,17 @@ jobs:
     name: Publish GitHub Release
     needs: [version, gate, build-android, build-linux, build-windows, build-ios]
     runs-on: ubuntu-latest
+    # Only this job writes to the repository. A protected "release" environment
+    # (required reviewers) guards the signing key: see docs/RELEASES.md.
+    environment: release
+    permissions:
+      contents: write
     steps:
+      # First, so that the download below is not cleaned away by the checkout.
+      - name: Check out the signing tool
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: tools/release
       - name: Download all build artifacts
         uses: actions/download-artifact@v7
         with:
@@ -397,6 +413,27 @@ jobs:
           sha256sum sotto-android.apk sotto-android-play.aab sotto-windows-x64-setup.exe sotto-windows-x64.zip \
             sotto-linux-x86_64.AppImage sotto-linux-amd64.deb sotto-linux-x64.tar.gz sotto-ios.ipa > SHA256SUMS.txt
           cat SHA256SUMS.txt
+      - name: Sign the checksums for in-app updates
+        working-directory: dist
+        env:
+          UPDATE_PUBLIC_KEY: ${{ vars.UPDATE_PUBLIC_KEY }}
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          # The builds of a release with a UPDATE_PUBLIC_KEY install an update
+          # only from a checksum list that this key signed. Without the key, the
+          # signature file is empty and the builds don't install updates.
+          if [ -z "$UPDATE_PUBLIC_KEY" ]; then
+            echo "UPDATE_PUBLIC_KEY is not set: these builds don't install updates in the app."
+            : > SHA256SUMS.txt.sig
+            exit 0
+          fi
+          if [ -z "$UPDATE_SIGNING_KEY" ]; then
+            echo "::error::UPDATE_PUBLIC_KEY is set, so this release must be signed, but UPDATE_SIGNING_KEY is not set"
+            exit 1
+          fi
+          node ../tools/release/sign-sums.mjs SHA256SUMS.txt > SHA256SUMS.txt.sig
+          node ../tools/release/sign-sums.mjs --verify "$UPDATE_PUBLIC_KEY" SHA256SUMS.txt SHA256SUMS.txt.sig
+          wc -c SHA256SUMS.txt.sig
       - name: Release notes header
         env:
           WINDOWS_SIGNED: ${{ needs.build-windows.outputs.signed }}
@@ -433,3 +470,4 @@ jobs:
             dist/sotto-linux-x64.tar.gz
             dist/sotto-ios.ipa
             dist/SHA256SUMS.txt
+            dist/SHA256SUMS.txt.sig

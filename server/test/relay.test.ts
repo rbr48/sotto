@@ -1,23 +1,29 @@
 import { sign } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { CloseCode, type RelayLimits } from '../src/relay/relay.js';
+import { CloseCode } from '../src/relay/relay.js';
 import { authMessage } from '../src/relay/auth.js';
 import type { Config } from '../src/config.js';
 import type { RelayServer } from '../src/server.js';
-import { newIdentity, startServer, TEST_SERVER_NAME, TestClient } from './helpers.js';
+import {
+  newIdentity,
+  startServer,
+  TEST_SERVER_NAME,
+  TestClient,
+  type TestLimits,
+} from './helpers.js';
 
 describe('relay', () => {
   let server: RelayServer | undefined;
   const clients: TestClient[] = [];
 
-  async function start(options: { config?: Partial<Config>; limits?: Partial<RelayLimits> } = {}) {
+  async function start(options: { config?: Partial<Config>; limits?: TestLimits } = {}) {
     const started = await startServer(options);
     server = started.server;
     return started.url;
   }
 
-  async function login(url: string, identity = newIdentity()) {
-    const client = await TestClient.login(url, identity);
+  async function login(url: string, identity = newIdentity(), localAddress?: string) {
+    const client = await TestClient.login(url, identity, TEST_SERVER_NAME, localAddress);
     clients.push(client);
     expect(await client.next()).toEqual({ type: 'ready', id: identity.id, ice: [] });
     return { client, identity };
@@ -208,7 +214,86 @@ describe('relay', () => {
         from: alice.identity.id,
         body: 'second',
       });
-      expect(server!.relay.queuedCount).toBe(0);
+      // They stay held until they expire, for any other device of Bob's.
+      expect(server!.relay.queuedCount).toBe(2);
+    });
+
+    it('delivers held messages to every device that logs in while they wait', async () => {
+      const url = await start();
+      const alice = await login(url);
+      const bob = newIdentity();
+      alice.client.send({ type: 'send', to: bob.id, body: 'held', ref: 'a' });
+      expect(await alice.client.next()).toEqual({ type: 'ack', ref: 'a', status: 'queued' });
+      const phone = await login(url, bob);
+      expect(await phone.client.next()).toEqual({
+        type: 'message',
+        from: alice.identity.id,
+        body: 'held',
+      });
+      const laptop = await login(url, bob);
+      expect(await laptop.client.next()).toEqual({
+        type: 'message',
+        from: alice.identity.id,
+        body: 'held',
+      });
+      // Each device gets each envelope once: nothing more arrives on the phone.
+      expect(await phone.client.silentFor(100)).toBe(true);
+    });
+
+    it('limits what one source address can hold for offline recipients', async () => {
+      const url = await start({ limits: { queue: { maxBytesPerSource: 100 * 1024 } } });
+      const alice = await login(url);
+      const bob = newIdentity().id;
+      const body = 'x'.repeat(40 * 1024);
+      for (let i = 0; i < 3; i++) {
+        alice.client.send({ type: 'send', to: bob, body, ref: `${i}` });
+      }
+      const statuses = [];
+      for (let i = 0; i < 3; i++) statuses.push((await alice.client.next()).status);
+      expect(statuses).toEqual(['queued', 'queued', 'dropped']);
+    });
+
+    it('does not let one address use up the room of another', async () => {
+      const url = await start({ limits: { queue: { maxBytesPerSource: 100 * 1024 } } });
+      const bob = newIdentity().id;
+      const body = 'x'.repeat(40 * 1024);
+      const first = await login(url, newIdentity(), '127.0.0.1');
+      for (let i = 0; i < 3; i++) first.client.send({ type: 'send', to: bob, body });
+      await new Promise((r) => setTimeout(r, 50));
+      // A different source address (another 127.x address on this machine).
+      const second = await login(url, newIdentity(), '127.0.0.2');
+      second.client.send({ type: 'send', to: bob, body, ref: 'other' });
+      expect(await second.client.next()).toEqual({ type: 'ack', ref: 'other', status: 'queued' });
+    });
+
+    it('stops sending to a device that is not reading, so the relay buffers a bounded amount', async () => {
+      const url = await start({
+        config: { heartbeatMs: 60_000 },
+        limits: { maxBufferedBytes: 256 * 1024, messagesPerSec: 100_000, messageBurst: 100_000 },
+      });
+      const victim = await login(url);
+      // The device stays connected, but stops reading its socket.
+      const socket = (victim.client.ws as unknown as { _socket: { pause(): void; resume(): void } })
+        ._socket;
+      socket.pause();
+      const alice = await login(url);
+      const body = 'x'.repeat(64 * 1024);
+      // Far more than the kernel's socket buffers hold on loopback.
+      for (let i = 0; i < 400; i++) {
+        alice.client.send({ type: 'send', to: victim.identity.id, body, ref: `${i}` });
+      }
+      const statuses: unknown[] = [];
+      for (let i = 0; i < 400; i++) statuses.push((await alice.client.next()).status);
+      expect(statuses[0]).toBe('delivered');
+      expect(statuses.at(-1)).toBe('dropped');
+      const online = (
+        server!.relay as unknown as { online: Map<string, Set<{ ws: { bufferedAmount: number } }>> }
+      ).online;
+      const [device] = [...(online.get(victim.identity.id) ?? [])];
+      expect(device!.ws.bufferedAmount).toBeLessThan(256 * 1024 + 80 * 1024);
+      socket.resume();
+      victim.client.ws.terminate();
+      await victim.client.closed;
     });
 
     it('drops held messages after the time limit', async () => {

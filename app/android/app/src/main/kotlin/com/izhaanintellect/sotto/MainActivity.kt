@@ -47,8 +47,18 @@ class MainActivity : FlutterActivity() {
         super.onDestroy()
     }
 
-    /** Opened from the ringing notification: show over the lock screen. */
+    /**
+     * Opened from the ringing notification: show over the lock screen, or
+     * deliver the tapped action. This activity is exported, so any app can
+     * send these extras; they count only with the token of the latest ring,
+     * which only our own notifications carry.
+     */
     private fun handle(intent: Intent) {
+        val ours = CallNotifications.trusts(this, intent.getStringExtra(CallNotifications.EXTRA_TOKEN))
+        if (!ours) {
+            intent.removeExtra(CallNotifications.EXTRA_ACTION)
+            return
+        }
         if (intent.getBooleanExtra(CallNotifications.EXTRA_CALL, false)) showOnLockScreen(true)
         intent.getStringExtra(CallNotifications.EXTRA_ACTION)?.let {
             intent.removeExtra(CallNotifications.EXTRA_ACTION)

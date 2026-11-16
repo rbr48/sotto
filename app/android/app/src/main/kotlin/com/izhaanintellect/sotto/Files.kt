@@ -56,21 +56,26 @@ object Files {
 
     private const val STORAGE_REQUEST = 2
 
-    /** Installers, executables, scripts and web content. */
+    /**
+     * The same list as ChatFrames.blockedExtensions in Dart, without the dot. A
+     * Dart test keeps the two equal. A file of one of these types is refused
+     * when it is opened here.
+     */
     private val BLOCKED_EXTENSIONS = setOf(
-        // Android packages and code
-        "apk", "apks", "apkm", "xapk", "aab", "dex", "jar",
-        // Web content that runs script when rendered
-        "html", "htm", "xhtml", "xht", "shtml", "mht", "mhtml", "svg", "svgz", "xml", "xsl",
-        "hta", "swf",
-        // Executables, installers and scripts
-        "exe", "msi", "msix", "appx", "com", "scr", "pif", "cpl", "msc", "dll", "so", "elf",
-        "bin", "run", "app", "dmg", "pkg", "deb", "rpm",
-        "bat", "cmd", "ps1", "psm1", "vbs", "vbe", "js", "mjs", "cjs", "jse", "wsf", "wsh",
-        "sh", "bash", "zsh", "csh", "ksh", "command", "php", "pl",
-        "lnk", "url", "desktop", "reg", "jnlp", "inf",
+        "aab", "action", "apk", "apkm", "apks", "app", "appimage", "application", "appref-ms",
+        "appx", "appxbundle", "bash", "bat", "bin", "cdxml", "chm", "cjs", "cmd", "com",
+        "command", "cpl", "crx", "csh", "deb", "desktop", "dex", "dll", "dmg", "docm", "dotm",
+        "elf", "exe", "gadget", "hta", "htm", "html", "img", "inf", "ipa", "iso", "jar", "jnlp",
+        "js", "jse", "ksh", "library-ms", "lnk", "mht", "mhtml", "mjs", "msc", "msh", "msh1",
+        "msh2", "msi", "msix", "msixbundle", "msp", "mst", "msu", "php", "pif", "pkg", "pl",
+        "potm", "ppam", "ppsm", "pptm", "ps1", "ps1xml", "psc1", "psm1", "py", "pyw", "rb",
+        "reg", "rpm", "run", "scf", "scpt", "scptd", "scr", "sct", "sh", "shtml", "so", "svg",
+        "svgz", "swf", "terminal", "url", "vb", "vbe", "vbs", "vhd", "vhdx", "webloc", "wim",
+        "workflow", "ws", "wsc", "wsf", "wsh", "xap", "xapk", "xbap", "xht", "xhtml", "xla",
+        "xlam", "xlsb", "xlsm", "xltm", "xml", "xsl", "zsh",
     )
 
+    /** Content types that run script or install software, refused as well. */
     private val BLOCKED_MIMES = setOf(
         "application/vnd.android.package-archive",
         "application/java-archive",
@@ -228,28 +233,23 @@ object Files {
     }
 
     /**
-     * Saves [bytes] (or the file at [path]) to Downloads as [rawName].
-     * Returns the name it was saved under (Android 10+) or its path.
+     * Saves [bytes] to Downloads as [rawName]. Returns the name it was saved
+     * under (Android 10+) or its path.
      */
     fun saveToDownloads(
         app: Context,
         activity: Activity?,
         bytes: ByteArray?,
-        path: String?,
         rawName: String?,
     ): String {
-        if (bytes == null && path == null) throw BridgeException("failed", "nothing to save")
-        val name = sanitizeName(rawName?.takeIf { it.isNotBlank() } ?: path?.let { File(it).name })
+        // Only bytes are accepted. A path would let the caller copy any file
+        // the app can read into Downloads.
+        if (bytes == null) throw BridgeException("failed", "nothing to save")
+        val name = sanitizeName(rawName)
         // Derived from the name, so MediaProvider keeps the name's extension
         // instead of appending one for a different, sender-chosen type.
         val mime = mimeFor(name)
-        val openInput: () -> InputStream = {
-            when {
-                bytes != null -> ByteArrayInputStream(bytes)
-                path != null && File(path).isFile -> File(path).inputStream()
-                else -> throw BridgeException("not_found", "file not found")
-            }
-        }
+        val openInput: () -> InputStream = { ByteArrayInputStream(bytes) }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val resolver = app.contentResolver

@@ -254,6 +254,36 @@ void main() {
       },
     );
 
+    test('a one-time link admits one guest: others who knocked on it are turned away', () async {
+      final oneTime = await store.createOneTime();
+      final other = Identity.generate(sodium);
+      Map<String, dynamic> knockOn(String knock) => {
+        'knock': knock,
+        'link': oneTime.id,
+        'secret': oneTime.secret,
+        'name': 'Guest',
+        'video': true,
+      };
+      final host = newHost();
+      host.handle(msg(guestId.publicIdentity, 'guest.knock', knockOn('k1')));
+      host.handle(msg(other.publicIdentity, 'guest.knock', knockOn('k2')));
+      expect(host.waiting, hasLength(2));
+
+      await host.admit('k1');
+      expect(admitted.single.guest, guestId.publicIdentity);
+      expect(host.waiting, isEmpty);
+      expect(hostSent.last.$1, other.id);
+      expect(hostSent.last.$2, 'guest.declined');
+      expect(hostSent.last.$3['reason'], 'used');
+
+      // Knocking again after the link is used is refused as well.
+      host.handle(msg(other.publicIdentity, 'guest.knock', knockOn('k3')));
+      expect(hostSent.last.$3['reason'], 'used');
+      expect(host.waiting, isEmpty);
+      expect(admitted, hasLength(1));
+      host.dispose();
+    });
+
     test(
       'knocks with a wrong secret or revoked link are declined with a reason',
       () async {

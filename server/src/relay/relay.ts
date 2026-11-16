@@ -31,6 +31,12 @@ export interface RelayLimits {
   messageBurst: number;
   maxConnectionsPerAddress: number;
   maxDevicesPerId: number;
+  /**
+   * Most bytes the relay will hold for one device that isn't reading its
+   * socket. Past this, envelopes for that device are dropped, so a stalled or
+   * slow device can't make the relay buffer without bound.
+   */
+  maxBufferedBytes: number;
   queue: QueueLimits;
 }
 
@@ -41,7 +47,13 @@ export const DEFAULT_LIMITS: RelayLimits = {
   messageBurst: 60,
   maxConnectionsPerAddress: 20,
   maxDevicesPerId: 5,
-  queue: { ttlMs: 60_000, maxPerRecipient: 50, maxTotalBytes: 64 * 1024 * 1024 },
+  maxBufferedBytes: 1024 * 1024,
+  queue: {
+    ttlMs: 60_000,
+    maxPerRecipient: 50,
+    maxTotalBytes: 64 * 1024 * 1024,
+    maxBytesPerSource: 4 * 1024 * 1024,
+  },
 };
 
 export type RelayErrorCode =
@@ -68,6 +80,10 @@ interface Connection {
   id: string | null;
   nonce: Buffer;
   bucket: TokenBucket;
+  /** Opaque key for the client's network address (see ConnectionCounter). */
+  source: string;
+  /** Unique per connection, so the queue can tell devices apart. */
+  serial: number;
 }
 
 export class Relay {
@@ -75,6 +91,7 @@ export class Relay {
   private readonly queue: MessageQueue;
   private readonly addresses: ConnectionCounter;
   private readonly pruneTimer: NodeJS.Timeout;
+  private nextSerial = 1;
 
   constructor(
     private readonly limits: RelayLimits = DEFAULT_LIMITS,
@@ -120,6 +137,8 @@ export class Relay {
       id: null,
       nonce: newChallenge(),
       bucket: new TokenBucket(this.limits.messagesPerSec, this.limits.messageBurst),
+      source: handle,
+      serial: this.nextSerial++,
     };
     const authTimer = setTimeout(() => {
       if (conn.id === null) {
@@ -201,7 +220,7 @@ export class Relay {
       send(conn.ws, { type: 'error', code: 'too-large' });
       return;
     }
-    const status = this.route(conn.id, message.to, message.body);
+    const status = this.route(conn.id, message.to, message.body, conn.source);
     if (ref !== null) send(conn.ws, { type: 'ack', ref, status });
   }
 
@@ -222,18 +241,37 @@ export class Relay {
     devices.add(conn);
     this.online.set(verifiedId, devices);
     send(conn.ws, { type: 'ready', id: verifiedId, ice: this.iceServers() });
-    for (const queued of this.queue.take(verifiedId)) {
+    // Envelopes held for this ID go to every device that logs in while they
+    // wait, as live envelopes go to every connected device.
+    for (const queued of this.queue.undelivered(verifiedId, conn.serial)) {
       send(conn.ws, { type: 'message', from: queued.from, body: queued.body });
     }
   }
 
-  private route(from: string, to: string, body: string): 'delivered' | 'queued' | 'dropped' {
+  private route(
+    from: string,
+    to: string,
+    body: string,
+    source: string,
+  ): 'delivered' | 'queued' | 'dropped' {
     const devices = this.online.get(to);
-    if (devices !== undefined && devices.size > 0) {
-      for (const device of devices) send(device.ws, { type: 'message', from, body });
-      return 'delivered';
+    if (devices !== undefined) {
+      let open = 0;
+      let delivered = 0;
+      for (const device of devices) {
+        if (device.ws.readyState !== device.ws.OPEN) continue;
+        open += 1;
+        // A device that isn't reading its socket gets nothing more. Holding
+        // data for it is what would let a sender exhaust the relay's memory.
+        if (device.ws.bufferedAmount > this.limits.maxBufferedBytes) continue;
+        send(device.ws, { type: 'message', from, body });
+        delivered += 1;
+      }
+      if (delivered > 0) return 'delivered';
+      // Connected but not reading: there is nothing to hold the envelope for.
+      if (open > 0) return 'dropped';
     }
-    return this.queue.push(to, from, body) ? 'queued' : 'dropped';
+    return this.queue.push(to, from, body, source) ? 'queued' : 'dropped';
   }
 
   private goOffline(conn: Connection): void {

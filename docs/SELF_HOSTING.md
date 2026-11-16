@@ -29,7 +29,7 @@ sudo ./infra/install.sh
 The installer asks for the domain, then:
 
 1. checks that the domain points to this server (and isn't behind Cloudflare's proxy; behind NAT, it asks for the public IP);
-2. installs Docker if it is missing (with your permission);
+2. installs Docker if it is missing. At a terminal it asks first, and `--install-docker` does it without asking, also together with `--yes`. Without that flag, `--yes` never installs Docker, since the official script runs as root. Otherwise it stops and asks you to install Docker yourself;
 3. adds a 2 GB swap file if the server has little memory;
 4. opens the firewall ports in ufw or firewalld;
 5. writes `infra/.env` with a random TURN secret (readable only by root);
@@ -38,6 +38,10 @@ The installer asks for the domain, then:
 8. adds a weekly coturn restart (root's crontab) so it picks up certificate renewals.
 
 Non-interactive: `sudo ./infra/install.sh install --domain calls.yourpractice.org --yes`. See `--help` for all options, and `--dry-run` to see what it would do.
+
+If you set `SOTTO_TURN_MIN_PORT` and `SOTTO_TURN_MAX_PORT` in `infra/.env` to use other UDP ports for TURN, the installer opens that range in the firewall instead of 49152–65535, and keeps the setting when you run it again.
+
+Apps built from this version refuse a relay that doesn't name itself in its login challenge. Relays from before the name was added to the challenge don't, so run `install.sh update` on such a server; a current server is unaffected.
 
 ### Shared server (alongside Nginx, Apache, or existing sites)
 

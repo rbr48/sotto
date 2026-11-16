@@ -23,8 +23,10 @@
 #   --support-email ADDR   optional support address, shown on the same pages
 #   --support-link URL     optional https:// link for live support (e.g. a Sotto
 #                          call link), shown on the same pages
-#   --yes                  don't ask; accept the defaults (install Docker, add swap,
-#                          open firewall ports)
+#   --yes                  don't ask; accept the defaults (add swap, open firewall
+#                          ports). Docker is not installed by this: see below
+#   --install-docker       install Docker with the official get.docker.com script
+#                          (it runs as root; without this, install Docker first)
 #   --no-firewall          don't touch ufw/firewalld
 #   --skip-dns-check       install even if the domain doesn't point here yet
 #   --dry-run              print what would be done, change nothing
@@ -53,6 +55,7 @@ CONTACT=''
 SUPPORT_EMAIL=''
 SUPPORT_LINK=''
 ASSUME_YES=0
+INSTALL_DOCKER=0
 FIREWALL=1
 DNS_CHECK=1
 DRY_RUN=0
@@ -120,6 +123,7 @@ parse_args() {
       --support-email) SUPPORT_EMAIL=${2:-}; shift 2 ;;
       --support-link) SUPPORT_LINK=${2:-}; shift 2 ;;
       --yes | -y) ASSUME_YES=1; shift ;;
+      --install-docker) INSTALL_DOCKER=1; shift ;;
       --no-firewall) FIREWALL=0; shift ;;
       --skip-dns-check) DNS_CHECK=0; shift ;;
       --dry-run) DRY_RUN=1; shift ;;
@@ -312,9 +316,15 @@ check_docker() {
     if [[ $BEHIND_PROXY == 1 ]]; then check_compose_version; fi
     return
   fi
-  confirm 'Docker (with the Compose plugin) is not installed. Install it now from get.docker.com?' ||
-    die 'install Docker first: https://docs.docker.com/engine/install/'
-  run sh -c 'curl -fsSL https://get.docker.com | sh'
+  # The official script runs as root, so it only runs when asked for: with
+  # --install-docker, or by answering yes at a terminal (never under --yes).
+  if [[ $INSTALL_DOCKER == 1 ]] ||
+    { [[ $ASSUME_YES == 0 && -t 0 ]] &&
+      confirm 'Docker (with the Compose plugin) is not installed. Install it now from get.docker.com (a script run as root)?'; }; then
+    run sh -c 'curl -fsSL https://get.docker.com | sh'
+    return
+  fi
+  die 'install Docker first: https://docs.docker.com/engine/install/ (or run this again with --install-docker)'
 }
 
 # The override written for --behind-proxy replaces the web ports with
@@ -374,21 +384,29 @@ open_firewall() {
     tcp=(80 443 "${tcp[@]}")
     udp=(443 "${udp[@]}")
   fi
+  # The relay ports TURN uses: the ones in .env, if set, else coturn's defaults.
+  local turn_min turn_max
+  turn_min=$(saved SOTTO_TURN_MIN_PORT || true)
+  turn_max=$(saved SOTTO_TURN_MAX_PORT || true)
+  turn_min=${turn_min:-49152}
+  turn_max=${turn_max:-65535}
+  [[ $turn_min =~ ^[0-9]+$ && $turn_max =~ ^[0-9]+$ ]] ||
+    die 'SOTTO_TURN_MIN_PORT and SOTTO_TURN_MAX_PORT in .env must be port numbers'
   if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q 'Status: active'; then
     local port
     for port in "${tcp[@]}"; do run ufw allow "$port/tcp"; done
     for port in "${udp[@]}"; do run ufw allow "$port/udp"; done
-    run ufw allow 49152:65535/udp
+    run ufw allow "$turn_min:$turn_max/udp"
   elif command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
     local port
     for port in "${tcp[@]}"; do run firewall-cmd --permanent --add-port="$port/tcp"; done
     for port in "${udp[@]}"; do run firewall-cmd --permanent --add-port="$port/udp"; done
-    run firewall-cmd --permanent --add-port=49152-65535/udp
+    run firewall-cmd --permanent --add-port="$turn_min-$turn_max/udp"
     run firewall-cmd --reload
   else
     say 'No active ufw or firewalld found; nothing to change here.'
   fi
-  say "If your hosting provider has its own firewall, open there too: TCP ${tcp[*]}, UDP ${udp[*]} and UDP 49152-65535."
+  say "If your hosting provider has its own firewall, open there too: TCP ${tcp[*]}, UDP ${udp[*]} and UDP $turn_min-$turn_max."
 }
 
 # --- configuration ------------------------------------------------------------
@@ -415,6 +433,13 @@ write_env() {
     [[ -n $SUPPORT_EMAIL ]] || SUPPORT_EMAIL=$(saved SOTTO_SUPPORT_EMAIL)
     [[ -n $SUPPORT_LINK ]] || SUPPORT_LINK=$(saved SOTTO_SUPPORT_LINK)
   fi
+  # The TURN port range an operator set by hand is kept, so the firewall
+  # rules that open_firewall makes match it.
+  local turn_min='' turn_max=''
+  if [[ -f $ENV_FILE ]]; then
+    turn_min=$(saved SOTTO_TURN_MIN_PORT || true)
+    turn_max=$(saved SOTTO_TURN_MAX_PORT || true)
+  fi
   local content
   content="# Written by install.sh. The TURN secret is shared by the relay and coturn.
 SOTTO_DOMAIN=$DOMAIN
@@ -422,6 +447,14 @@ SOTTO_TURN_SECRET=$secret"
   if [[ -n $EXTERNAL_IP ]]; then
     content+="
 SOTTO_TURN_EXTERNAL_IP=$EXTERNAL_IP"
+  fi
+  if [[ -n $turn_min ]]; then
+    content+="
+SOTTO_TURN_MIN_PORT=$turn_min"
+  fi
+  if [[ -n $turn_max ]]; then
+    content+="
+SOTTO_TURN_MAX_PORT=$turn_max"
   fi
   if [[ -n $OPERATOR ]]; then
     content+="

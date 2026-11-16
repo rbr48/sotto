@@ -7,6 +7,25 @@ void main() {
   late Sodium sodium;
   setUpAll(() async => sodium = await SottoCrypto.init());
 
+  test(
+    'a lock record that cannot be read stays locked and is never overwritten',
+    () async {
+      final store = MemorySecretStore();
+      await store.write(AppLock.storageKey, 'not a lock record');
+      final lock = AppLock(store, SessionPinHasher(sodium));
+      await lock.load();
+      expect(lock.damaged, isTrue);
+      expect(lock.locked, isTrue);
+      expect(await lock.unlock('123456'), UnlockResult.wrongPin);
+      expect(lock.locked, isTrue);
+      // Saves are skipped, so the damaged record is kept for the user to erase.
+      await lock.setAutoLockSeconds(300);
+      expect(await store.read(AppLock.storageKey), 'not a lock record');
+      await expectLater(lock.setPin('123456'), throwsStateError);
+      expect(await store.read(AppLock.storageKey), 'not a lock record');
+    },
+  );
+
   test('PIN rules', () {
     expect(AppLock.isValidPin('123456'), isTrue);
     expect(AppLock.isValidPin('12345'), isFalse);

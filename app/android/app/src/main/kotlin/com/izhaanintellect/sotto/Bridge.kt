@@ -132,7 +132,7 @@ object Bridge {
                 Files.open(app, path) { open(it) }
             }
             "saveToDownloads" -> Files.saveToDownloads(app, activity,
-                args["bytes"] as? ByteArray, args["path"] as? String, args["name"] as? String)
+                args["bytes"] as? ByteArray, args["name"] as? String)
             else -> throw IllegalArgumentException("unknown method $method")
         }
     }

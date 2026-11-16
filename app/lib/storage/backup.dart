@@ -230,4 +230,12 @@ abstract final class Backup {
     'sotto.devices.v1',
     'sotto.settings.desktop',
   };
+
+  /// The entries of a backup that may be restored. A backup can be made by
+  /// anyone who knows its passphrase, so device-only entries in it are
+  /// dropped: they stay as they are on this device.
+  static Map<String, String> restorable(Map<String, String> values) => {
+    for (final entry in values.entries)
+      if (!deviceOnlyKeys.contains(entry.key)) entry.key: entry.value,
+  };
 }

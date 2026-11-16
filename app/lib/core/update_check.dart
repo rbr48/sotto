@@ -14,6 +14,8 @@ class UpdateInfo {
     this.assetUrl,
     this.assetName,
     this.assetSize,
+    this.sumsUrl,
+    this.sumsSignatureUrl,
   });
 
   /// e.g. `0.1.3`.
@@ -31,9 +33,26 @@ class UpdateInfo {
   /// Asset size in bytes.
   final int? assetSize;
 
-  /// Whether this update can be directly downloaded and installed in-app.
-  bool get canInstallInApp => assetUrl != null;
+  /// The release's `SHA256SUMS.txt`: the digest of every file in the release.
+  final Uri? sumsUrl;
+
+  /// The Ed25519 signature of [sumsUrl], made with the release key.
+  final Uri? sumsSignatureUrl;
+
+  /// Whether this update can be installed in-app: the download is verifiable
+  /// (signed sums) and this build knows the release key to verify them with.
+  bool get canInstallInApp =>
+      assetUrl != null &&
+      sumsUrl != null &&
+      sumsSignatureUrl != null &&
+      UpdateChecker.updatePublicKey.isNotEmpty;
 }
+
+/// Whether [url] is a secure GitHub address: an update is only ever fetched
+/// from there, whatever the release says.
+bool isTrustedUpdateUrl(Uri url) =>
+    url.scheme == 'https' &&
+    (url.host == 'github.com' || url.host.endsWith('.githubusercontent.com'));
 
 /// Asks the release page (GitHub Releases, unless the build says
 /// otherwise) for the latest version. The native apps check at most once a
@@ -77,29 +96,24 @@ class UpdateChecker {
       Uri? assetUrl;
       String? assetName;
       int? assetSize;
+      Uri? sumsUrl;
+      Uri? sumsSignatureUrl;
 
       if (json['assets'] is List) {
         for (final asset in json['assets'] as List) {
-          if (asset is Map<String, dynamic>) {
-            final name = asset['name'] as String? ?? '';
-            final downloadUrl = asset['browser_download_url'] as String? ?? '';
-            final size = asset['size'] as int? ?? 0;
-
-            if (!kIsWeb &&
-                defaultTargetPlatform == TargetPlatform.windows &&
-                name.endsWith('-windows-x64-setup.exe')) {
-              assetName = name;
-              assetUrl = Uri.tryParse(downloadUrl);
-              assetSize = size;
-              break;
-            } else if (!kIsWeb &&
-                defaultTargetPlatform == TargetPlatform.linux &&
-                name.endsWith('.AppImage')) {
-              assetName = name;
-              assetUrl = Uri.tryParse(downloadUrl);
-              assetSize = size;
-              break;
-            }
+          if (asset is! Map<String, dynamic>) continue;
+          final name = asset['name'] as String? ?? '';
+          final downloadUrl = Uri.tryParse(
+            asset['browser_download_url'] as String? ?? '',
+          );
+          // Only GitHub over HTTPS is ever an update source.
+          if (downloadUrl == null || !isTrustedUpdateUrl(downloadUrl)) continue;
+          if (name == _sumsName) sumsUrl = downloadUrl;
+          if (name == '$_sumsName.sig') sumsSignatureUrl = downloadUrl;
+          if (assetUrl == null && _isInstallerFor(name)) {
+            assetName = name;
+            assetUrl = downloadUrl;
+            assetSize = asset['size'] as int? ?? 0;
           }
         }
       }
@@ -110,6 +124,8 @@ class UpdateChecker {
         assetUrl: assetUrl,
         assetName: assetName,
         assetSize: assetSize,
+        sumsUrl: sumsUrl,
+        sumsSignatureUrl: sumsSignatureUrl,
       );
     } catch (e) {
       debugPrint('Update check failed: $e');
@@ -128,6 +144,27 @@ class UpdateChecker {
       if (d != 0) return d.sign;
     }
     return 0;
+  }
+
+  /// The release key's public half (base64url, 32 bytes), compiled in with
+  /// `--dart-define=SOTTO_UPDATE_PUBLIC_KEY=...`. Empty: this build installs
+  /// no updates itself; it only points to the release page.
+  static const String updatePublicKey = String.fromEnvironment(
+    'SOTTO_UPDATE_PUBLIC_KEY',
+  );
+
+  static const String _sumsName = 'SHA256SUMS.txt';
+
+  /// Whether [name] is this platform's installer in a release.
+  static bool _isInstallerFor(String name) {
+    if (kIsWeb) return false;
+    if (defaultTargetPlatform == TargetPlatform.windows) {
+      return name.endsWith('-windows-x64-setup.exe');
+    }
+    if (defaultTargetPlatform == TargetPlatform.linux) {
+      return name.endsWith('.AppImage');
+    }
+    return false;
   }
 
   static Future<String> _get(Uri url) async {
