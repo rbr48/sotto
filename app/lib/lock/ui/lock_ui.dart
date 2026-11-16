@@ -7,9 +7,12 @@ import '../app_lock.dart';
 
 /// Shown while the app is locked. Calls still ring on top of it.
 class LockScreen extends StatelessWidget {
-  const LockScreen({super.key, required this.lock});
+  const LockScreen({super.key, required this.lock, this.onErase});
 
   final AppLock lock;
+
+  /// Erases this device's data. Offered when the lock record can't be read.
+  final Future<void> Function()? onErase;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -30,17 +33,66 @@ class LockScreen extends StatelessWidget {
               style: Theme.of(context).textTheme.headlineSmall,
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Calls still ring while Sotto is locked.',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            _PinEntry(lock: lock, buttonLabel: 'Unlock', onSubmit: lock.unlock),
+            if (lock.damaged) ...[
+              const Text(
+                "Sotto's lock data can't be read, so the PIN can't be checked. "
+                'Erase this device to continue. Contacts, history and chats are '
+                'lost unless you have a backup.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.error,
+                ),
+                onPressed: onErase == null
+                    ? null
+                    : () => _confirmErase(context),
+                child: const Text('Erase this device'),
+              ),
+            ] else ...[
+              const Text(
+                'Calls still ring while Sotto is locked.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              _PinEntry(
+                lock: lock,
+                buttonLabel: 'Unlock',
+                onSubmit: lock.unlock,
+              ),
+            ],
           ],
         ),
       ),
     ),
   );
+
+  Future<void> _confirmErase(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Erase this device?'),
+        content: const Text(
+          'Everything Sotto stores on this device is deleted. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Erase'),
+          ),
+        ],
+      ),
+    );
+    if (ok ?? false) await onErase?.call();
+  }
 }
 
 /// A PIN field with an action button, wrong-PIN messages and the waiting

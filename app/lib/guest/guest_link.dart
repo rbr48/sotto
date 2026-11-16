@@ -340,6 +340,15 @@ class GuestLinkStore {
     if (link == null || !_constantTimeEquals(link.secret, secret)) {
       return KnockCheck.unknown;
     }
+    return usable(linkId);
+  }
+
+  /// Whether a guest on [linkId] can be let in now. Checked again when the
+  /// guest is admitted, since a one-time link may have been used since the
+  /// guest knocked.
+  KnockCheck usable(String linkId) {
+    final link = _links.where((l) => l.id == linkId).firstOrNull;
+    if (link == null) return KnockCheck.unknown;
     if (link.revoked) return KnockCheck.revoked;
     if (link.used) return KnockCheck.used;
     if (link.expiresAt != null && !_clock().isBefore(link.expiresAt!)) {
@@ -347,6 +356,11 @@ class GuestLinkStore {
     }
     return KnockCheck.ok;
   }
+
+  /// Whether [linkId] is a one-time link.
+  bool isOneTime(String linkId) =>
+      _links.where((l) => l.id == linkId).firstOrNull?.kind ==
+      GuestLinkKind.oneTime;
 
   /// One-time links are used up when their guest is admitted.
   Future<void> markAdmitted(String linkId) async {

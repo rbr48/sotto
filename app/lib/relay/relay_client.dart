@@ -138,7 +138,7 @@ class RelayClient implements RelayConnection {
         receivedAt == null || _clock().difference(receivedAt) > iceMaxAge;
     if (stale && _status == RelayStatus.online) {
       final refresh = _iceRefresh ??= Completer<void>();
-      _channel?.sink.add(jsonEncode({'type': 'ice'}));
+      _write(jsonEncode({'type': 'ice'}));
       try {
         await refresh.future.timeout(const Duration(seconds: 3));
       } on TimeoutException {
@@ -200,7 +200,7 @@ class RelayClient implements RelayConnection {
   void _ping(Duration timeout) {
     final channel = _channel;
     if (channel == null || _pongTimer != null) return;
-    channel.sink.add(jsonEncode({'type': 'ping'}));
+    _writeTo(channel, jsonEncode({'type': 'ping'}));
     _pongTimer = Timer(timeout, () {
       _pongTimer = null;
       if (_abandon case final abandon? when !abandon.isCompleted) {
@@ -218,7 +218,7 @@ class RelayClient implements RelayConnection {
   void send(String to, String body) {
     final json = jsonEncode({'type': 'send', 'to': to, 'body': body});
     if (_status == RelayStatus.online) {
-      _channel?.sink.add(json);
+      _write(json);
       return;
     }
     _outgoing.add((at: _clock(), json: json));
@@ -265,7 +265,7 @@ class RelayClient implements RelayConnection {
       (raw) {
         _heard();
         if (raw is! String) return;
-        if (_handle(channel, raw)) {
+        if (_handleSafely(channel, raw)) {
           if (!loggedIn) {
             loggedIn = true;
             _pingTimer = Timer.periodic(
@@ -310,25 +310,36 @@ class RelayClient implements RelayConnection {
     switch (message['type']) {
       case 'challenge':
         final nonce = b64Decode(message['nonce'] as String);
+        if (nonce.length != 32) {
+          lastError = 'bad-challenge';
+          return false;
+        }
         final dialed = hostOf(url);
-        // The relay names itself in its challenge. A name other than the one
-        // we dialed means this challenge came from another relay (forwarded
-        // to us by one that opened its own connection to this one): sign
-        // nothing, and drop the connection.
+        // The relay names itself in its challenge, and we sign only for that
+        // name. A name other than the one we dialed means the challenge came
+        // from another relay, forwarded to us by one that opened its own
+        // connection to this one: sign nothing, and drop the connection.
         final named = message['server'];
-        if (named is String && named.toLowerCase() != dialed.toLowerCase()) {
+        if (named is! String) {
+          // A relay that names nothing could be forwarding a challenge from
+          // another relay that doesn't name itself either, and the signature
+          // would work there. Sign for no relay that doesn't name itself.
+          lastError = 'relay-too-old';
+          unawaited(channel.sink.close().catchError((Object _) {}));
+          return false;
+        }
+        if (named.toLowerCase() != dialed.toLowerCase()) {
           lastError = 'wrong-server';
           debugPrint('relay: the challenge names another server, not signing');
           unawaited(channel.sink.close().catchError((Object _) {}));
           return false;
         }
-        // A relay too old to name itself: sign the host we dialed, as before.
-        final host = named is String ? named : dialed;
         final signature = _sodium.crypto.sign.detached(
-          message: Uint8List.fromList(authMessage(nonce, host)),
+          message: Uint8List.fromList(authMessage(nonce, named)),
           secretKey: _identity.signSecretKey,
         );
-        channel.sink.add(
+        _writeTo(
+          channel,
           jsonEncode({
             'type': 'auth',
             'id': _identity.id,
@@ -352,6 +363,33 @@ class RelayClient implements RelayConnection {
         lastError = message['code'] as String?;
     }
     return false;
+  }
+
+  /// Handles a frame. A frame that can't be handled (malformed, or of a
+  /// shape this client doesn't read) is ignored, so it can't end the session.
+  bool _handleSafely(WebSocketChannel channel, String raw) {
+    try {
+      return _handle(channel, raw);
+    } catch (e) {
+      lastError = 'bad-frame';
+      debugPrint('relay: ignored a frame it could not handle: $e');
+      return false;
+    }
+  }
+
+  /// Writes to the current connection. A connection that is closing can't take
+  /// the write; the session notices that and reconnects, so this never throws.
+  void _write(String json) {
+    final channel = _channel;
+    if (channel != null) _writeTo(channel, json);
+  }
+
+  void _writeTo(WebSocketChannel channel, String json) {
+    try {
+      channel.sink.add(json);
+    } catch (_) {
+      // Closing: the session ends on its own.
+    }
   }
 
   void _flushOutgoing(WebSocketChannel channel) {

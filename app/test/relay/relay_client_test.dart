@@ -22,9 +22,12 @@ class FakeRelay {
   int pings = 0;
 
   /// The name this relay answers to, sent in its challenge and signed into
-  /// each login. Null: an older relay that names nothing, so the client
-  /// signs the host it dialed.
+  /// each login. Defaults to the host the client dialed.
   String? serverName;
+
+  /// An older relay that names nothing in its challenge. Clients refuse to
+  /// sign for it.
+  bool unnamed = false;
 
   /// The current connections stop answering anything, as after a network
   /// change (new connections work).
@@ -54,7 +57,7 @@ class FakeRelay {
         jsonEncode({
           'type': 'challenge',
           'nonce': b64Encode(nonce),
-          if (serverName != null) 'server': serverName,
+          if (!unnamed) 'server': serverName ?? host,
         }),
       );
       socket.listen((raw) {
@@ -91,6 +94,13 @@ class FakeRelay {
         );
       });
     });
+  }
+
+  /// Sends [text] as it is, for malformed frames.
+  void sendRaw(String text) {
+    for (final socket in sockets) {
+      socket.add(text);
+    }
   }
 
   void deliver(String from, String body) {
@@ -181,6 +191,33 @@ void main() {
     await eventually(() => c.status == RelayStatus.online);
     expect(relay.loggedIn, [identity.id]);
   });
+
+  test('refuses a relay that does not name itself, since its challenge could be forwarded', () async {
+    relay.unnamed = true;
+    final c = newClient();
+    c.start();
+    await eventually(() => c.lastError == 'relay-too-old');
+    expect(c.status, isNot(RelayStatus.online));
+    expect(relay.loggedIn, isEmpty);
+  });
+
+  test(
+    'a malformed frame from the relay is ignored, and the session goes on',
+    () async {
+      final c = newClient();
+      final messages = <RelayMessage>[];
+      c.messages.listen(messages.add);
+      c.start();
+      await eventually(() => c.status == RelayStatus.online);
+      relay.sendRaw('not json at all');
+      relay.sendRaw(jsonEncode({'type': 'challenge', 'nonce': 42}));
+      relay.sendRaw(jsonEncode({'type': 'error', 'code': 7}));
+      relay.deliver('sender-id', 'still here');
+      await eventually(() => messages.isNotEmpty);
+      expect(messages.single.body, 'still here');
+      expect(c.status, RelayStatus.online);
+    },
+  );
 
   test('signs nothing when the challenge names another server', () async {
     // A challenge forwarded from another relay: it names that relay, so this

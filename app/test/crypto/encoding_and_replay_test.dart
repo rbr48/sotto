@@ -38,14 +38,35 @@ void main() {
       );
     });
 
-    test('evicts the oldest entries when full', () {
+    test('refuses new keys when full, and never forgets a live one', () {
       final guard = ReplayGuard(ttl: const Duration(hours: 1), maxEntries: 3);
-      for (final key in ['a', 'b', 'c', 'd']) {
-        guard.checkAndRecord(key, start);
+      for (final key in ['a', 'b', 'c']) {
+        expect(guard.checkAndRecord(key, start), isTrue);
       }
+      expect(guard.checkAndRecord('d', start), isFalse, reason: 'full');
+      // 'a' is still remembered, so a captured message can't be replayed.
+      expect(guard.checkAndRecord('a', start), isFalse);
       expect(guard.length, 3);
-      expect(guard.checkAndRecord('a', start), isTrue);
-      expect(guard.checkAndRecord('d', start), isFalse);
+      // Once they have expired there is room again.
+      expect(
+        guard.checkAndRecord('d', start.add(const Duration(hours: 1))),
+        isTrue,
+      );
+    });
+
+    test('a clock set back does not make entries expire early or late', () {
+      final guard = ReplayGuard(ttl: const Duration(minutes: 5));
+      expect(guard.checkAndRecord('k', start), isTrue);
+      // The clock reads earlier than the entry's time: it is still remembered.
+      expect(
+        guard.checkAndRecord('k', start.subtract(const Duration(minutes: 1))),
+        isFalse,
+      );
+      // Five minutes after the latest time seen, it is forgotten.
+      expect(
+        guard.checkAndRecord('k', start.add(const Duration(minutes: 5))),
+        isTrue,
+      );
     });
   });
 }

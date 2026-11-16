@@ -141,7 +141,29 @@ class GuestHost extends ChangeNotifier {
   Future<void> admit(String knockId) async {
     final guest = _take(knockId);
     if (guest == null) return;
+    // The link may have been used, revoked or expired since this guest knocked.
+    final usable = links.usable(guest.linkId);
+    if (usable != KnockCheck.ok) {
+      send(guest.guest, 'guest.declined', {
+        'knock': knockId,
+        'reason': usable.name,
+      });
+      return;
+    }
     await links.markAdmitted(guest.linkId);
+    // A one-time link is used up by this guest: anyone else who knocked on it
+    // while they waited is turned away.
+    if (links.isOneTime(guest.linkId)) {
+      final others = _waiting.where((w) => w.linkId == guest.linkId).toList();
+      for (final other in others) {
+        _waiting.remove(other);
+        send(other.guest, 'guest.declined', {
+          'knock': other.knockId,
+          'reason': KnockCheck.used.name,
+        });
+      }
+      if (others.isNotEmpty) notifyListeners();
+    }
     await onAdmit(guest);
   }
 
