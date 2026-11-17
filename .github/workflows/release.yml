@@ -420,11 +420,11 @@ jobs:
           UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
         run: |
           # The builds of a release with a UPDATE_PUBLIC_KEY install an update
-          # only from a checksum list that this key signed. Without the key, the
-          # signature file is empty and the builds don't install updates.
+          # only from a checksum list that this key signed. Without the key there
+          # is no signature file (GitHub rejects an empty release asset), and the
+          # builds don't install updates; the file list below leaves it out.
           if [ -z "$UPDATE_PUBLIC_KEY" ]; then
             echo "UPDATE_PUBLIC_KEY is not set: these builds don't install updates in the app."
-            : > SHA256SUMS.txt.sig
             exit 0
           fi
           if [ -z "$UPDATE_SIGNING_KEY" ]; then
@@ -451,6 +451,24 @@ jobs:
             fi
             echo
           } > notes.md
+      - name: List the files to release
+        id: files
+        run: |
+          {
+            echo "list<<FILES"
+            echo "dist/sotto-android.apk"
+            echo "dist/sotto-android-play.aab"
+            echo "dist/sotto-windows-x64-setup.exe"
+            echo "dist/sotto-windows-x64.zip"
+            echo "dist/sotto-linux-x86_64.AppImage"
+            echo "dist/sotto-linux-amd64.deb"
+            echo "dist/sotto-linux-x64.tar.gz"
+            echo "dist/sotto-ios.ipa"
+            echo "dist/SHA256SUMS.txt"
+            # The signature is there only for a build with the release key.
+            if [ -s dist/SHA256SUMS.txt.sig ]; then echo "dist/SHA256SUMS.txt.sig"; fi
+            echo "FILES"
+          } >> "$GITHUB_OUTPUT"
       - name: Create the GitHub Release
         uses: softprops/action-gh-release@v3
         with:
@@ -460,14 +478,4 @@ jobs:
           draft: ${{ inputs.draft || false }}
           prerelease: ${{ inputs.prerelease || false }}
           generate_release_notes: true
-          files: |
-            dist/sotto-android.apk
-            dist/sotto-android-play.aab
-            dist/sotto-windows-x64-setup.exe
-            dist/sotto-windows-x64.zip
-            dist/sotto-linux-x86_64.AppImage
-            dist/sotto-linux-amd64.deb
-            dist/sotto-linux-x64.tar.gz
-            dist/sotto-ios.ipa
-            dist/SHA256SUMS.txt
-            dist/SHA256SUMS.txt.sig
+          files: ${{ steps.files.outputs.list }}
