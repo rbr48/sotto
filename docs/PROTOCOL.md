@@ -313,11 +313,10 @@ and the ends are trimmed.
 Messages are sent only after the other side's `hello`. The offering side
 says hello first, because its data channel is open by then. The answering side
 says hello only after it has the offering side's, so that every frame is sent
-when the other side can take it: a data channel can drop what it is sent in the
-moments before the other side's channel has finished opening. A session whose
-other side has not said hello within 20 seconds ends (`no-hello`), and its
-messages are marked not sent. A message received
-again (same `id`) is acknowledged but stored once. "Delivered" means that one
+when the other side can take it: a data channel can drop what it receives
+before its own side has finished opening. A session whose other side has not
+said hello within 20 seconds ends (`no-hello`), and its messages are marked
+not sent. A message received again (same `id`) is acknowledged but stored once. "Delivered" means that one
 device of the contact has stored the message and acknowledged it (`ack` on the
 data channel, or `chat.text.ack` through the relay). It says nothing about the
 contact's other devices, and nothing about reading. A session that ends before
