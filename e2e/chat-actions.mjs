@@ -39,6 +39,17 @@ import {
 
 const browser = await launch();
 
+/** The visible text of a page: one entry per element that has any. */
+async function visibleText(page) {
+  return page
+    .evaluate(() =>
+      [...document.querySelectorAll('flt-semantics')]
+        .map((n) => n.getAttribute('aria-label') || n.textContent)
+        .filter(Boolean),
+    )
+    .catch(() => []);
+}
+
 /** Adds text at the end of the composer's text, as a user does after Edit. */
 async function appendToComposer(page, text) {
   await enableSemantics(page);
@@ -180,14 +191,17 @@ try {
   console.log(`✓ relay saw ${sends} encrypted messages; no text or names; no third-party hosts`);
   console.log('PASS');
 } catch (error) {
-  const nodes = await arun
-    .evaluate(() =>
-      [...document.querySelectorAll('flt-semantics')]
-        .map((n) => n.getAttribute('aria-label') || n.textContent)
-        .filter(Boolean),
-    )
-    .catch(() => []);
-  for (const node of nodes.slice(-25)) console.error(`arun node: ${node.slice(0, 200)}`);
+  // What each screen showed when the test stopped, so a failure says what the
+  // people saw (a forwarded message that never showed, say), not only that a
+  // wait timed out. A person whose step had not started yet has no page.
+  for (const [who, page] of [
+    ['meera', meera],
+    ['arun', arun],
+    ['ravi', ravi],
+  ]) {
+    const nodes = page ? await visibleText(page) : [];
+    for (const node of nodes.slice(-40)) console.error(`${who} node: ${node.slice(0, 200)}`);
+  }
   await dumpPages();
   throw error;
 } finally {
