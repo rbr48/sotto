@@ -433,12 +433,14 @@ write_env() {
     [[ -n $SUPPORT_EMAIL ]] || SUPPORT_EMAIL=$(saved SOTTO_SUPPORT_EMAIL)
     [[ -n $SUPPORT_LINK ]] || SUPPORT_LINK=$(saved SOTTO_SUPPORT_LINK)
   fi
-  # The TURN port range an operator set by hand is kept, so the firewall
-  # rules that open_firewall makes match it.
-  local turn_min='' turn_max=''
+  # The TURN port range and bandwidth cap an operator set by hand are kept: the
+  # firewall rules that open_firewall makes match the ports, and a reinstall
+  # doesn't reset the cap.
+  local turn_min='' turn_max='' turn_bps=''
   if [[ -f $ENV_FILE ]]; then
     turn_min=$(saved SOTTO_TURN_MIN_PORT || true)
     turn_max=$(saved SOTTO_TURN_MAX_PORT || true)
+    turn_bps=$(saved SOTTO_TURN_MAX_BPS || true)
   fi
   local content
   content="# Written by install.sh. The TURN secret is shared by the relay and coturn.
@@ -455,6 +457,10 @@ SOTTO_TURN_MIN_PORT=$turn_min"
   if [[ -n $turn_max ]]; then
     content+="
 SOTTO_TURN_MAX_PORT=$turn_max"
+  fi
+  if [[ -n $turn_bps ]]; then
+    content+="
+SOTTO_TURN_MAX_BPS=$turn_bps"
   fi
   if [[ -n $OPERATOR ]]; then
     content+="

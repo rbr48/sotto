@@ -282,6 +282,13 @@ env PATH="$WORK/bin:$PATH" WORK="$WORK" SOTTO_DOMAIN=calls.example.org SOTTO_TUR
   SOTTO_CERT_DIR="$WORK/none" SOTTO_TURN_EXTERNAL_IP=198.51.100.20 sh "$START" >/dev/null
 check 'coturn refuses relaying to its external IP' grep -qx -- '--denied-peer-ip=198.51.100.20' "$WORK/turnserver-args"
 check 'coturn refuses the documentation and 6to4 ranges' bash -c "grep -qx -- '--denied-peer-ip=192.0.2.0-192.0.2.255' '$WORK/turnserver-args' && grep -qx -- '--denied-peer-ip=203.0.113.0-203.0.113.255' '$WORK/turnserver-args' && grep -qx -- '--denied-peer-ip=192.88.99.0-192.88.99.255' '$WORK/turnserver-args'"
+env PATH="$WORK/bin:$PATH" WORK="$WORK" SOTTO_DOMAIN=calls.example.org SOTTO_TURN_SECRET=x \
+  SOTTO_CERT_DIR="$WORK/none" sh "$START" >/dev/null
+check 'coturn caps each relayed session at 12500000 bytes per second by default' grep -qx -- '--max-bps=12500000' "$WORK/turnserver-args"
+env PATH="$WORK/bin:$PATH" WORK="$WORK" SOTTO_DOMAIN=calls.example.org SOTTO_TURN_SECRET=x \
+  SOTTO_CERT_DIR="$WORK/none" SOTTO_TURN_MAX_BPS=5000000 sh "$START" >/dev/null
+check 'SOTTO_TURN_MAX_BPS sets the cap' grep -qx -- '--max-bps=5000000' "$WORK/turnserver-args"
+check 'compose passes the cap from .env to coturn' has "$HERE/../docker-compose.yml" 'SOTTO_TURN_MAX_BPS: ${SOTTO_TURN_MAX_BPS:-12500000}'
 rm -rf "$WORK"
 
 # TURN ports set in .env: the firewall opens that range, and a reinstall keeps it.
@@ -290,6 +297,13 @@ printf 'SOTTO_DOMAIN=calls.example.org\nSOTTO_TURN_SECRET=%064d\nSOTTO_TURN_MIN_
 installer install --domain calls.example.org --yes >/dev/null 2>&1 || true
 check 'opens the TURN ports set in .env' has "$WORK/log" 'ufw allow 50000:50200/udp'
 check 'keeps the TURN ports set in .env' grep -qx 'SOTTO_TURN_MIN_PORT=50000' "$WORK/infra/.env"
+rm -rf "$WORK"
+
+# A bandwidth cap set in .env survives a reinstall.
+setup
+printf 'SOTTO_DOMAIN=calls.example.org\nSOTTO_TURN_SECRET=%064d\nSOTTO_TURN_MAX_BPS=5000000\n' 0 >"$WORK/infra/.env"
+installer install --domain calls.example.org --yes >/dev/null 2>&1 || true
+check 'a reinstall keeps SOTTO_TURN_MAX_BPS' grep -qx 'SOTTO_TURN_MAX_BPS=5000000' "$WORK/infra/.env"
 rm -rf "$WORK"
 
 # Docker is installed from the internet only when asked for, never by --yes.

@@ -79,6 +79,8 @@ services:
       SOTTO_DOMAIN: ${SOTTO_DOMAIN:?set SOTTO_DOMAIN in .env}
       SOTTO_TURN_SECRET: ${SOTTO_TURN_SECRET:?set SOTTO_TURN_SECRET in .env}
       SOTTO_TURN_EXTERNAL_IP: ${SOTTO_TURN_EXTERNAL_IP:-}
+      # Bandwidth cap per relayed session and direction, in bytes per second (see start.sh).
+      SOTTO_TURN_MAX_BPS: ${SOTTO_TURN_MAX_BPS:-12500000}
     volumes:
       - ./coturn/start.sh:/sotto/start.sh:ro
       # TLS certificate obtained by Caddy, for TURN over TLS (port 5349).
