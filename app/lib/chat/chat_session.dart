@@ -268,6 +268,7 @@ class ChatSession {
     required this.transport,
     required this.store,
     required this.clock,
+    required this.offerer,
     String Function()? newId,
     this.idleTimeout = const Duration(minutes: 5),
     this.isContact,
@@ -323,6 +324,22 @@ class ChatSession {
   final ChatStore store;
   final DateTime Function() clock;
   final String Function() _newId;
+
+  /// Whether this side opened the data channel: the offering side. It says
+  /// hello first; the other side answers with its own once it has this one
+  /// (see [start]).
+  final bool offerer;
+
+  /// How long the other side may take to say hello once the channel is open.
+  /// [tick] ends a session that has waited this long, so its messages are
+  /// marked not sent instead of waiting for ever.
+  static const helloTimeout = Duration(seconds: 20);
+
+  /// Whether this side's hello has been written.
+  bool _helloSent = false;
+
+  /// When the session started, which is when its channel opened.
+  DateTime? _startedAt;
 
   /// Whether the other person is still a contact. When not, the session ends
   /// and nothing more from them is stored. Null: no check.
@@ -411,6 +428,7 @@ class ChatSession {
   /// were never delivered; they are sent once the session is ready.
   Future<void> start({List<ChatMessage> resend = const []}) async {
     _lastActivity = clock();
+    _startedAt = _lastActivity;
     for (final message in resend) {
       // A file is never sent as a text: queued files are offered once the
       // other side is ready (see [offerStoredFile]). The text sent is the one
@@ -436,6 +454,17 @@ class ChatSession {
     _binarySubscription = transport.binaryFrames.listen(
       (bytes) => _enqueue(() => _onBinaryChunk(bytes)),
     );
+    // The offering side says hello first. By the time it can, its channel is
+    // open. The answering side waits for that hello before it sends anything:
+    // a channel can drop what it receives before its own side has finished
+    // opening, and the hello shows the other side is open (see
+    // docs/PROTOCOL.md section 5.10).
+    if (offerer) _sendHello();
+  }
+
+  /// Writes this side's hello, once.
+  void _sendHello() {
+    _helloSent = true;
     _write(HelloFrame(features: _helloFeatures));
   }
 
@@ -1116,6 +1145,13 @@ class ChatSession {
       return;
     }
     final now = clock();
+    final started = _startedAt;
+    if (!_peerHello &&
+        started != null &&
+        now.difference(started) >= helloTimeout) {
+      await _end('no-hello');
+      return;
+    }
     for (final transfer in _incomingFiles.values.toList()) {
       if (now.difference(transfer.lastChunkAt) >= fileStallTimeout) {
         transfer.completionTimeout?.cancel();
@@ -1304,8 +1340,11 @@ class ChatSession {
         if (!_peerHello) return;
         _events.add(GroupInviteReceived(invite, contactId));
       case HelloFrame(:final features):
-        _peerHello = true;
         _peerFeatures = features;
+        // The answering side says hello now, before anything of its own goes
+        // out (see [start]).
+        if (!_helloSent) _sendHello();
+        _peerHello = true;
         // Everything not yet acknowledged goes out again, in order.
         _unsent
           ..clear()

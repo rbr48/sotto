@@ -41,8 +41,10 @@ A chat session is a WebRTC connection with one data channel and no media.
 3. The opener sends `sdp.offer`; the other side answers with `sdp.answer`;
    both exchange `ice.candidate` messages. These are the existing call
    messages (§5.5), with the session id as `callId`.
-4. The data channel `sotto-chat` opens. Both sides send a `hello` frame with
-   the frame version before any messages.
+4. The data channel `sotto-chat` opens. The opener sends a `hello` frame with
+   the frame version first; the other side answers with its own `hello` once it
+   has the opener's. Messages wait for the other side's `hello` (see
+   `PROTOCOL.md` §5.10).
 5. The session closes with `chat.close`, or after 5 minutes without messages
    while the chat screen is closed. The next message opens a new session.
 

@@ -1138,6 +1138,7 @@ class ChatManager {
         transport: rtc.transport,
         store: store,
         clock: clock,
+        offerer: live.offerer,
         newId: _newId,
         isContact: () => isContact(live.contact),
         maxFileBytes: maxFileBytes,

@@ -117,6 +117,7 @@ class _Side {
     this.link, {
     required this.clock,
     ChatStore? sharedStore,
+    this.idBase = 100,
   }) : secrets = MemorySecretStore() {
     // A later session on the same device keeps the same history.
     store = sharedStore ?? ChatStore(secrets);
@@ -128,6 +129,10 @@ class _Side {
   final MemorySecretStore secrets;
   late final ChatStore store;
   final DateTime Function() clock;
+
+  /// Where this side's message ids start. Two sides that write to each other
+  /// need different ones, as two devices' ids never collide.
+  final int idBase;
   late ChatSession session;
   final events = <ChatSessionEvent>[];
   int _ids = 0;
@@ -137,13 +142,15 @@ class _Side {
     bool Function()? autoAccept,
     Future<void> Function()? bufferWait,
     int maxFileBytes = maxFileSizeNative,
+    bool offerer = true,
   }) {
     session = ChatSession(
       contactId: contact,
       transport: link,
       store: store,
       clock: clock,
-      newId: () => _id(100 + (_ids++)),
+      offerer: offerer,
+      newId: () => _id(idBase + (_ids++)),
       autoAcceptFiles: autoAccept ?? () => false,
       bufferWait: bufferWait,
       maxFileBytes: maxFileBytes,
@@ -215,6 +222,99 @@ void main() {
       ChatState.delivered,
     );
     expect((await bob.store.messages('alice')).single.text, 'early');
+  });
+
+  test('an answering side says nothing until the offering side has said '
+      'hello', () async {
+    final (a, b) = _pair();
+    final bob = _Side('bob', 'alice', b, clock: clock)..start(offerer: false);
+    await _settle();
+
+    // Alice's hello has not come: Bob sends nothing, and his message waits.
+    expect(bob.session.isReady, isFalse);
+    expect(b.sentFrames, isEmpty);
+    final sent = await bob.session.sendText('early');
+    await _settle();
+    expect(b.sentFrames, isEmpty);
+    expect((await bob.store.find('alice', sent.id))!.state, ChatState.sending);
+
+    final alice = _Side('alice', 'bob', a, clock: clock)..start();
+    await _settle();
+
+    // Bob answers Alice's hello with his own, and only then sends the message.
+    expect(ChatFrames.decode(b.sentFrames[0]), isA<HelloFrame>());
+    expect(ChatFrames.decode(b.sentFrames[1]), isA<MessageFrame>());
+    expect(
+      (await bob.store.find('alice', sent.id))!.state,
+      ChatState.delivered,
+    );
+    expect((await alice.store.messages('bob')).single.text, 'early');
+  });
+
+  test('the offering side says hello first, and the answering side '
+      'answers once', () async {
+    final (a, b) = _pair();
+    final alice = _Side('alice', 'bob', a, clock: clock)..start();
+    final bob = _Side('bob', 'alice', b, clock: clock)..start(offerer: false);
+    await _settle();
+
+    expect(alice.session.isReady, isTrue);
+    expect(bob.session.isReady, isTrue);
+    expect(a.sentFrames, hasLength(1));
+    expect(ChatFrames.decode(a.sentFrames.single), isA<HelloFrame>());
+    expect(b.sentFrames, hasLength(1));
+    expect(ChatFrames.decode(b.sentFrames.single), isA<HelloFrame>());
+  });
+
+  test('a chat with an answering side delivers messages both ways', () async {
+    final (a, b) = _pair();
+    final alice = _Side('alice', 'bob', a, clock: clock)..start();
+    final bob = _Side('bob', 'alice', b, clock: clock, idBase: 200)
+      ..start(offerer: false);
+    await _settle();
+
+    final fromBob = await bob.session.sendText('from bob');
+    final fromAlice = await alice.session.sendText('from alice');
+    await _settle();
+
+    expect(
+      (await bob.store.find('alice', fromBob.id))!.state,
+      ChatState.delivered,
+    );
+    expect(
+      (await alice.store.find('bob', fromAlice.id))!.state,
+      ChatState.delivered,
+    );
+    expect(
+      (await alice.store.messages('bob')).map((m) => m.text),
+      containsAll(['from alice', 'from bob']),
+    );
+    expect(
+      (await bob.store.messages('alice')).map((m) => m.text),
+      containsAll(['from alice', 'from bob']),
+    );
+  });
+
+  test('a session whose other side never says hello ends, and its messages '
+      'are marked not sent', () async {
+    final (a, _) = _pair();
+    // Bob never starts.
+    final alice = _Side('alice', 'bob', a, clock: clock)..start();
+    await _settle();
+    final sent = await alice.session.sendText('anyone there?');
+    await _settle();
+
+    now = now.add(const Duration(seconds: 10));
+    await alice.session.tick(viewing: false);
+    expect(alice.session.isEnded, isFalse);
+
+    now = now.add(ChatSession.helloTimeout);
+    await alice.session.tick(viewing: false);
+    await _settle();
+
+    expect(alice.session.isEnded, isTrue);
+    expect(alice.ofType<SessionEnded>().single.reason, 'no-hello');
+    expect((await alice.store.find('bob', sent.id))!.state, ChatState.notSent);
   });
 
   test(
@@ -388,6 +488,7 @@ void main() {
         transport: a,
         store: aliceStore,
         clock: clock,
+        offerer: true,
       );
       final aliceEvents = <ChatSessionEvent>[];
       alice.events.listen(aliceEvents.add);
@@ -423,6 +524,7 @@ void main() {
         transport: a,
         store: aliceStore,
         clock: clock,
+        offerer: true,
         isContact: () => stillAContact,
       );
       unawaited(alice.start());

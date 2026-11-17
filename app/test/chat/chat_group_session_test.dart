@@ -121,6 +121,7 @@ class _Device {
       transport: _near,
       store: store,
       clock: () => _now,
+      offerer: true,
       groupsEnabled: groups,
       isContact: isContact,
     );
