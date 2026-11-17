@@ -104,7 +104,7 @@
   "chatFileDeclined": "تم رفض النقل",
   "chatFileCancelled": "تم إلغاء النقل",
   "chatFileFailed": "فشل النقل",
-  "chatFileTooLarge": "الملف يتجاوز الحد الأقصى للحجم (100 ميجابايت)",
+  "chatFileTooLarge": "الملف يتجاوز الحد الأقصى للحجم",
   "chatFileBlocked": "لا يمكن إرسال الملفات القابلة للتنفيذ أو البرمجية",
   "chatImageUnreadable": "تعذّرت قراءة هذه الصورة، فلم يُرسل الملف.",
   "chatImageUnsupported": "لا يمكن إرسال نوع الصورة هذا. احفظها بصيغة JPEG أو PNG ثم حاول مرة أخرى.",

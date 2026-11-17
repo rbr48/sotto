@@ -42,6 +42,10 @@ abstract interface class ChatTransport {
 /// in memory, so its limit is smaller.
 const int platformMaxFileBytes = kIsWeb ? maxFileSizeWeb : maxFileSizeNative;
 
+/// The largest native file that downloads without asking. Larger files wait to
+/// be accepted by hand, whatever the setting.
+const int autoAcceptMaxNativeBytes = 100 * 1024 * 1024;
+
 /// A file checked and made ready to offer (see [prepareOutgoingFile]).
 typedef PreparedFile = ({
   String name,
@@ -286,7 +290,9 @@ class ChatSession {
   static bool _always() => true;
 
   /// The largest file that downloads without asking.
-  static const autoAcceptMaxBytes = platformMaxFileBytes;
+  static const autoAcceptMaxBytes = kIsWeb
+      ? maxFileSizeWeb
+      : autoAcceptMaxNativeBytes;
 
   /// At most this many incoming transfers run when a file would download
   /// without asking.

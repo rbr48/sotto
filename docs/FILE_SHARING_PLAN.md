@@ -164,11 +164,12 @@ name only, never the file name.
 
 | | Native | Browser |
 |---|---|---|
-| Largest file (proposed) | 100 MB | 25 MB, held in memory for the tab |
+| Largest file | No limit: a file is held in memory while it is sent or received | 25 MB, held in memory for the tab |
 | Files at once | One per chat | One per chat |
 | Storage check | Before accepting, free space must cover the file | Not applicable |
 
-The 100 MB figure is a starting point, not a measured limit. Speed depends on
+Native apps have no size limit: a file is held in memory while it is sent or
+received, so a very large one needs that much free memory. Speed depends on
 the connection: a direct connection is limited by the networks at each end,
 and a relayed one by the TURN server. The steps below include a measurement.
 
@@ -222,8 +223,9 @@ and a relayed one by the TURN server. The steps below include a measurement.
 
 ## Decisions needed
 
-1. **Size limit:** 100 MB on desktop and Android, and 25 MB in the browser
-   (recommended). The alternative is 25 MB everywhere, which is simpler.
+1. **Size limit:** decided: no limit on Android, iOS, Windows and Linux, and
+   25 MB in the browser. Native files are held in memory; streaming them to
+   disk would remove that.
 2. **Accepting files:** ask for every file (recommended). The alternative is
    automatic for photos from contacts. **Built:** files are asked for by
    default. *Download files automatically* in Settings (off by default)

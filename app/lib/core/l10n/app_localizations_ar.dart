@@ -400,8 +400,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get chatFileFailed => 'فشل النقل';
 
   @override
-  String get chatFileTooLarge =>
-      'الملف يتجاوز الحد الأقصى للحجم (100 ميجابايت)';
+  String get chatFileTooLarge => 'الملف يتجاوز الحد الأقصى للحجم';
 
   @override
   String get chatFileBlocked =>

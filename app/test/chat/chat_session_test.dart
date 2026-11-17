@@ -733,7 +733,10 @@ void main() {
   test('an image over the size limit is offered when its metadata makes it '
       'fit', () async {
     final (a, b) = _pair();
-    final alice = _Side('alice', 'bob', a, clock: clock)..start();
+    // A small limit, so the test needs only about a megabyte of image.
+    const limit = 1024 * 1024;
+    final alice = _Side('alice', 'bob', a, clock: clock)
+      ..start(maxFileBytes: limit);
     _Side('bob', 'alice', b, clock: clock).start();
     await _settle();
 
@@ -746,13 +749,13 @@ void main() {
       ..[1] = 0xE1
       ..[2] = 0xFF
       ..[3] = 0xFF;
-    final count = maxFileSizeNative ~/ segment.length + 2;
+    final count = limit ~/ segment.length + 2;
     final photo = _join([
       [0xFF, 0xD8],
       for (var i = 0; i < count; i++) segment,
       [0xFF, 0xD9],
     ]);
-    expect(photo.length, greaterThan(maxFileSizeNative));
+    expect(photo.length, greaterThan(limit));
 
     final offer = await alice.session.offerFile(
       name: 'big.jpg',
