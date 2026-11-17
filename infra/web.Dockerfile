@@ -6,7 +6,7 @@ ARG FLUTTER_VERSION=3.47.6
 # Update it together with FLUTTER_VERSION: the build stops if they don't match.
 ARG FLUTTER_SHA256=f1631b9c2c8b3529323db412b0d1beacf4a748f8783b0d7cf599a8fd5f461675
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl git xz-utils unzip build-essential \
+ && apt-get install -y --no-install-recommends ca-certificates curl git xz-utils unzip build-essential python3-fonttools python3-brotli \
  && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL -o /tmp/flutter.tar.xz "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
  && echo "${FLUTTER_SHA256}  /tmp/flutter.tar.xz" | sha256sum -c - \
@@ -20,6 +20,10 @@ COPY app/pubspec.yaml app/pubspec.lock ./
 RUN flutter pub get
 COPY app/ ./
 RUN flutter build web --release --no-web-resources-cdn
+# Text fonts as WOFF2 (Roboto trimmed to the scripts the web build shows): a
+# smaller first download. Native apps keep their TTF files. See the script.
+COPY tools/web/compact_fonts.py tools/web/compact_fonts.py
+RUN python3 tools/web/compact_fonts.py build/web
 
 # Emoji for the web app. The engine looks for characters its fonts lack in
 # Noto Color Emoji, split into the files listed in infra/fonts/fallback.sha256,

@@ -29,8 +29,34 @@
 
   <title>Sotto</title>
   <link rel="manifest" href="manifest.json">
+  <!-- The loading screen shows at once, while the app downloads. Colors match
+       the app's light and dark surfaces (app/lib/core/theme.dart).
+       flutter_bootstrap.js removes it when the first frame is drawn. -->
+  <style>
+    :root { color-scheme: light dark; }
+    html, body { margin: 0; height: 100%; background: #f8f9fa; }
+    #loading { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 16px; padding: 24px; box-sizing: border-box;
+      background: #f8f9fa; color: #16161d; font: 500 16px/1.4 Roboto, system-ui, sans-serif; text-align: center; }
+    #loading .spinner { width: 32px; height: 32px; box-sizing: border-box; border: 3px solid #5b4b8a;
+      border-right-color: transparent; border-radius: 50%; animation: spin .9s linear infinite; }
+    #loading p { margin: 0; max-width: 32em; }
+    #loading [hidden] { display: none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { #loading .spinner { animation-duration: 3s; } }
+    @media (prefers-color-scheme: dark) {
+      html, body, #loading { background: #09090d; color: #f0eff5; }
+      #loading .spinner { border-color: #9e8cf4; border-right-color: transparent; }
+    }
+  </style>
 <script type="text/javascript" src="sodium.js" async="true"></script></head>
 <body>
+  <div id="loading" role="status">
+    <div class="spinner" aria-hidden="true"></div>
+    <p>Loading Sotto…</p>
+    <p id="loading-slow" hidden>This is taking longer than usual. Check your connection, then reload the page.</p>
+  </div>
+  <noscript><style>#loading { display: none; }</style><p>Sotto needs JavaScript to run.</p></noscript>
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader
