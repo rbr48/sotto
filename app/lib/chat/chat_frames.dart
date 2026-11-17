@@ -14,7 +14,13 @@ const int chatProtocolVersion = 1;
 const int maxFrameBytes = 16 * 1024;
 const int maxTextChars = 4000;
 const int fileChunkSize = 16 * 1024; // 16 KiB binary chunks
-const int maxFileSizeNative = 100 * 1024 * 1024; // 100 MB
+/// The largest file a native app sends or accepts: no limit in practice. A file
+/// is held in memory while it is sent or received, so a very large one needs
+/// that much free memory. 2^53 - 1 is the largest integer JavaScript holds
+/// exactly, so every platform agrees on the value.
+const int maxFileSizeNative = 9007199254740991;
+
+/// The largest file the browser sends or accepts: it holds files in memory.
 const int maxFileSizeWeb = 25 * 1024 * 1024; // 25 MB
 
 /// The longest file name a file offer may carry, before cleaning (characters).

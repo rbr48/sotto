@@ -2,3 +2,4 @@ Direct file send and receive without manual accept prompts.
 Hardened app lock (clock-rollback resistance and Argon2id in browsers), replay guard, relay buffering, and guest links.
 Unified blocked file-type checks before opening attachments, safer Android call notification handling, and signed desktop update verification.
 The web app shows a loading screen while it starts and loads smaller fonts.
+Send and receive files of any size in the apps; very large files need enough free memory.

@@ -351,7 +351,7 @@ void main() {
           _refusal(
             _offer({
               'size': maxFileSizeNative,
-              'chunks': maxFileSizeNative ~/ fileChunkSize,
+              'chunks': (maxFileSizeNative / fileChunkSize).ceil(),
             }),
           ),
           isNull,

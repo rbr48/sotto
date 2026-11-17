@@ -388,7 +388,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get chatFileFailed => 'Transfer failed';
 
   @override
-  String get chatFileTooLarge => 'File exceeds maximum size limit (100 MB)';
+  String get chatFileTooLarge => 'File exceeds maximum size limit';
 
   @override
   String get chatFileBlocked => 'Executables and script files cannot be sent';
