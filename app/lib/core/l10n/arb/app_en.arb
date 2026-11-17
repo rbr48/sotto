@@ -240,7 +240,7 @@
   "chatFileDeclined": "Transfer declined",
   "chatFileCancelled": "Transfer cancelled",
   "chatFileFailed": "Transfer failed",
-  "chatFileTooLarge": "File exceeds maximum size limit (100 MB)",
+  "chatFileTooLarge": "File exceeds maximum size limit",
   "chatFileBlocked": "Executables and script files cannot be sent",
   "chatImageUnreadable": "This image could not be read, so it was not sent.",
   "chatImageUnsupported": "This image type cannot be sent. Save it as a JPEG or PNG and try again.",

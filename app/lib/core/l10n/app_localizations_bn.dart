@@ -389,8 +389,7 @@ class AppLocalizationsBn extends AppLocalizations {
   String get chatFileFailed => 'স্থানান্তর ব্যর্থ হয়েছে';
 
   @override
-  String get chatFileTooLarge =>
-      'ফাইলের আকার সর্বোচ্চ সীমা (১০০ মেগাবাইট) অতিক্রম করেছে';
+  String get chatFileTooLarge => 'ফাইলের আকার সর্বোচ্চ সীমা অতিক্রম করেছে';
 
   @override
   String get chatFileBlocked =>
