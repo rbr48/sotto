@@ -12,6 +12,9 @@
 #   that proxy's certificate: SOTTO_TLS_CERT and SOTTO_TLS_KEY); install.sh
 #   restarts coturn after the first start and weekly (to load renewals).
 # - Logs go to stdout, which docker-compose discards (logging driver "none").
+# - Each relayed session is capped at SOTTO_TURN_MAX_BPS bytes per second, in each
+#   direction (default 12500000, about 100 Mbit/s). The server's own link is the
+#   real limit either way.
 set -eu
 
 : "${SOTTO_DOMAIN:?set SOTTO_DOMAIN}"
@@ -35,7 +38,7 @@ set -- \
   --max-port="${SOTTO_TURN_MAX_PORT:-65535}" \
   --total-quota="${SOTTO_TURN_TOTAL_QUOTA:-300}" \
   --user-quota=12 \
-  --max-bps="${SOTTO_TURN_MAX_BPS:-3000000}" \
+  --max-bps="${SOTTO_TURN_MAX_BPS:-12500000}" \
   --userdb="${SOTTO_TURN_DB:-/var/lib/coturn/turndb}" \
   --pidfile="${SOTTO_TURN_PIDFILE:-/tmp/turnserver.pid}" \
   --log-file=stdout \

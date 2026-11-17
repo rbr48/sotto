@@ -41,6 +41,8 @@ Non-interactive: `sudo ./infra/install.sh install --domain calls.yourpractice.or
 
 If you set `SOTTO_TURN_MIN_PORT` and `SOTTO_TURN_MAX_PORT` in `infra/.env` to use other UDP ports for TURN, the installer opens that range in the firewall instead of 49152–65535, and keeps the setting when you run it again.
 
+`SOTTO_TURN_MAX_BPS` in `infra/.env` caps each relayed connection (the path a relayed call or file transfer uses) at that many bytes per second, in each direction. The default is 12500000 (about 100 Mbit/s). Lower it to protect your server's bandwidth. The per-user limit of 12 connections stays as it is, and your server's own network link is the real limit either way. The installer keeps the setting when you run it again. After changing it, run `sudo ./infra/install.sh update`.
+
 Apps built from this version refuse a relay that doesn't name itself in its login challenge. Relays from before the name was added to the challenge don't, so run `install.sh update` on such a server; a current server is unaffected.
 
 ### Shared server (alongside Nginx, Apache, or existing sites)
