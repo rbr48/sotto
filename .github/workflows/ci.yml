@@ -154,10 +154,21 @@ jobs:
           kill -0 "$(cat /tmp/turn.pid)" || { cat /tmp/turn.log; exit 1; }
       - name: End-to-end call test
         working-directory: e2e
+        env:
+          # A failing test saves a screenshot of each page here (lib.mjs dumpPages).
+          SOTTO_SCREENSHOTS: ${{ github.workspace }}/e2e-screenshots
         run: |
+          mkdir -p "$SOTTO_SCREENSHOTS"
           npm ci
           npx playwright install --with-deps chromium firefox webkit
           npm test
+      - name: Upload the screenshots of a failed end-to-end test
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-screenshots
+          path: e2e-screenshots
+          if-no-files-found: ignore
 
   linux:
     name: Linux build
