@@ -1,0 +1,3 @@
+Direct file send and receive without manual accept prompts, plus persisted chat files in the browser.
+Hardened app lock (clock-rollback resistance and Argon2id in browsers), replay guard, relay buffering, and guest links.
+Unified blocked file-type checks before opening attachments, safer Android call notification handling, and signed desktop update verification.
