@@ -302,7 +302,7 @@ and the ends are trimmed.
 
 | Frame | Meaning |
 |---|---|
-| `{"t":"hello","v":1,"features":[…]}` | First frame from each side. Another version ends the session. `features` lists the optional features this side supports (below), and is left out when there are none. |
+| `{"t":"hello","v":1,"features":[…]}` | The first frame of the offering side (the side that opened the data channel). The answering side sends its own hello once it has this one, and sends nothing before. Another version ends the session. `features` lists the optional features this side supports (below), and is left out when there are none. |
 | `{"t":"msg","id","ts","text","reply"?,"fwd"?}` | A message. `id`: 16 random bytes. `ts`: sender's clock, ms (see "Clocks" below). `reply`: `{"id","text"}`, the message replied to and a copy of its text. `fwd`: `true` for a forwarded text. |
 | `{"t":"react","id","emoji","ts","group"?}` | The sender's reaction on message `id`. An empty `emoji` removes it. `group` is set for a message in a group (see "Groups"). |
 | `{"t":"edit","id","ts","text","group"?}` | New text for the sender's own message `id`, made at `ts`. `group` is set for a message in a group (see "Groups"). |
@@ -310,7 +310,13 @@ and the ends are trimmed.
 | `{"t":"ack","id","group"?}` | The message is stored on the receiving device. Sent for every copy received. `group` is set for a group message. |
 | `{"t":"bye"}` | The session is ending. |
 
-Messages are sent only after the other side's `hello`. A message received
+Messages are sent only after the other side's `hello`. The offering side
+says hello first, because its data channel is open by then. The answering side
+says hello only after it has the offering side's, so that every frame is sent
+when the other side can take it: a data channel can drop what it is sent in the
+moments before the other side's channel has finished opening. A session whose
+other side has not said hello within 20 seconds ends (`no-hello`), and its
+messages are marked not sent. A message received
 again (same `id`) is acknowledged but stored once. "Delivered" means that one
 device of the contact has stored the message and acknowledged it (`ack` on the
 data channel, or `chat.text.ack` through the relay). It says nothing about the
